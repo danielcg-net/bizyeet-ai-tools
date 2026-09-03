@@ -5,7 +5,7 @@ tokens, tenant IDs, dashboard passwords, raw HTTP, or SQL.
 
 ```toml
 [mcp_servers.bizyeet]
-url = "https://mcp.bizyeet.com/mcp"
+url = "<your-tenant-mcp-server-url>"
 ```
 
 Then complete the browser-based authorization flow:
