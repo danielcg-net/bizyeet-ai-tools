@@ -40,9 +40,11 @@ bizyeet auth logout
 
 The browser flow uses an ephemeral `127.0.0.1` callback with a fresh PKCE
 challenge and state. The device flow prints its verification URI and user code
-to stderr. Successful token values are never printed; the current fallback
-store is local, owner-only, and rejects unsafe file permissions before reading
-credentials.
+to stderr. Successful token values are never printed. Where the platform has a
+native credential service, the CLI stores credentials there; otherwise it uses
+the local owner-only fallback and rejects unsafe file permissions before reading
+credentials. A locked credential service fails closed rather than copying a
+token to the fallback file.
 
 ## Bounded read commands
 
