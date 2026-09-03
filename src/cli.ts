@@ -3,7 +3,9 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { profileName, readFallbackCredentials, readProfiles, removeFallbackCredentials } from "./profile-store.js";
+import { loginWithDevice } from "./auth-session.js";
+import type { DeviceAuthorization } from "./oauth.js";
+import { profileName, readFallbackCredentials, readProfiles, removeFallbackCredentials, saveFallbackCredentials, saveProfile } from "./profile-store.js";
 
 export type CliResult = Readonly<{ exitCode: number; message: string; stream: "stderr" | "stdout" }>;
 export type CliIo = Readonly<{ error: (message: string) => void; log: (message: string) => void }>;
@@ -12,12 +14,24 @@ type CliStorage = Readonly<{
   readCredentials: typeof readFallbackCredentials;
   readProfiles: typeof readProfiles;
   removeCredentials: typeof removeFallbackCredentials;
+  saveCredentials: typeof saveFallbackCredentials;
+  saveProfile: typeof saveProfile;
+}>;
+
+type CliRuntime = Readonly<{
+  loginDevice: (input: Readonly<{ clientId?: string; issuer: string; scope: string }>, onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
 }>;
 
 const storage: CliStorage = {
   readCredentials: readFallbackCredentials,
   readProfiles,
   removeCredentials: removeFallbackCredentials,
+  saveCredentials: saveFallbackCredentials,
+  saveProfile,
+};
+
+const runtime: CliRuntime = {
+  loginDevice: (input, onVerification) => loginWithDevice(input, { fetcher: fetch, now: Date.now, onVerification }),
 };
 
 const helpMessage = [
@@ -49,11 +63,11 @@ const profileFrom = (args: readonly string[]): string => {
   return profileName(profiles[0]);
 };
 
-const hasOnlyProfileOption = (args: readonly string[]): boolean =>
-  args.every((argument, index) => !argument.startsWith("--") || argument === "--profile" || args[index - 1] === "--profile");
+const hasOnlyOptions = (args: readonly string[], allowed: readonly string[]): boolean =>
+  args.every((argument, index) => !argument.startsWith("--") || allowed.includes(argument) || allowed.includes(args[index - 1] ?? ""));
 
 const status = async (args: readonly string[], dependencies: CliStorage): Promise<CliResult> => {
-  if (!hasOnlyProfileOption(args)) return invalidInput("auth status accepts only --profile.");
+  if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth status accepts only --profile.");
   try {
     const profile = profileFrom(args);
     const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials()]);
@@ -73,7 +87,7 @@ const status = async (args: readonly string[], dependencies: CliStorage): Promis
 };
 
 const logout = async (args: readonly string[], dependencies: CliStorage): Promise<CliResult> => {
-  if (!hasOnlyProfileOption(args)) return invalidInput("auth logout accepts only --profile.");
+  if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth logout accepts only --profile.");
   try {
     const profile = profileFrom(args);
     await dependencies.removeCredentials(profile);
@@ -83,14 +97,42 @@ const logout = async (args: readonly string[], dependencies: CliStorage): Promis
   }
 };
 
+const oneOption = (args: readonly string[], option: string, fallback?: string): string => {
+  const values = valuesFor(args, option);
+  if (values.length > 1 || values.some((value) => !value)) throw new Error(`Use ${option} once with a value.`);
+  return values[0] ?? fallback ?? "";
+};
+
+const login = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime, onVerification: (device: DeviceAuthorization) => void): Promise<CliResult> => {
+  if (!hasOnlyOptions(args, ["--device", "--issuer", "--profile", "--scope"])) return invalidInput("auth login accepts --device, --issuer, --profile, and --scope only.");
+  if (!args.includes("--device")) return invalidInput("auth login currently requires --device; browser PKCE login is not available yet.");
+  try {
+    const profileNameValue = profileFrom(args);
+    const issuer = oneOption(args, "--issuer");
+    const scope = oneOption(args, "--scope", "customers.read");
+    if (!issuer) return invalidInput("auth login requires --issuer.");
+    const profiles = await dependencies.readProfiles();
+    const existingClientId = profiles[profileNameValue]?.issuer === issuer ? profiles[profileNameValue].clientId : undefined;
+    const completed = await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification);
+    await Promise.all([
+      dependencies.saveProfile(profileNameValue, completed.profile),
+      dependencies.saveCredentials(profileNameValue, completed.credentials),
+    ]);
+    return output({ authenticated: true, expires_at: completed.credentials.expiresAt, issuer: completed.profile.issuer, profile: profileNameValue, scope: completed.credentials.scope });
+  } catch (error) {
+    return result(3, errorEnvelope("authentication_required", error instanceof Error ? error.message : "OAuth login failed."), "stderr");
+  }
+};
+
 const unsupportedCommand = (command: string): CliResult =>
   result(1, errorEnvelope("invalid_request", `Unsupported command: ${command}. Run bizyeet --help.`), "stderr");
 
 /** Resolves a CLI invocation without printing OAuth credentials or mutating user input. */
-export const run = async (args: readonly string[], dependencies: CliStorage = storage): Promise<CliResult> => {
+export const run = async (args: readonly string[], dependencies: CliStorage = storage, execution: CliRuntime = runtime, onVerification: (device: DeviceAuthorization) => void = () => undefined): Promise<CliResult> => {
   const [first, second] = args;
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) return result(0, helpMessage, "stdout");
   if (first !== "auth") return unsupportedCommand(first ?? "");
+  if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
   if (second === "status") return status(args.slice(2), dependencies);
   if (second === "logout") return logout(args.slice(2), dependencies);
   return unsupportedCommand(`auth ${second ?? ""}`.trim());
@@ -98,7 +140,9 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
 
 /** Writes the resolved CLI result only at the process boundary. */
 export const execute = async (args: readonly string[], io: CliIo): Promise<number> => {
-  const resolved = await run(args);
+  const resolved = await run(args, storage, runtime, (device) => {
+    io.error(JSON.stringify({ data: { user_code: device.userCode, verification_uri: device.verificationUriComplete ?? device.verificationUri }, meta: { contract_version: "v1" } }));
+  });
   (resolved.stream === "stdout" ? io.log : io.error)(resolved.message);
   return resolved.exitCode;
 };
