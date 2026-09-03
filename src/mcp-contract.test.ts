@@ -9,6 +9,9 @@ void test("publishes only bounded, read-only MCP tools", () => {
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.inputSchema)));
   assert.ok(mcpReadTools.every((tool) => "api_version" in tool.inputSchema.properties));
   assert.ok(mcpReadTools.every((tool) => "fields" in tool.inputSchema.properties));
+  assert.ok(mcpReadTools.every((tool) => tool.inputSchema.required.includes("api_version")));
+  assert.ok(mcpReadTools.every((tool) => tool.securitySchemes[0]?.scopes.includes("customers.read")));
+  assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.outputSchema)));
   assert.match(JSON.stringify(mcpReadTools), /"page_size"/u);
 });
 
