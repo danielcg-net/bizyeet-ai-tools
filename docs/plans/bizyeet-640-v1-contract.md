@@ -70,6 +70,36 @@ service does not allow it.
 use a listed capability without a matching current permission returns
 `authorization_denied`; it does not reveal whether another tenant has data.
 
+### Public schema and adapter map
+
+The public contract names canonical **business** boundaries, not private route,
+module, database, provider, or deployment names. BIZYEET-641 must map each
+boundary below to its private canonical service or record an extraction gap
+before enabling the capability; it may not add a parallel mutation path.
+
+| Command and MCP family | Canonical business boundary | Input → output schema family | MCP annotations |
+| --- | --- | --- | --- |
+| `customers`, `quotes`, `services` list/get | customer and catalog boundary | `ListRequest` / `GetRequest` → `ListResponse` / `ResourceResponse` | read-only, idempotent, closed-world |
+| `payments` list/get | payment history boundary | `ListRequest` / `GetRequest` → `ListResponse` / `ResourceResponse` | read-only, idempotent, closed-world |
+| `bookings` list/get | booking boundary | `ListRequest` / `GetRequest` → `ListResponse` / `ResourceResponse` | read-only, idempotent, closed-world |
+| `expenses` list/get and `reports margin` | expense and reporting boundary | `ListRequest` / `GetRequest` → `ListResponse` / `ResourceResponse` | read-only, idempotent, closed-world |
+| every `*-preview` | owning canonical mutation boundary | `PreviewRequest` → `PreviewResponse` | read-only, idempotent, closed-world |
+| every `*-execute` | same boundary used by its preview | `ExecuteRequest` → `MutationResponse` | not read-only, idempotent with key, closed-world |
+
+`ListRequest` contains only documented allowlisted filters, `fields`,
+`page_size`, and `cursor`; `GetRequest` contains an opaque resource `id` and
+optional `fields`. `PreviewRequest` contains the documented target and proposed
+change for that capability. `ExecuteRequest` contains only `preview_id`,
+`approval_receipt`, and `idempotency_key`; it cannot restate or alter the
+proposed mutation. `ListResponse` returns `data.items` and the shared cursor
+metadata, `ResourceResponse` returns one `data` resource, and `MutationResponse`
+returns the canonical resulting resource plus its opaque audit reference.
+
+All tools declare `openWorldHint: false` and `destructiveHint: false` in V1.
+Read and preview tools declare `readOnlyHint: true`; execute tools declare
+`readOnlyHint: false` and `idempotentHint: true` only because a valid
+idempotency key returns the previously stored outcome rather than repeats work.
+
 ## Approval, previews, and idempotency
 
 A preview is a server-generated, short-lived representation of one intended
@@ -150,7 +180,15 @@ than inventing tool-specific business semantics.
   currency; quantities are decimal strings. Do not use floating-point money.
 - Clients send `api_version: "v1"`. An unsupported version returns
   `invalid_request` with supported versions. Breaking changes require `v2`;
-  additions are backward compatible.
+  additions are backward compatible. A deprecated V1 field or tool advertises
+  its replacement and removal date, remains available for at least two released
+  client minor versions and 90 days, and may be removed earlier only for a
+  documented security emergency.
+- V1 creates no server-side export jobs and has no bulk-download capability.
+  The CLI writes structured JSON to stdout by default and may render a local
+  table for the same bounded response; it does not write files, stream archives,
+  or follow model-supplied file paths. Callers needing records paginate through
+  the authorized list tools within their normal rate limits.
 
 ## Codex MCP profile
 
