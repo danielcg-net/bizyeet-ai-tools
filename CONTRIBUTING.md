@@ -15,6 +15,10 @@ BizYeet YouTrack is the delivery system of record. External contributors who
 need an issue identifier should request one from a maintainer; GitHub Issues
 are disabled for this repository.
 
+The authenticated `dependabot[bot]` account is the only exception to the
+delivery-identifier rule. Its dependency update PRs remain subject to all
+security, test, and review checks.
+
 ## Pull request expectations
 
 - Keep changes small and explain the user-visible or security impact.

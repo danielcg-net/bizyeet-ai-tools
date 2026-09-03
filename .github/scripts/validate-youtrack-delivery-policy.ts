@@ -8,6 +8,9 @@ export type PullRequestCommit = Readonly<{
   parents: unknown;
 }>;
 
+/** Identifies the only automated author exempt from human delivery identifiers. */
+export const isTrustedDependabotAuthor = (login: unknown): boolean => login === "dependabot[bot]";
+
 const commitSubject = (message: unknown): string => {
   if (typeof message !== "string") {
     return "(empty message)";

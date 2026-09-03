@@ -19,13 +19,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
       - name: Install dependencies and test policy
         run: npm ci && npm run test
       - name: Validate branch, commits, and pull-request title
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const pull = context.payload.pull_request;
@@ -35,6 +35,11 @@ jobs:
             }
 
             const policy = await import(`${process.env.GITHUB_WORKSPACE}/dist/.github/scripts/validate-youtrack-delivery-policy.js`);
+            if (policy.isTrustedDependabotAuthor(pull.user?.login)) {
+              core.info("Dependabot dependency update: delivery identifier validation is not required.");
+              return;
+            }
+
             const metadata = policy.validatePullRequestMetadata({ branch: pull.head.ref, title: pull.title });
             if (metadata.errors.length > 0 || !metadata.issueId) {
               core.setFailed(metadata.errors.join("\n"));
