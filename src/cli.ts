@@ -57,6 +57,8 @@ const runtime: CliRuntime = {
 
 const helpMessage = [
   "Usage: bizyeet auth <login|status|logout> [--profile <name>]",
+  "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>]",
+  "       bizyeet customers get <opaque-id> [--profile <name>]",
   "Authentication uses OAuth with PKCE only; API keys, personal access tokens, and passwords are not accepted.",
   "All command output is structured JSON. OAuth token material is never printed.",
 ].join("\n");

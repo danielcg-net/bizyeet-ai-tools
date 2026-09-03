@@ -9,6 +9,7 @@ void test("help documents the OAuth-only command surface", async (): Promise<voi
   assert.equal(result.exitCode, 0);
   assert.equal(result.stream, "stdout");
   assert.match(result.message, /OAuth/u);
+  assert.match(result.message, /customers list/u);
   assert.doesNotMatch(result.message, /access_token|refresh_token/u);
 });
 
