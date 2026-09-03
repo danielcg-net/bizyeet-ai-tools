@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 export type CliResult = Readonly<{ exitCode: number; message: string }>;
 export type CliIo = Readonly<{ error: (message: string) => void; log: (message: string) => void }>;
 
@@ -7,7 +10,7 @@ const helpMessage = [
   "bizyeet-ai-tools is in its public development bootstrap.",
   "No tenant operation is available yet.",
   "Future authentication will use OAuth; API keys, personal access tokens, and passwords are not accepted.",
-].join("\\n");
+].join("\n");
 
 const unsupportedCommand = (command: string): CliResult => ({
   exitCode: 1,
@@ -29,6 +32,13 @@ export const execute = (args: readonly string[], io: CliIo): number => {
   return result.exitCode;
 };
 
-if (import.meta.url === `file://${process.argv[1] ?? ""}`) {
+/** Compares real paths so invocation through an npm bin symlink runs the CLI. */
+export const isCliEntrypoint = (
+  entrypointPath: string | undefined,
+  resolvePath: (path: string) => string,
+  modulePath: string,
+): boolean => entrypointPath !== undefined && resolvePath(entrypointPath) === resolvePath(modulePath);
+
+if (isCliEntrypoint(process.argv[1], realpathSync, fileURLToPath(import.meta.url))) {
   process.exit(execute(process.argv.slice(2), console));
 }
