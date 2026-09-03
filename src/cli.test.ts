@@ -13,6 +13,13 @@ void test("help documents the OAuth-only command surface", async (): Promise<voi
   assert.doesNotMatch(result.message, /access_token|refresh_token/u);
 });
 
+void test("reports the packaged version without reading credentials", async (): Promise<void> => {
+  const result = await run(["--version"]);
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.message, /"version":"0\.0\.0-development"/u);
+});
+
 void test("auth status does not reveal token values", async (): Promise<void> => {
   const result = await run(["auth", "status"], {
     readCredentials: () => Promise.resolve({ default: { accessToken: "secret-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "secret-refresh", scope: "customers.read" } }),

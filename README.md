@@ -27,6 +27,9 @@ Install from a released package, then use the approved OAuth issuer for the
 tenant origin you are accessing. Do not substitute an API key, password,
 tenant ID, or copied bearer token.
 
+Use `bizyeet --version` to report the installed package version without making
+a network request or reading stored credentials.
+
 ```sh
 # Browser Authorization Code + PKCE S256 flow.
 bizyeet auth login --issuer https://your-bizyeet-origin

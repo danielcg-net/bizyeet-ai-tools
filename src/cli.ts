@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
@@ -60,9 +61,16 @@ const helpMessage = [
   "Usage: bizyeet auth <login|status|logout> [--profile <name>]",
   "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>]",
   "       bizyeet customers get <opaque-id> [--profile <name>]",
+  "       bizyeet --version",
   "Authentication uses OAuth with PKCE only; API keys, personal access tokens, and passwords are not accepted.",
   "All command output is structured JSON. OAuth token material is never printed.",
 ].join("\n");
+
+const packageVersion = (): string => {
+  const packageMetadata: unknown = createRequire(import.meta.url)("../../package.json");
+  if (typeof packageMetadata !== "object" || packageMetadata === null || typeof (packageMetadata as Record<string, unknown>).version !== "string") throw new Error("The installed package version is invalid.");
+  return (packageMetadata as Record<string, unknown>).version as string;
+};
 
 const envelope = (data: Readonly<Record<string, unknown>>): string => JSON.stringify({
   data,
@@ -222,6 +230,7 @@ const customers = async (args: readonly string[], dependencies: CliStorage, exec
 /** Resolves a CLI invocation without printing OAuth credentials or mutating user input. */
 export const run = async (args: readonly string[], dependencies: CliStorage = storage, execution: CliRuntime = runtime, onVerification: (device: DeviceAuthorization) => void = () => undefined): Promise<CliResult> => {
   const [first, second] = args;
+  if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) return result(0, helpMessage, "stdout");
   if (first === "customers") return customers(args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
