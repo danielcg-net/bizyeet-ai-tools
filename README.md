@@ -2,15 +2,12 @@
 
 Public CLI, MCP adapter, schemas, and Codex guidance for tenant-authorized BizYeet AI agents.
 
-> This repository is a TypeScript development scaffold. It does not yet provide a usable
-> OAuth client, MCP server, or access to BizYeet tenant data.
-
 ## Security model
 
-Future clients will authenticate a human tenant user through OAuth. They will
-never use API keys, personal access tokens, shared dashboard passwords, or
-embedded client secrets. The server will derive tenant identity and intersect
-OAuth scopes with the user's current BizYeet permissions on every request.
+The CLI authenticates a human tenant user through OAuth. It never uses API
+keys, personal access tokens, shared dashboard passwords, or embedded client
+secrets. The server derives tenant identity and intersects OAuth scopes with
+the user's current BizYeet permissions on every request.
 
 This repository intentionally excludes BizYeet backend source, tenant data,
 production configuration, Terraform state, deployment credentials, and OAuth
@@ -24,9 +21,46 @@ Requires Node.js 24 or newer.
 npm run check
 ```
 
+## CLI authentication
+
+Install from a released package, then use the approved OAuth issuer for the
+tenant origin you are accessing. Do not substitute an API key, password,
+tenant ID, or copied bearer token.
+
+```sh
+# Browser Authorization Code + PKCE S256 flow.
+bizyeet auth login --issuer https://your-bizyeet-origin
+
+# Headless Device Authorization flow.
+bizyeet auth login --device --issuer https://your-bizyeet-origin
+
+bizyeet auth status
+bizyeet auth logout
+```
+
+The browser flow uses an ephemeral `127.0.0.1` callback with a fresh PKCE
+challenge and state. The device flow prints its verification URI and user code
+to stderr. Successful token values are never printed; the current fallback
+store is local, owner-only, and rejects unsafe file permissions before reading
+credentials.
+
+## Bounded read commands
+
+The V1 client intentionally exposes explicit business commands only. It has no
+raw HTTP, SQL, tenant-selection, bulk-export, or file-path command.
+
+```sh
+bizyeet customers list --limit 25 --search "acme"
+bizyeet customers get customer_opaque_id
+```
+
+List pages are capped at 100 records. Resource IDs and cursors are opaque;
+never replace them with URLs, database IDs, or tenant identifiers. All command
+results use the versioned BizYeet JSON envelope on stdout. Diagnostics and
+errors use stderr with deterministic exit codes.
+
 ## Planned surfaces
 
-- `bizyeet` CLI for bounded, structured agent workflows.
 - OAuth-protected Streamable HTTP MCP tools for Codex and compatible harnesses.
 - A Codex skill documenting safe discovery, output limits, and explicit
   approval boundaries for writes.
