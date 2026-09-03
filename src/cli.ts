@@ -6,19 +6,20 @@ import { fileURLToPath } from "node:url";
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { launchBrowser } from "./browser.js";
 import { getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, type AgentResult, type CustomerListOptions } from "./agent-client.js";
+import { credentialStore } from "./credential-store.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, revokeRefreshToken } from "./oauth.js";
-import { profileName, readFallbackCredentials, readProfiles, removeFallbackCredentials, saveFallbackCredentials, saveProfile } from "./profile-store.js";
+import { profileName, readProfiles, saveProfile } from "./profile-store.js";
 import { openLoopbackCallback } from "./loopback.js";
 
 export type CliResult = Readonly<{ exitCode: number; message: string; stream: "stderr" | "stdout" }>;
 export type CliIo = Readonly<{ error: (message: string) => void; log: (message: string) => void }>;
 
 type CliStorage = Readonly<{
-  readCredentials: typeof readFallbackCredentials;
+  readCredentials: (profile?: string) => Promise<import("./profile-store.js").CredentialCollection>;
   readProfiles: typeof readProfiles;
-  removeCredentials: typeof removeFallbackCredentials;
-  saveCredentials: typeof saveFallbackCredentials;
+  removeCredentials: (profile: string) => Promise<void>;
+  saveCredentials: (profile: string, credentials: import("./profile-store.js").StoredCredentials) => Promise<void>;
   saveProfile: typeof saveProfile;
 }>;
 
@@ -31,10 +32,10 @@ type CliRuntime = Readonly<{
 }>;
 
 const storage: CliStorage = {
-  readCredentials: readFallbackCredentials,
+  readCredentials: credentialStore.read,
   readProfiles,
-  removeCredentials: removeFallbackCredentials,
-  saveCredentials: saveFallbackCredentials,
+  removeCredentials: credentialStore.remove,
+  saveCredentials: credentialStore.save,
   saveProfile,
 };
 
@@ -93,7 +94,7 @@ const status = async (args: readonly string[], dependencies: CliStorage): Promis
   if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth status accepts only --profile.");
   try {
     const profile = profileFrom(args);
-    const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials()]);
+    const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials(profile)]);
     const configured = profiles[profile];
     const current = credentials[profile];
     if (!configured || !current) return authenticationRequired();
@@ -113,7 +114,7 @@ const logout = async (args: readonly string[], dependencies: CliStorage, executi
   if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth logout accepts only --profile.");
   try {
     const name = profileFrom(args);
-    const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials()]);
+    const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials(name)]);
     const profile = profiles[name];
     const current = credentials[name];
     const remoteRevoked = profile && current?.refreshToken
@@ -159,7 +160,7 @@ const unsupportedCommand = (command: string): CliResult =>
 
 const authenticatedProfile = async (args: readonly string[], dependencies: CliStorage): Promise<Readonly<{ credentials: import("./profile-store.js").StoredCredentials; name: string; profile: import("./profile-store.js").Profile }> | CliResult> => {
   const name = profileFrom(args);
-  const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials()]);
+  const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials(name)]);
   const profile = profiles[name];
   const current = credentials[name];
   return profile && current ? { credentials: current, name, profile } : authenticationRequired();
