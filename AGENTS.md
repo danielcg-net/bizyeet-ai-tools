@@ -12,6 +12,8 @@
 - BizYeet YouTrack is the delivery system of record. Branches use
   `bizyeet-123/concise-description`; PR titles and non-merge commits use the
   matching canonical and lowercase identifiers. Do not use GitHub Issues.
+- Only the authenticated `dependabot[bot]` account may bypass delivery
+  identifiers; it must still pass every security and test check.
 - All source and executable scripts are TypeScript. ESLint rejects `let`/`var`,
   mutable parameter/property updates, loops, classes, and `this`.
 - Run `npm run check` before opening a pull request.

@@ -35,6 +35,11 @@ jobs:
             }
 
             const policy = await import(`${process.env.GITHUB_WORKSPACE}/dist/.github/scripts/validate-youtrack-delivery-policy.js`);
+            if (policy.isTrustedDependabotAuthor(pull.user?.login)) {
+              core.info("Dependabot dependency update: delivery identifier validation is not required.");
+              return;
+            }
+
             const metadata = policy.validatePullRequestMetadata({ branch: pull.head.ref, title: pull.title });
             if (metadata.errors.length > 0 || !metadata.issueId) {
               core.setFailed(metadata.errors.join("\n"));
