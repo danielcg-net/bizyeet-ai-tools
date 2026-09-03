@@ -33,3 +33,6 @@ npm run check
 
 See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and the
 public roadmap documentation for current scope.
+
+The proposed V1 CLI/MCP authorization and safety contract is in
+[docs/plans/bizyeet-640-v1-contract.md](docs/plans/bizyeet-640-v1-contract.md).
