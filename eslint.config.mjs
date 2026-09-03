@@ -30,6 +30,8 @@ export default tseslint.config(
         { "selector": "ForStatement", "message": "Use declarative operations instead of loops." },
         { "selector": "ThisExpression", "message": "Use explicit functional dependencies instead of this." },
         { "selector": "UpdateExpression", "message": "Avoid mutation; derive a new value." },
+        { "selector": "VariableDeclaration[kind='let']", "message": "Use const bindings; derive new values instead of reassigning variables." },
+        { "selector": "VariableDeclaration[kind='var']", "message": "Use const bindings; var is not permitted." },
         { "selector": "WhileStatement", "message": "Use declarative operations instead of loops." }
       ],
       "prefer-const": "error"

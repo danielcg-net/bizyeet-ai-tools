@@ -9,6 +9,6 @@
   `pull_request_target` or self-hosted runners.
 - Preserve the CLI/MCP rule that OAuth with PKCE is the only end-user
   authentication model; do not introduce API-key or password authentication.
-- All source and executable scripts are TypeScript. ESLint rejects mutable
-  parameter/property updates, loops, classes, and `this`.
+- All source and executable scripts are TypeScript. ESLint rejects `let`/`var`,
+  mutable parameter/property updates, loops, classes, and `this`.
 - Run `npm run check` before opening a pull request.
