@@ -76,10 +76,10 @@ void test("reads a secure credential without touching an obsolete fallback file"
 
 void test("does not downgrade to a file when an available OS credential store is locked", async (): Promise<void> => {
   const stored = createCredentialStore(keychain({
-    save: () => Promise.reject(new Error("The credential store is locked.")),
+    save: () => Promise.reject(new Error("The keyring is locked.")),
   }), fallback({
     save: () => Promise.reject(new Error("Fallback must not run.")),
   }));
 
-  await assert.rejects(stored.save("default", credentials), /locked/u);
+  await assert.rejects(stored.save("default", credentials), /keyring is locked/u);
 });

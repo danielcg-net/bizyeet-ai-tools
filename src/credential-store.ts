@@ -20,7 +20,9 @@ const fallback: FallbackStore = {
 };
 
 const unavailableKeychain = (error: unknown): boolean =>
-  error instanceof Error && /backend|keyring|not supported|unavailable/u.test(error.message);
+  error instanceof Error
+  && !/denied|locked|permission/u.test(error.message)
+  && /backend|keyring|not supported|unavailable/u.test(error.message);
 
 const keychainOrFallback = async <T>(keychainOperation: () => Promise<T>, fallbackOperation: () => Promise<T>): Promise<T> => {
   try {
