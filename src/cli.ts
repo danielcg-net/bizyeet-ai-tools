@@ -87,8 +87,12 @@ const profileFrom = (args: readonly string[]): string => {
   return profileName(profiles[0]);
 };
 
-const hasOnlyOptions = (args: readonly string[], allowed: readonly string[]): boolean =>
-  args.every((argument, index) => !argument.startsWith("--") || allowed.includes(argument) || allowed.includes(args[index - 1] ?? ""));
+const hasOnlyOptions = (args: readonly string[], valueOptions: readonly string[], flagOptions: readonly string[] = []): boolean =>
+  args.every((argument, index) =>
+    valueOptions.includes(args[index - 1] ?? "")
+      ? !argument.startsWith("--")
+      : valueOptions.includes(argument) || flagOptions.includes(argument),
+  );
 
 const status = async (args: readonly string[], dependencies: CliStorage): Promise<CliResult> => {
   if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth status accepts only --profile.");
@@ -134,7 +138,7 @@ const oneOption = (args: readonly string[], option: string, fallback?: string): 
 };
 
 const login = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime, onVerification: (device: DeviceAuthorization) => void): Promise<CliResult> => {
-  if (!hasOnlyOptions(args, ["--device", "--issuer", "--profile", "--scope"])) return invalidInput("auth login accepts --device, --issuer, --profile, and --scope only.");
+  if (!hasOnlyOptions(args, ["--issuer", "--profile", "--scope"], ["--device"])) return invalidInput("auth login accepts --device, --issuer, --profile, and --scope only.");
   try {
     const profileNameValue = profileFrom(args);
     const issuer = oneOption(args, "--issuer");
@@ -193,18 +197,23 @@ const customerListOptions = (args: readonly string[]): CustomerListOptions => {
   };
 };
 
+const customerResourceId = (args: readonly string[]): string => {
+  const identifiers = args.filter((argument, index) => !argument.startsWith("--") && args[index - 1] !== "--profile");
+  const valid = args.every((argument, index) => argument === identifiers[0] || argument === "--profile" || (args[index - 1] === "--profile" && !argument.startsWith("--")));
+  if (identifiers.length !== 1 || !valid) throw new Error("customers get requires one opaque ID and optional --profile.");
+  return identifiers[0] ?? "";
+};
+
 const customers = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
   try {
+    const listOptions = command === "list" ? customerListOptions(options) : undefined;
+    const resourceId = command === "get" ? customerResourceId(options) : undefined;
+    if (command !== "list" && command !== "get") return unsupportedCommand(`customers ${command ?? ""}`.trim());
     const authenticated = await authenticatedProfile(options, dependencies);
     if ("exitCode" in authenticated) return authenticated;
-    if (command === "list") return await resourceOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: customerListOptions(options), profile: authenticated.profile }), authenticated.name, dependencies);
-    if (command === "get") {
-      const identifiers = options.filter((argument, index) => !argument.startsWith("--") && options[index - 1] !== "--profile");
-      if (identifiers.length !== 1 || !hasOnlyOptions(options, ["--profile"])) return invalidInput("customers get requires one opaque ID and optional --profile.");
-      return await resourceOutput(await execution.getCustomer({ credentials: authenticated.credentials, profile: authenticated.profile, resourceId: identifiers[0] ?? "" }), authenticated.name, dependencies);
-    }
-    return unsupportedCommand(`customers ${command ?? ""}`.trim());
+    if (listOptions) return await resourceOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: listOptions, profile: authenticated.profile }), authenticated.name, dependencies);
+    return await resourceOutput(await execution.getCustomer({ credentials: authenticated.credentials, profile: authenticated.profile, resourceId: resourceId ?? "" }), authenticated.name, dependencies);
   } catch (error) {
     return requestFailure(error);
   }

@@ -69,6 +69,20 @@ void test("other commands fail closed until explicitly implemented", async (): P
   assert.match(result.message, /Unsupported command: quotes/u);
 });
 
+void test("rejects option flags used as OAuth option values before starting a login", async (): Promise<void> => {
+  const result = await run(["auth", "login", "--issuer", "--device"]);
+
+  assert.equal(result.exitCode, 2);
+  assert.match(result.message, /invalid_request/u);
+});
+
+void test("rejects customer-list option flags used as option values before making a request", async (): Promise<void> => {
+  const result = await run(["customers", "list", "--limit", "--profile"]);
+
+  assert.equal(result.exitCode, 2);
+  assert.match(result.message, /invalid_request/u);
+});
+
 void test("device login stores its result without printing any token", async (): Promise<void> => {
   const result = await run(["auth", "login", "--device", "--issuer", "https://example.test"], {
     readCredentials: () => Promise.resolve({}),
