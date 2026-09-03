@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { launchBrowser } from "./browser.js";
+import { getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, type AgentResult, type CustomerListOptions } from "./agent-client.js";
 import type { DeviceAuthorization } from "./oauth.js";
+import { discoverOAuth } from "./oauth.js";
 import { profileName, readFallbackCredentials, readProfiles, removeFallbackCredentials, saveFallbackCredentials, saveProfile } from "./profile-store.js";
 import { openLoopbackCallback } from "./loopback.js";
 
@@ -21,6 +23,8 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
+  listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
   loginDevice: (input: Readonly<{ clientId?: string; issuer: string; scope: string }>, onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
 }>;
@@ -34,6 +38,14 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  getCustomer: async (input) => {
+    const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
+    return getAgentCustomer({ ...input, fetcher: fetch, metadata, now: Date.now });
+  },
+  listCustomers: async (input) => {
+    const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
+    return listAgentCustomers({ ...input, fetcher: fetch, metadata, now: Date.now });
+  },
   loginBrowser: (input) => loginWithBrowser(input, { fetcher: fetch, launchBrowser, now: Date.now, openCallback: openLoopbackCallback }),
   loginDevice: (input, onVerification) => loginWithDevice(input, { fetcher: fetch, now: Date.now, onVerification }),
 };
@@ -132,10 +144,63 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
 const unsupportedCommand = (command: string): CliResult =>
   result(1, errorEnvelope("invalid_request", `Unsupported command: ${command}. Run bizyeet --help.`), "stderr");
 
+const authenticatedProfile = async (args: readonly string[], dependencies: CliStorage): Promise<Readonly<{ credentials: import("./profile-store.js").StoredCredentials; name: string; profile: import("./profile-store.js").Profile }> | CliResult> => {
+  const name = profileFrom(args);
+  const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials()]);
+  const profile = profiles[name];
+  const current = credentials[name];
+  return profile && current ? { credentials: current, name, profile } : authenticationRequired();
+};
+
+const requestFailure = (error: unknown): CliResult => {
+  const message = error instanceof Error ? error.message : "The agent request failed.";
+  if (/must be|invalid|Cursor|Customer ID|Search|fields/u.test(message)) return invalidInput(message);
+  if (message.includes("session expired") || message.includes("auth login") || message.includes("OAuth refresh")) return authenticationRequired();
+  if (message.includes("authorization_denied")) return result(4, errorEnvelope("authorization_denied", "You do not have permission for this operation."), "stderr");
+  if (message.includes("not_found") || message.includes("conflict")) return result(6, errorEnvelope("not_found", "The requested resource is unavailable."), "stderr");
+  if (message.includes("rate_limited")) return result(7, errorEnvelope("rate_limited", "The service is temporarily rate limited."), "stderr");
+  return result(1, errorEnvelope("internal_error", "The agent service could not complete this request."), "stderr");
+};
+
+const resourceOutput = async (outcome: AgentResult, name: string, dependencies: CliStorage): Promise<CliResult> => {
+  await dependencies.saveCredentials(name, outcome.credentials);
+  return result(0, JSON.stringify(outcome.response), "stdout");
+};
+
+const customerListOptions = (args: readonly string[]): CustomerListOptions => {
+  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search"])) throw new Error("customers list accepts --cursor, --fields, --limit, --profile, and --search only.");
+  const rawLimit = oneOption(args, "--limit", "25");
+  const fields = oneOption(args, "--fields", "").split(",").filter(Boolean);
+  return {
+    ...(oneOption(args, "--cursor", "") ? { cursor: oneOption(args, "--cursor", "") } : {}),
+    ...(fields.length ? { fields } : {}),
+    limit: Number(rawLimit),
+    ...(oneOption(args, "--search", "") ? { search: oneOption(args, "--search", "") } : {}),
+  };
+};
+
+const customers = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const [command, ...options] = args;
+  try {
+    const authenticated = await authenticatedProfile(options, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (command === "list") return await resourceOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: customerListOptions(options), profile: authenticated.profile }), authenticated.name, dependencies);
+    if (command === "get") {
+      const identifiers = options.filter((argument, index) => !argument.startsWith("--") && options[index - 1] !== "--profile");
+      if (identifiers.length !== 1 || !hasOnlyOptions(options, ["--profile"])) return invalidInput("customers get requires one opaque ID and optional --profile.");
+      return await resourceOutput(await execution.getCustomer({ credentials: authenticated.credentials, profile: authenticated.profile, resourceId: identifiers[0] ?? "" }), authenticated.name, dependencies);
+    }
+    return unsupportedCommand(`customers ${command ?? ""}`.trim());
+  } catch (error) {
+    return requestFailure(error);
+  }
+};
+
 /** Resolves a CLI invocation without printing OAuth credentials or mutating user input. */
 export const run = async (args: readonly string[], dependencies: CliStorage = storage, execution: CliRuntime = runtime, onVerification: (device: DeviceAuthorization) => void = () => undefined): Promise<CliResult> => {
   const [first, second] = args;
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) return result(0, helpMessage, "stdout");
+  if (first === "customers") return customers(args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
   if (second === "status") return status(args.slice(2), dependencies);
