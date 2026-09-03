@@ -60,6 +60,7 @@ void test("device login stores its result without printing any token", async ():
       return Promise.resolve();
     },
   }, {
+    loginBrowser: () => Promise.reject(new Error("Browser login should not run.")),
     loginDevice: (_input, onVerification) => {
       onVerification({ deviceCode: "device-secret", expiresIn: 900, interval: 5, userCode: "ABCD-EFGH", verificationUri: "https://example.test/verify" });
       return Promise.resolve({

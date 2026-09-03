@@ -3,9 +3,11 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { loginWithDevice } from "./auth-session.js";
+import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
+import { launchBrowser } from "./browser.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { profileName, readFallbackCredentials, readProfiles, removeFallbackCredentials, saveFallbackCredentials, saveProfile } from "./profile-store.js";
+import { openLoopbackCallback } from "./loopback.js";
 
 export type CliResult = Readonly<{ exitCode: number; message: string; stream: "stderr" | "stdout" }>;
 export type CliIo = Readonly<{ error: (message: string) => void; log: (message: string) => void }>;
@@ -19,6 +21,7 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
   loginDevice: (input: Readonly<{ clientId?: string; issuer: string; scope: string }>, onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
 }>;
 
@@ -31,6 +34,7 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  loginBrowser: (input) => loginWithBrowser(input, { fetcher: fetch, launchBrowser, now: Date.now, openCallback: openLoopbackCallback }),
   loginDevice: (input, onVerification) => loginWithDevice(input, { fetcher: fetch, now: Date.now, onVerification }),
 };
 
@@ -105,7 +109,6 @@ const oneOption = (args: readonly string[], option: string, fallback?: string): 
 
 const login = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime, onVerification: (device: DeviceAuthorization) => void): Promise<CliResult> => {
   if (!hasOnlyOptions(args, ["--device", "--issuer", "--profile", "--scope"])) return invalidInput("auth login accepts --device, --issuer, --profile, and --scope only.");
-  if (!args.includes("--device")) return invalidInput("auth login currently requires --device; browser PKCE login is not available yet.");
   try {
     const profileNameValue = profileFrom(args);
     const issuer = oneOption(args, "--issuer");
@@ -113,7 +116,9 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
     if (!issuer) return invalidInput("auth login requires --issuer.");
     const profiles = await dependencies.readProfiles();
     const existingClientId = profiles[profileNameValue]?.issuer === issuer ? profiles[profileNameValue].clientId : undefined;
-    const completed = await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification);
+    const completed = args.includes("--device")
+      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification)
+      : await execution.loginBrowser({ issuer, scope });
     await Promise.all([
       dependencies.saveProfile(profileNameValue, completed.profile),
       dependencies.saveCredentials(profileNameValue, completed.credentials),

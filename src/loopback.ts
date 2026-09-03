@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 
 export type LoopbackCallback = Readonly<{
   awaitCode: () => Promise<string>;
+  close: () => Promise<void>;
   redirectUri: string;
 }>;
 
@@ -55,6 +56,7 @@ export const openLoopbackCallback = async (state: string): Promise<LoopbackCallb
         await closeServer(result.server);
       }
     },
+    close: (): Promise<void> => closeServer(result.server),
     redirectUri: `http://127.0.0.1:${String(address.port)}/callback`,
   };
 };
