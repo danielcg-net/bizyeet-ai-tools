@@ -1,0 +1,7 @@
+project_name: bizyeet-ai-tools
+language: typescript
+source_roots:
+  - src
+  - scripts
+memory_directory: .serena/memories
+public_repository: true
