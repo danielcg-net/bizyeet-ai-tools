@@ -39,6 +39,28 @@ void test("auth logout only clears local credentials for the selected profile", 
   assert.equal(result.exitCode, 0);
 });
 
+void test("auth logout attempts refresh-token revocation before clearing the local credential", async (): Promise<void> => {
+  const result = await run(["auth", "logout"], {
+    readCredentials: () => Promise.resolve({ default: { accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" } }),
+    readProfiles: () => Promise.resolve({ default: { clientId: "public-client", issuer: "https://example.test" } }),
+    removeCredentials: (profile) => profile === "default" ? Promise.resolve() : Promise.reject(new Error("Wrong profile.")),
+    saveCredentials: () => Promise.resolve(),
+    saveProfile: () => Promise.resolve(),
+  }, {
+    getCustomer: () => Promise.reject(new Error("Customer command should not run.")),
+    listCustomers: () => Promise.reject(new Error("Customer command should not run.")),
+    loginBrowser: () => Promise.reject(new Error("Browser login should not run.")),
+    loginDevice: () => Promise.reject(new Error("Device login should not run.")),
+    revoke: (input) => input.credentials.refreshToken === "refresh-secret" && input.profile.clientId === "public-client"
+      ? Promise.resolve()
+      : Promise.reject(new Error("Wrong revocation input.")),
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.message, /"revocation":"confirmed"/u);
+  assert.doesNotMatch(result.message, /refresh-secret/u);
+});
+
 void test("other commands fail closed until explicitly implemented", async (): Promise<void> => {
   const result = await run(["quotes", "list"]);
 
@@ -70,6 +92,7 @@ void test("device login stores its result without printing any token", async ():
         profile: { clientId: "public-client", issuer: "https://example.test" },
       });
     },
+    revoke: () => Promise.reject(new Error("Logout should not run.")),
   });
 
   assert.equal(result.exitCode, 0);
@@ -94,6 +117,7 @@ void test("customer list preserves the agent response envelope and stores a rota
     },
     loginBrowser: () => Promise.reject(new Error("Browser login should not run.")),
     loginDevice: () => Promise.reject(new Error("Device login should not run.")),
+    revoke: () => Promise.reject(new Error("Logout should not run.")),
   });
 
   assert.equal(result.exitCode, 0);

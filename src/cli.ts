@@ -7,7 +7,7 @@ import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { launchBrowser } from "./browser.js";
 import { getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, type AgentResult, type CustomerListOptions } from "./agent-client.js";
 import type { DeviceAuthorization } from "./oauth.js";
-import { discoverOAuth } from "./oauth.js";
+import { discoverOAuth, revokeRefreshToken } from "./oauth.js";
 import { profileName, readFallbackCredentials, readProfiles, removeFallbackCredentials, saveFallbackCredentials, saveProfile } from "./profile-store.js";
 import { openLoopbackCallback } from "./loopback.js";
 
@@ -27,6 +27,7 @@ type CliRuntime = Readonly<{
   listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
   loginDevice: (input: Readonly<{ clientId?: string; issuer: string; scope: string }>, onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
+  revoke: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; profile: import("./profile-store.js").Profile }>) => Promise<void>;
 }>;
 
 const storage: CliStorage = {
@@ -48,6 +49,10 @@ const runtime: CliRuntime = {
   },
   loginBrowser: (input) => loginWithBrowser(input, { fetcher: fetch, launchBrowser, now: Date.now, openCallback: openLoopbackCallback }),
   loginDevice: (input, onVerification) => loginWithDevice(input, { fetcher: fetch, now: Date.now, onVerification }),
+  revoke: async (input) => {
+    const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
+    await revokeRefreshToken({ clientId: input.profile.clientId, fetcher: fetch, metadata, refreshToken: input.credentials.refreshToken });
+  },
 };
 
 const helpMessage = [
@@ -102,12 +107,18 @@ const status = async (args: readonly string[], dependencies: CliStorage): Promis
   }
 };
 
-const logout = async (args: readonly string[], dependencies: CliStorage): Promise<CliResult> => {
+const logout = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth logout accepts only --profile.");
   try {
-    const profile = profileFrom(args);
-    await dependencies.removeCredentials(profile);
-    return output({ logged_out: true, profile });
+    const name = profileFrom(args);
+    const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials()]);
+    const profile = profiles[name];
+    const current = credentials[name];
+    const remoteRevoked = profile && current?.refreshToken
+      ? await execution.revoke({ credentials: current, profile }).then(() => true).catch(() => false)
+      : false;
+    await dependencies.removeCredentials(name);
+    return output({ logged_out: true, profile: name, revocation: remoteRevoked ? "confirmed" : "local_only" });
   } catch (error) {
     return invalidInput(error instanceof Error ? error.message : "Invalid logout request.");
   }
@@ -204,7 +215,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
   if (second === "status") return status(args.slice(2), dependencies);
-  if (second === "logout") return logout(args.slice(2), dependencies);
+  if (second === "logout") return logout(args.slice(2), dependencies, execution);
   return unsupportedCommand(`auth ${second ?? ""}`.trim());
 };
 

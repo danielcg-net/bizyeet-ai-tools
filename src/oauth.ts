@@ -211,6 +211,22 @@ export const refreshAccessToken = async (input: Readonly<{
   return tokens;
 };
 
+/** Requests server-side revocation for a client-owned refresh-token family without exposing its value to output. */
+export const revokeRefreshToken = async (input: Readonly<{
+  clientId: string;
+  fetcher: FetchLike;
+  metadata: OAuthMetadata;
+  refreshToken: string;
+}>): Promise<void> => {
+  if (!input.metadata.revocation_endpoint) throw new Error("The authorization server does not advertise token revocation.");
+  const response = await input.fetcher(input.metadata.revocation_endpoint, formRequest({
+    client_id: input.clientId,
+    token: input.refreshToken,
+    token_type_hint: "refresh_token",
+  }));
+  if (!response.ok) throw new Error("OAuth token revocation could not be confirmed.");
+};
+
 /** Starts a device authorization that remains bound to the requested OAuth resource. */
 export const requestDeviceAuthorization = async (input: Readonly<{
   clientId: string;

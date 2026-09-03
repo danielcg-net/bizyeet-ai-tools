@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { authorizationUrl, createPkce, discoverOAuth, exchangeDeviceCode, issuerOrigin, registerPublicClient, requestDeviceAuthorization } from "./oauth.js";
+import { authorizationUrl, createPkce, discoverOAuth, exchangeDeviceCode, issuerOrigin, registerPublicClient, requestDeviceAuthorization, revokeRefreshToken } from "./oauth.js";
 
 const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
@@ -109,4 +109,20 @@ void test("registers only a secretless public client with an exact loopback call
     metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
     redirectUri: "https://example.test/callback",
   }));
+});
+
+void test("sends refresh-token revocation only to the advertised OAuth endpoint", async (): Promise<void> => {
+  await revokeRefreshToken({
+    clientId: "public-client",
+    fetcher: (url, request): Promise<Response> => {
+      assert.equal(url, "https://example.test/revoke");
+      const body = request?.body;
+      assert.ok(body instanceof URLSearchParams);
+      assert.equal(body.get("token"), "refresh-secret");
+      assert.equal(body.get("token_type_hint"), "refresh_token");
+      return Promise.resolve(new Response(null, { status: 200 }));
+    },
+    metadata: { authorization_endpoint: "https://example.test/authorize", revocation_endpoint: "https://example.test/revoke", token_endpoint: "https://example.test/token" },
+    refreshToken: "refresh-secret",
+  });
 });
