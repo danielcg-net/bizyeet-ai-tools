@@ -38,6 +38,8 @@ type DeviceAuthorizationResponse = Readonly<{
 export type PkcePair = Readonly<{ challenge: string; verifier: string }>;
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+export type RegisteredPublicClient = Readonly<{ clientId: string }>;
+
 const oauthMetadataPath = "/.well-known/oauth-authorization-server";
 const requiredMetadataKeys = ["authorization_endpoint", "token_endpoint"] as const;
 
@@ -55,6 +57,25 @@ const isAbsoluteHttpsUrl = (value: unknown, issuer: URL): value is string => {
 
 const isStringArray = (value: unknown): value is readonly string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
+
+const isLoopbackRedirect = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:"
+      && (url.hostname === "127.0.0.1" || url.hostname === "[::1]")
+      && !url.username
+      && !url.password
+      && !url.search
+      && !url.hash;
+  } catch {
+    return false;
+  }
+};
+
+const isRegisteredPublicClient = (value: unknown): value is Readonly<{ client_id: string; token_endpoint_auth_method?: string }> =>
+  typeof value === "object" && value !== null
+  && typeof (value as Record<string, unknown>).client_id === "string"
+  && ((value as Record<string, unknown>).token_endpoint_auth_method === undefined || (value as Record<string, unknown>).token_endpoint_auth_method === "none");
 
 const isOAuthMetadata = (value: unknown, issuer: URL): value is OAuthMetadata => {
   if (typeof value !== "object" || value === null) return false;
@@ -265,4 +286,22 @@ export const exchangeDeviceCode = async (input: Readonly<{
     metadata: input.metadata,
     resource: input.resource,
   });
+};
+
+/** Registers a public native client with no secret and a strictly local callback URI. */
+export const registerPublicClient = async (input: Readonly<{
+  fetcher: FetchLike;
+  metadata: OAuthMetadata;
+  redirectUri: string;
+}>): Promise<RegisteredPublicClient> => {
+  if (!input.metadata.registration_endpoint) throw new Error("The authorization server does not support public-client registration.");
+  if (!isLoopbackRedirect(input.redirectUri)) throw new Error("Public OAuth clients require an exact loopback redirect URI.");
+  const response = await input.fetcher(input.metadata.registration_endpoint, {
+    body: JSON.stringify({ redirect_uris: [input.redirectUri], token_endpoint_auth_method: "none" }),
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    method: "POST",
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok || !isRegisteredPublicClient(body)) throw new Error("Public OAuth client registration failed.");
+  return { clientId: body.client_id };
 };

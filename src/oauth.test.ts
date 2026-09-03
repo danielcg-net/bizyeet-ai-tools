@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { authorizationUrl, createPkce, discoverOAuth, exchangeDeviceCode, issuerOrigin, requestDeviceAuthorization } from "./oauth.js";
+import { authorizationUrl, createPkce, discoverOAuth, exchangeDeviceCode, issuerOrigin, registerPublicClient, requestDeviceAuthorization } from "./oauth.js";
 
 const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
@@ -86,4 +86,27 @@ void test("honors slow_down before retrying a device token exchange", async (): 
   });
 
   assert.equal(tokens.token_type, "Bearer");
+});
+
+void test("registers only a secretless public client with an exact loopback callback", async (): Promise<void> => {
+  const registered = await registerPublicClient({
+    fetcher: (_url, request): Promise<Response> => {
+      const body = request?.body;
+      if (typeof body !== "string") throw new Error("Expected JSON registration body.");
+      assert.deepEqual(JSON.parse(body), {
+        redirect_uris: ["http://127.0.0.1:43123/callback"],
+        token_endpoint_auth_method: "none",
+      });
+      return jsonResponse({ client_id: "registered-client", token_endpoint_auth_method: "none" });
+    },
+    metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
+    redirectUri: "http://127.0.0.1:43123/callback",
+  });
+
+  assert.equal(registered.clientId, "registered-client");
+  await assert.rejects(registerPublicClient({
+    fetcher: () => Promise.reject(new Error("Network should not run.")),
+    metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
+    redirectUri: "https://example.test/callback",
+  }));
 });
