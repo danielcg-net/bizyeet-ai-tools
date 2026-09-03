@@ -27,7 +27,7 @@ const parseCredentials = (value: string): StoredCredentials => {
 export const nativeKeychain: Keychain = {
   read: async (profile) => {
     const stored = await new AsyncEntry(service, profile).getPassword();
-    return stored === undefined ? undefined : parseCredentials(stored);
+    return typeof stored !== "string" || stored === "" ? undefined : parseCredentials(stored);
   },
   remove: async (profile) => {
     await new AsyncEntry(service, profile).deleteCredential();
