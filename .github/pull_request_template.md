@@ -2,15 +2,13 @@
 
 <!-- What changed and why? -->
 
-## Public issue
+## YouTrack delivery
 
-Closes #
+<!-- Canonical identifier, e.g. BIZYEET-123. Do not add private tracker URLs. -->
 
 ## Verification
 
-- [ ] `npm test`
-- [ ] `npm run lint`
-- [ ] `npm run check:workflows`
+- [ ] `npm run check`
 
 ## Security and privacy
 

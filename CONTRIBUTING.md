@@ -4,14 +4,16 @@ Thanks for helping improve BizYeet AI Tools.
 
 ## Before opening a pull request
 
-1. Open or reference a GitHub issue describing the proposed public change.
-2. Fork the repository and use a focused branch such as `issue-123-short-title`.
+1. Obtain a BizYeet YouTrack issue from a maintainer for the proposed change.
+2. Use a branch such as `bizyeet-123/short-title`; the pull-request title must
+   begin `BIZYEET-123: ` and every non-merge commit must begin `bizyeet-123: `.
 3. Run `npm run check`.
 4. Do not include tenant data, credentials, copied production configuration, or
    code from BizYeet private repositories.
 
-Maintainers triage accepted public work into BizYeet's private delivery system
-before merge. External contributors do not need access to that system.
+BizYeet YouTrack is the delivery system of record. External contributors who
+need an issue identifier should request one from a maintainer; GitHub Issues
+are disabled for this repository.
 
 ## Pull request expectations
 

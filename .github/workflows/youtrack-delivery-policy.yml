@@ -1,0 +1,51 @@
+name: YouTrack delivery policy
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate YouTrack delivery
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout policy validator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+      - name: Install dependencies and test policy
+        run: npm ci && npm run test
+      - name: Validate branch, commits, and pull-request title
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const pull = context.payload.pull_request;
+            if (!pull) {
+              core.setFailed("No pull request payload found.");
+              return;
+            }
+
+            const policy = await import(`${process.env.GITHUB_WORKSPACE}/dist/.github/scripts/validate-youtrack-delivery-policy.js`);
+            const metadata = policy.validatePullRequestMetadata({ branch: pull.head.ref, title: pull.title });
+            if (metadata.errors.length > 0 || !metadata.issueId) {
+              core.setFailed(metadata.errors.join("\n"));
+              return;
+            }
+
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pull.number,
+              per_page: 100,
+            });
+            const errors = policy.validateCommitMessages(metadata.issueId, commits);
+            if (errors.length > 0) core.setFailed(errors.join("\n"));

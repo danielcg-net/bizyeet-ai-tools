@@ -9,6 +9,7 @@ const workflowExtension = /\.ya?ml$/u;
 const commitSha = /^[a-f0-9]{40}$/u;
 const permittedPermissions: Readonly<Record<string, readonly string[]>> = {
   contents: ["read"],
+  "pull-requests": ["read"],
   "security-events": ["write"],
 };
 

@@ -32,4 +32,4 @@ npm run check
   approval boundaries for writes.
 
 See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and the
-repository's GitHub issues for the current roadmap.
+public roadmap documentation for current scope.
