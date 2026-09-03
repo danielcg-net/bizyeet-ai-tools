@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { authorizationUrl, createPkce, discoverOAuth, issuerOrigin } from "./oauth.js";
+import { authorizationUrl, createPkce, discoverOAuth, exchangeDeviceCode, issuerOrigin, requestDeviceAuthorization } from "./oauth.js";
 
 const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
@@ -52,4 +52,38 @@ void test("binds authorization requests to state, resource, and PKCE S256", (): 
   assert.equal(target.searchParams.get("code_challenge_method"), "S256");
   assert.equal(target.searchParams.get("resource"), issuer.origin);
   assert.equal(target.searchParams.get("state"), "state-value");
+});
+
+void test("binds device authorization to the OAuth resource", async (): Promise<void> => {
+  const device = await requestDeviceAuthorization({
+    clientId: "public-client",
+    fetcher: (_url, request): Promise<Response> => {
+      const body = request?.body;
+      assert.ok(body instanceof URLSearchParams);
+      assert.equal(body.get("resource"), issuer.origin);
+      return jsonResponse({ device_code: "device-code", expires_in: 900, interval: 5, user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" });
+    },
+    metadata: { authorization_endpoint: "https://example.test/authorize", device_authorization_endpoint: "https://example.test/device", token_endpoint: "https://example.test/token" },
+    resource: issuer,
+    scope: "customers.read",
+  });
+
+  assert.equal(device.userCode, "ABCD-EFGH");
+});
+
+void test("honors slow_down before retrying a device token exchange", async (): Promise<void> => {
+  const responseStream = (function* (): Generator<Promise<Response>, undefined, undefined> {
+    yield jsonResponse({ error: "slow_down" });
+    yield jsonResponse({ access_token: "access", expires_in: 300, refresh_token: "refresh", token_type: "Bearer" });
+  })();
+  const tokens = await exchangeDeviceCode({
+    clientId: "public-client",
+    dependencies: { now: () => 1000, sleep: (milliseconds) => milliseconds === 10000 ? Promise.resolve() : Promise.reject(new Error("Wrong polling interval.")) },
+    device: { deviceCode: "device-code", expiresIn: 900, interval: 5, userCode: "ABCD-EFGH", verificationUri: "https://example.test/verify" },
+    fetcher: () => responseStream.next().value ?? Promise.reject(new Error("Unexpected extra poll.")),
+    metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" },
+    resource: issuer,
+  });
+
+  assert.equal(tokens.token_type, "Bearer");
 });

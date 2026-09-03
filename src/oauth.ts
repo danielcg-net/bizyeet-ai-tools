@@ -17,6 +17,24 @@ export type OAuthTokenSet = Readonly<{
   token_type: "Bearer";
 }>;
 
+export type DeviceAuthorization = Readonly<{
+  deviceCode: string;
+  expiresIn: number;
+  interval: number;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+}>;
+
+type DeviceAuthorizationResponse = Readonly<{
+  device_code: string;
+  expires_in: number;
+  interval: number;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete?: string;
+}>;
+
 export type PkcePair = Readonly<{ challenge: string; verifier: string }>;
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -58,6 +76,21 @@ const isTokenSet = (value: unknown): value is OAuthTokenSet => {
     && candidate.token_type === "Bearer"
     && (candidate.refresh_token === undefined || typeof candidate.refresh_token === "string")
     && (candidate.scope === undefined || typeof candidate.scope === "string");
+};
+
+const isDeviceAuthorization = (value: unknown): value is DeviceAuthorizationResponse => {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.device_code === "string"
+    && typeof candidate.user_code === "string"
+    && typeof candidate.verification_uri === "string"
+    && typeof candidate.expires_in === "number"
+    && Number.isFinite(candidate.expires_in)
+    && candidate.expires_in > 0
+    && typeof candidate.interval === "number"
+    && Number.isFinite(candidate.interval)
+    && candidate.interval > 0
+    && (candidate.verification_uri_complete === undefined || typeof candidate.verification_uri_complete === "string");
 };
 
 /** Validates a user-supplied authorization-server origin without retaining path or credentials. */
@@ -155,4 +188,81 @@ export const refreshAccessToken = async (input: Readonly<{
   const tokens: unknown = await response.json().catch(() => null);
   if (!response.ok || !isTokenSet(tokens)) throw new Error("OAuth refresh failed; run auth login again.");
   return tokens;
+};
+
+/** Starts a device authorization that remains bound to the requested OAuth resource. */
+export const requestDeviceAuthorization = async (input: Readonly<{
+  clientId: string;
+  fetcher: FetchLike;
+  metadata: OAuthMetadata;
+  resource: URL;
+  scope: string;
+}>): Promise<DeviceAuthorization> => {
+  if (!input.metadata.device_authorization_endpoint) throw new Error("The authorization server does not support device authorization.");
+  const response = await input.fetcher(input.metadata.device_authorization_endpoint, formRequest({
+    client_id: input.clientId,
+    resource: input.resource.origin,
+    scope: input.scope,
+  }));
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok || !isDeviceAuthorization(body)) throw new Error("OAuth device authorization could not be started.");
+  return {
+    deviceCode: body.device_code,
+    expiresIn: body.expires_in,
+    interval: body.interval,
+    userCode: body.user_code,
+    verificationUri: body.verification_uri,
+    ...(body.verification_uri_complete ? { verificationUriComplete: body.verification_uri_complete } : {}),
+  };
+};
+
+type DevicePollingDependencies = Readonly<{ now: () => number; sleep: (milliseconds: number) => Promise<void> }>;
+const defaultPollingDependencies: DevicePollingDependencies = { now: Date.now, sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)) };
+
+const pollDeviceToken = async (input: Readonly<{
+  clientId: string;
+  deviceCode: string;
+  fetcher: FetchLike;
+  metadata: OAuthMetadata;
+  resource: URL;
+  deadline: number;
+  intervalMilliseconds: number;
+  dependencies: DevicePollingDependencies;
+}>): Promise<OAuthTokenSet> => {
+  if (input.dependencies.now() >= input.deadline) throw new Error("OAuth device authorization expired; run auth login again.");
+  const response = await input.fetcher(input.metadata.token_endpoint, formRequest({
+    client_id: input.clientId,
+    device_code: input.deviceCode,
+    grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    resource: input.resource.origin,
+  }));
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok && isTokenSet(body)) return body;
+  const error = typeof body === "object" && body !== null ? (body as Record<string, unknown>).error : undefined;
+  if (error !== "authorization_pending" && error !== "slow_down") throw new Error("OAuth device authorization was denied or is no longer valid.");
+  const nextInterval = error === "slow_down" ? input.intervalMilliseconds + 5000 : input.intervalMilliseconds;
+  await input.dependencies.sleep(nextInterval);
+  return pollDeviceToken({ ...input, intervalMilliseconds: nextInterval });
+};
+
+/** Polls a device authorization no faster than its server-directed interval and never exposes tokens to status output. */
+export const exchangeDeviceCode = async (input: Readonly<{
+  clientId: string;
+  device: DeviceAuthorization;
+  fetcher: FetchLike;
+  metadata: OAuthMetadata;
+  resource: URL;
+  dependencies?: DevicePollingDependencies;
+}>): Promise<OAuthTokenSet> => {
+  const dependencies = input.dependencies ?? defaultPollingDependencies;
+  return pollDeviceToken({
+    clientId: input.clientId,
+    deadline: dependencies.now() + input.device.expiresIn * 1000,
+    dependencies,
+    deviceCode: input.device.deviceCode,
+    fetcher: input.fetcher,
+    intervalMilliseconds: input.device.interval * 1000,
+    metadata: input.metadata,
+    resource: input.resource,
+  });
 };
