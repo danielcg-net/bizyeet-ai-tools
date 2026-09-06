@@ -21,7 +21,7 @@ const callbackResponse = (status: number, body: string): Readonly<{ body: string
 });
 
 /** Opens one IPv4 loopback callback listener and resolves only a matching OAuth authorization response. */
-export const openLoopbackCallback = async (state: string): Promise<LoopbackCallback> => {
+export const openLoopbackCallback = async (state: string, issuer: string): Promise<LoopbackCallback> => {
   const result = await new Promise<Readonly<{ code: Promise<string>; server: Server }>>((resolve, reject) => {
     const code = new Promise<string>((resolveCode, rejectCode) => {
       const server = createServer((request, response) => {
@@ -29,12 +29,18 @@ export const openLoopbackCallback = async (state: string): Promise<LoopbackCallb
         const authorizationCode = url.searchParams.get("code");
         const callbackState = url.searchParams.get("state");
         const error = url.searchParams.get("error");
-        const outcome = error || !authorizationCode || callbackState !== state
+        const matches = request.method === "GET" && url.pathname === "/callback"
+          && url.searchParams.getAll("state").length === 1 && callbackState === state
+          && url.searchParams.getAll("iss").length === 1 && url.searchParams.get("iss") === issuer
+          && url.searchParams.getAll("code").length <= 1 && url.searchParams.getAll("error").length <= 1
+          && !(authorizationCode && error);
+        const outcome = !matches || error || !authorizationCode
           ? callbackResponse(400, "<p>BizYeet authorization could not be completed. Return to the CLI.</p>")
           : callbackResponse(200, "<p>BizYeet authorization is complete. You can return to the CLI.</p>");
         response.writeHead(outcome.status, outcome.headers).end(outcome.body);
-        if (error) rejectCode(new Error("OAuth authorization was denied."));
-        else if (!authorizationCode || callbackState !== state) rejectCode(new Error("OAuth authorization callback did not match this login."));
+        if (!matches || (!authorizationCode && !error)) rejectCode(new Error("OAuth authorization callback did not match this login."));
+        else if (error) rejectCode(new Error("OAuth authorization was denied."));
+        else if (!authorizationCode) rejectCode(new Error("OAuth authorization callback did not match this login."));
         else resolveCode(authorizationCode);
       });
       server.once("error", reject);

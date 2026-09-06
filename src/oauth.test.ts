@@ -7,6 +7,21 @@ const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+void test("rejects discovery issuer mismatch and credential-bearing endpoints", async (): Promise<void> => {
+  const metadata = { issuer: issuer.origin, authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", code_challenge_methods_supported: ["S256"] };
+  await Promise.all([
+    { issuer: undefined }, { issuer: "https://other.test" }, { issuer: "https://example.test/" },
+    { token_endpoint: "https://user:secret@example.test/token" },
+    { token_endpoint: "https://example.test/token#fragment" },
+  ].map(async (override): Promise<void> => {
+    await assert.rejects(discoverOAuth(issuer, (): Promise<Response> => jsonResponse({ ...metadata, ...override })), /compatible OAuth/u);
+  }));
+  await discoverOAuth(issuer, (_url, init): Promise<Response> => {
+    assert.equal(init?.redirect, "error");
+    return jsonResponse(metadata);
+  });
+});
+
 void test("creates distinct RFC 7636 S256 proofs", (): void => {
   const first = createPkce();
   const second = createPkce();
@@ -25,6 +40,7 @@ void test("rejects issuer paths, credentials, and non-HTTPS origins", (): void =
 
 void test("accepts only same-origin metadata advertising S256", async (): Promise<void> => {
   const metadata = await discoverOAuth(issuer, (): Promise<Response> => jsonResponse({
+    issuer: issuer.origin,
     authorization_endpoint: "https://example.test/authorize",
     code_challenge_methods_supported: ["S256"],
     token_endpoint: "https://example.test/token",
@@ -32,6 +48,7 @@ void test("accepts only same-origin metadata advertising S256", async (): Promis
 
   assert.equal(metadata.token_endpoint, "https://example.test/token");
   await assert.rejects(discoverOAuth(issuer, (): Promise<Response> => jsonResponse({
+    issuer: issuer.origin,
     authorization_endpoint: "https://other.test/authorize",
     code_challenge_methods_supported: ["S256"],
     token_endpoint: "https://example.test/token",

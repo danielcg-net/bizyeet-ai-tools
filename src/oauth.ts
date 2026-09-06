@@ -49,7 +49,7 @@ const isAbsoluteHttpsUrl = (value: unknown, issuer: URL): value is string => {
   if (typeof value !== "string") return false;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.origin === issuer.origin;
+    return url.protocol === "https:" && url.origin === issuer.origin && !url.username && !url.password && !url.hash;
   } catch {
     return false;
   }
@@ -80,7 +80,8 @@ const isRegisteredPublicClient = (value: unknown): value is Readonly<{ client_id
 const isOAuthMetadata = (value: unknown, issuer: URL): value is OAuthMetadata => {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  return requiredMetadataKeys.every((key) => isAbsoluteHttpsUrl(candidate[key], issuer))
+  return candidate.issuer === issuer.origin
+    && requiredMetadataKeys.every((key) => isAbsoluteHttpsUrl(candidate[key], issuer))
     && (candidate.device_authorization_endpoint === undefined || isAbsoluteHttpsUrl(candidate.device_authorization_endpoint, issuer))
     && (candidate.registration_endpoint === undefined || isAbsoluteHttpsUrl(candidate.registration_endpoint, issuer))
     && (candidate.revocation_endpoint === undefined || isAbsoluteHttpsUrl(candidate.revocation_endpoint, issuer))
@@ -132,7 +133,7 @@ export const createPkce = (): PkcePair => {
 
 /** Retrieves only same-origin OAuth metadata and rejects a server that does not advertise PKCE S256. */
 export const discoverOAuth = async (issuer: URL, fetcher: FetchLike): Promise<OAuthMetadata> => {
-  const response = await fetcher(new URL(oauthMetadataPath, issuer).toString(), { headers: { Accept: "application/json" } });
+  const response = await fetcher(new URL(oauthMetadataPath, issuer).toString(), { headers: { Accept: "application/json" }, redirect: "error" });
   const metadata: unknown = await response.json().catch(() => null);
   if (!response.ok || !isOAuthMetadata(metadata, issuer) || !metadata.code_challenge_methods_supported?.includes("S256")) {
     throw new Error("The authorization server does not provide compatible OAuth PKCE metadata.");

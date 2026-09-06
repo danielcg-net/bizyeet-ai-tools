@@ -31,7 +31,7 @@ type BrowserLoginDependencies = Readonly<{
   fetcher: FetchLike;
   launchBrowser: (url: string) => Promise<void>;
   now: () => number;
-  openCallback: (state: string) => Promise<LoopbackCallback>;
+  openCallback: (state: string, issuer: string) => Promise<LoopbackCallback>;
 }>;
 
 const credentialsFrom = (tokens: OAuthTokenSet, now: () => number): StoredCredentials => ({
@@ -67,7 +67,7 @@ export const loginWithBrowser = async (input: Readonly<{
   const issuer = issuerOrigin(input.issuer);
   const metadata = await discoverOAuth(issuer, dependencies.fetcher);
   const state = crypto.randomUUID();
-  const callback = await dependencies.openCallback(state);
+  const callback = await dependencies.openCallback(state, issuer.origin);
   const clientId = (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: callback.redirectUri })).clientId;
   const pkce = createPkce();
   try {

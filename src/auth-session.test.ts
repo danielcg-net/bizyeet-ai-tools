@@ -11,6 +11,7 @@ void test("stores the device-flow result without exposing tokens through the ver
   const responseStream = (function* (): Generator<Promise<Response>, undefined, undefined> {
     yield response({
       authorization_endpoint: "https://example.test/authorize",
+      issuer: "https://example.test",
       code_challenge_methods_supported: ["S256"],
       device_authorization_endpoint: "https://example.test/device",
       registration_endpoint: "https://example.test/register",
@@ -35,7 +36,7 @@ void test("stores the device-flow result without exposing tokens through the ver
 
 void test("uses a fresh PKCE browser authorization and exact callback code exchange", async (): Promise<void> => {
   const responseStream = (function* (): Generator<Promise<Response>, undefined, undefined> {
-    yield response({ authorization_endpoint: "https://example.test/authorize", code_challenge_methods_supported: ["S256"], registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" });
+    yield response({ issuer: "https://example.test", authorization_endpoint: "https://example.test/authorize", code_challenge_methods_supported: ["S256"], registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" });
     yield response({ client_id: "public-client", token_endpoint_auth_method: "none" });
     yield response({ access_token: "access-secret", expires_in: 300, refresh_token: "refresh-secret", scope: "customers.read", token_type: "Bearer" });
   })();
