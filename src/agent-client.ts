@@ -9,6 +9,7 @@ export type CustomerListOptions = Readonly<{
 }>;
 
 export type AgentResult = Readonly<{ credentials: StoredCredentials; response: unknown }>;
+export type PersistCredentials = (credentials: StoredCredentials) => Promise<void>;
 
 const customerIdPattern = /^[A-Za-z0-9_-]{1,128}$/u;
 const cursorPattern = /^[A-Za-z0-9_-]{32,128}$/u;
@@ -45,6 +46,7 @@ const currentCredentials = async (input: Readonly<{
   fetcher: FetchLike;
   metadata: OAuthMetadata;
   now: () => number;
+  persistCredentials: PersistCredentials;
   profile: Profile;
 }>): Promise<StoredCredentials> => {
   if (new Date(input.credentials.expiresAt).getTime() > input.now() + 30000) return input.credentials;
@@ -57,12 +59,16 @@ const currentCredentials = async (input: Readonly<{
     resource: new URL(input.profile.issuer),
   });
   if (!tokens.refresh_token) throw new Error("OAuth refresh did not rotate a refresh token; run auth login again.");
-  return {
+  const credentials = {
     accessToken: tokens.access_token,
     expiresAt: new Date(input.now() + tokens.expires_in * 1000).toISOString(),
     refreshToken: tokens.refresh_token,
     scope: tokens.scope ?? input.credentials.scope,
   };
+  // A successful rotation consumes the old refresh token, even if the next
+  // resource request fails. Persist before making that request.
+  await input.persistCredentials(credentials);
+  return credentials;
 };
 
 const invoke = async (input: Readonly<{
@@ -71,6 +77,7 @@ const invoke = async (input: Readonly<{
   metadata: OAuthMetadata;
   now: () => number;
   path: string;
+  persistCredentials: PersistCredentials;
   profile: Profile;
   query?: URLSearchParams;
 }>): Promise<AgentResult> => {
@@ -97,6 +104,7 @@ export const listCustomers = async (input: Readonly<{
   metadata: OAuthMetadata;
   now: () => number;
   options: CustomerListOptions;
+  persistCredentials: PersistCredentials;
   profile: Profile;
 }>): Promise<AgentResult> => invoke({ ...input, path: "/api/agent/customers", query: boundedOptions(input.options) });
 
@@ -106,6 +114,7 @@ export const getCustomer = async (input: Readonly<{
   fetcher: FetchLike;
   metadata: OAuthMetadata;
   now: () => number;
+  persistCredentials: PersistCredentials;
   profile: Profile;
   resourceId: string;
 }>): Promise<AgentResult> => {

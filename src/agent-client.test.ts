@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 
 import { getCustomer, listCustomers } from "./agent-client.js";
 
@@ -22,6 +22,7 @@ void test("uses only bounded customer-list query parameters", async (): Promise<
     metadata,
     now: () => 1000,
     options: { limit: 25, search: "acme" },
+    persistCredentials: () => Promise.reject(new Error("Valid credentials must not be rewritten.")),
     profile,
   });
 
@@ -41,6 +42,7 @@ void test("refreshes once after an expired access token and preserves no generic
     },
     metadata,
     now: () => 1000,
+    persistCredentials: (credentials) => { assert.equal(credentials.refreshToken, "fresh-refresh"); return Promise.resolve(); },
     profile,
     resourceId: "customer-1",
   });
@@ -50,6 +52,39 @@ void test("refreshes once after an expired access token and preserves no generic
 
 void test("rejects unbounded limits and route-like customer identifiers before making a request", async (): Promise<void> => {
   const noRequest = (): Promise<Response> => Promise.reject(new Error("Network should not run."));
-  await assert.rejects(listCustomers({ credentials: validCredentials, fetcher: noRequest, metadata, now: () => 1000, options: { limit: 101 }, profile }));
-  await assert.rejects(getCustomer({ credentials: validCredentials, fetcher: noRequest, metadata, now: () => 1000, profile, resourceId: "../other-tenant" }));
+  const persistCredentials = (): Promise<void> => Promise.reject(new Error("Storage should not run."));
+  await assert.rejects(listCustomers({ credentials: validCredentials, fetcher: noRequest, metadata, now: () => 1000, options: { limit: 101 }, persistCredentials, profile }));
+  await assert.rejects(getCustomer({ credentials: validCredentials, fetcher: noRequest, metadata, now: () => 1000, persistCredentials, profile, resourceId: "../other-tenant" }));
+});
+
+void test("persists rotation before a failed resource request, including a 401-triggered refresh", async (): Promise<void> => {
+  await Promise.all([true, false].map(async (expired): Promise<void> => {
+    const persistCredentials = mock.fn((): Promise<void> => Promise.resolve());
+    const fetcher = mock.fn((url: string, request?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/token")) return Promise.resolve(new Response(JSON.stringify({ access_token: "fresh-access", expires_in: 300, refresh_token: "fresh-refresh", token_type: "Bearer" })));
+      if (header(request, "Authorization") === "Bearer access-token") return Promise.resolve(new Response("{}", { status: 401 }));
+      assert.equal(persistCredentials.mock.callCount(), 1);
+      return Promise.reject(new Error("Resource connection failed"));
+    });
+    await assert.rejects(getCustomer({
+      credentials: { ...validCredentials, expiresAt: expired ? "1970-01-01T00:00:00.000Z" : validCredentials.expiresAt },
+      fetcher, metadata, now: () => 1000, persistCredentials, profile, resourceId: "customer-1",
+    }), /Resource connection failed/u);
+    assert.equal(persistCredentials.mock.callCount(), 1);
+    assert.equal(fetcher.mock.callCount(), expired ? 2 : 3);
+  }));
+});
+
+void test("does not call the resource if rotated credentials cannot be persisted", async (): Promise<void> => {
+  const fetcher = mock.fn((url: string): Promise<Response> => {
+    assert.equal(url, metadata.token_endpoint);
+    return Promise.resolve(new Response(JSON.stringify({ access_token: "fresh-access", expires_in: 300, refresh_token: "fresh-refresh", token_type: "Bearer" })));
+  });
+  await assert.rejects(getCustomer({
+    credentials: { ...validCredentials, expiresAt: "1970-01-01T00:00:00.000Z" },
+    fetcher, metadata, now: () => 1000,
+    persistCredentials: () => Promise.reject(new Error("Credential store unavailable")),
+    profile, resourceId: "customer-1",
+  }), /Credential store unavailable/u);
+  assert.equal(fetcher.mock.callCount(), 1);
 });

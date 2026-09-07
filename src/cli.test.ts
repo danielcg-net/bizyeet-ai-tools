@@ -133,9 +133,11 @@ void test("customer list preserves the agent response envelope and stores a rota
     saveProfile: () => Promise.resolve(),
   }, {
     getCustomer: () => Promise.reject(new Error("Customer get should not run.")),
-    listCustomers: (input) => {
+    listCustomers: async (input) => {
       assert.equal(input.options.limit, 10);
-      return Promise.resolve({ credentials: { ...input.credentials, accessToken: "new-access", refreshToken: "new-refresh" }, response: { data: { items: [] }, meta: { contract_version: "v1", request_id: "req" } } });
+      const credentials = { ...input.credentials, accessToken: "new-access", refreshToken: "new-refresh" };
+      await input.persistCredentials(credentials);
+      return { credentials, response: { data: { items: [] }, meta: { contract_version: "v1", request_id: "req" } } };
     },
     loginBrowser: () => Promise.reject(new Error("Browser login should not run.")),
     loginDevice: () => Promise.reject(new Error("Device login should not run.")),

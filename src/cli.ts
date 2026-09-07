@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { launchBrowser } from "./browser.js";
-import { getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, type AgentResult, type CustomerListOptions } from "./agent-client.js";
+import { getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
 import { credentialStore } from "./credential-store.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, revokeRefreshToken } from "./oauth.js";
@@ -25,8 +25,8 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
-  getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
-  listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
+  getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
+  listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
   loginDevice: (input: Readonly<{ clientId?: string; issuer: string; scope: string }>, onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
   revoke: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; profile: import("./profile-store.js").Profile }>) => Promise<void>;
@@ -188,10 +188,7 @@ const requestFailure = (error: unknown): CliResult => {
   return result(1, errorEnvelope("internal_error", "The agent service could not complete this request."), "stderr");
 };
 
-const resourceOutput = async (outcome: AgentResult, name: string, dependencies: CliStorage): Promise<CliResult> => {
-  await dependencies.saveCredentials(name, outcome.credentials);
-  return result(0, JSON.stringify(outcome.response), "stdout");
-};
+const resourceOutput = (outcome: AgentResult): CliResult => result(0, JSON.stringify(outcome.response), "stdout");
 
 const customerListOptions = (args: readonly string[]): CustomerListOptions => {
   if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search"])) throw new Error("customers list accepts --cursor, --fields, --limit, --profile, and --search only.");
@@ -220,8 +217,9 @@ const customers = async (args: readonly string[], dependencies: CliStorage, exec
     if (command !== "list" && command !== "get") return unsupportedCommand(`customers ${command ?? ""}`.trim());
     const authenticated = await authenticatedProfile(options, dependencies);
     if ("exitCode" in authenticated) return authenticated;
-    if (listOptions) return await resourceOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: listOptions, profile: authenticated.profile }), authenticated.name, dependencies);
-    return await resourceOutput(await execution.getCustomer({ credentials: authenticated.credentials, profile: authenticated.profile, resourceId: resourceId ?? "" }), authenticated.name, dependencies);
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    if (listOptions) return resourceOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }));
+    return resourceOutput(await execution.getCustomer({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: resourceId ?? "" }));
   } catch (error) {
     return requestFailure(error);
   }
