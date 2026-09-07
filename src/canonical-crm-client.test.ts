@@ -1,0 +1,75 @@
+import assert from "node:assert/strict";
+import { mock, test } from "node:test";
+import { createCanonicalCrmClient } from "./canonical-crm-client.js";
+
+const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
+const token = (): Promise<string> => Promise.resolve("oauth-access");
+
+await test("uses canonical OAuth endpoints and preserves empty results and totals", async () => {
+  const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
+    assert.ok(url.startsWith("https://tenant.example/api/agent/"));
+    assert.equal(init.method, "GET");
+    return Promise.resolve(Response.json(emptyPage));
+  });
+  const getAccessToken = mock.fn(token);
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken, request });
+  const result = await client.list("customers", { page_size: 5, cursor: "opaque", search: "Acme & Co", fields: ["business"], dir: "asc" });
+  assert.deepEqual(result, { status: 200, body: emptyPage });
+  assert.equal(request.mock.callCount(), 1);
+  assert.equal(request.mock.calls[0]?.arguments[0], "https://tenant.example/api/agent/customers?limit=5&cursor=opaque&search=Acme+%26+Co&dir=asc&fields=business");
+  assert.deepEqual(request.mock.calls[0].arguments[1].headers, { Authorization: "Bearer oauth-access", Accept: "application/json" });
+  assert.equal(request.mock.calls[0].arguments[1].redirect, "error");
+  assert.deepEqual(getAccessToken.mock.calls[0]?.arguments, ["https://tenant.example"]);
+});
+
+await test("passes opaque customer and lead IDs without choosing a provider", async () => {
+  const id = `crm1.${"a".repeat(64)}.leads.123`;
+  const body = { data: { id, business: "Permitted record" }, meta: { contract_version: "v1" } };
+  const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
+    assert.ok(url.startsWith("https://tenant.example/api/agent/"));
+    assert.equal(init.method, "GET");
+    return Promise.resolve(Response.json(body));
+  });
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  assert.deepEqual(await client.get("leads", id, { fields: ["business"] }), { status: 200, body });
+  assert.equal(request.mock.calls[0]?.arguments[0], `https://tenant.example/api/agent/leads/${id}?fields=business`);
+});
+
+await Promise.all([401, 403, 404, 409, 422, 503].map((status) => test(`preserves canonical HTTP ${String(status)} errors with no fallback`, async () => {
+  const body = { error: { code: "canonical_error", request_id: "request-id", retryable: false } };
+  const request = mock.fn((): Promise<Response> => Promise.resolve(Response.json(body, { status })));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  assert.deepEqual(await client.list("customers"), { status, body });
+  assert.equal(request.mock.callCount(), 1);
+})));
+
+await Promise.all([
+  { data: { items: [] }, meta: { contract_version: "v1", next_cursor: null } },
+  { data: { items: [], total: -1 }, meta: { contract_version: "v1", next_cursor: null } },
+  { data: { items: [], total: 0 }, meta: { contract_version: "old", next_cursor: null } },
+  { data: { items: [{ business: "Missing ID" }], total: 1 }, meta: { contract_version: "v1", next_cursor: null } },
+].map((body, index) => test(`rejects malformed successful response ${String(index)}`, async () => {
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
+    request: (): Promise<Response> => Promise.resolve(Response.json(body)),
+  });
+  assert.equal((await client.list("customers")).status, 502);
+})));
+
+await test("network failure is explicit and never an empty success", async () => {
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
+    request: (): Promise<Response> => Promise.reject(new Error("private detail")),
+  });
+  assert.deepEqual(await client.list("leads"), { status: 503, body: { error: { code: "request_unavailable" } } });
+});
+
+await test("missing OAuth credentials make no request", async () => {
+  const request = mock.fn((): Promise<Response> => Promise.resolve(Response.json(emptyPage)));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: (): Promise<string> => Promise.resolve(""), request });
+  assert.equal((await client.list("customers")).status, 401);
+  assert.equal(request.mock.callCount(), 0);
+});
+
+await Promise.all(["http://tenant.example", "https://user:password@tenant.example", "https://tenant.example/other", "https://tenant.example?token=secret", "https://tenant.example#fragment"].map((origin) =>
+  test(`rejects non-resource origin ${origin}`, () => {
+    assert.throws(() => createCanonicalCrmClient({ origin, getAccessToken: token }));
+  })));
