@@ -31,3 +31,25 @@ security, test, and review checks.
 ## Local development
 
 Use Node.js 24 or newer and run the commands in the README.
+
+## Canonical business routing
+
+Tenant data consumers must use OAuth-authorized canonical agent endpoints or the
+hosted MCP contract. Provider selection belongs to the server application service.
+Do not import server storage/provider implementations or call provider APIs directly;
+do not substitute dashboard session endpoints for bearer-authorized agent operations.
+
+`npm run check` includes `check:routing`. It parses source and executable scripts
+without executing them, rejecting prohibited imports/re-exports/dynamic imports,
+provider URLs and legacy business routes. Literal values, templates, concatenations
+and uniquely named local constants are inspected independently of HTTP wrapper names.
+Negative fixtures live in `scripts/check-canonical-routing.test.ts`; extend them when
+adding a transport or endpoint convention. Existing TypeScript immutability rules
+remain required. The checker itself and test fixture files are excluded from runtime
+scanning; no production consumer has an exemption.
+
+This check covers statically identifiable edges. Server authorization and provider
+routing remain mandatory for direct requests and cannot be replaced by a source
+check. Dynamically constructed destinations need explicit contract tests in addition
+to these checks. BIZYEET-804 also tracks enforcement in the private server repository;
+passing this public check alone does not close that issue.
