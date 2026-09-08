@@ -56,6 +56,19 @@ void test("reports the packaged version without reading credentials", async (): 
   assert.match(result.message, /"version":"0\.0\.0-development"/u);
 });
 
+void test("local diagnostics provide runtime and truthful manual-update guidance without credentials", async () => {
+  const forbidden = (): never => { throw new Error("Local diagnostics must not access profiles or credentials"); };
+  const storage: Parameters<typeof run>[1] = { readCredentials: forbidden, readProfiles: forbidden, removeCredentials: forbidden, saveCredentials: forbidden, saveProfile: forbidden };
+  const result = await run(["diagnostics", "--json"], storage);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stream, "stdout");
+  const body = JSON.parse(result.message) as Readonly<{ data: Readonly<Record<string, unknown>> }>;
+  assert.deepEqual(body.data.runtime, { name: "node", version: process.versions.node, platform: process.platform, architecture: process.arch, required: ">=24", supported: Number(process.versions.node.split(".")[0]) >= 24 });
+  assert.deepEqual(body.data.authentication, { checked: false, next_step: "bizyeet auth check" });
+  assert.deepEqual(body.data.update, { checked: false, automatic: false, releases_url: "https://github.com/danielcg-net/bizyeet-ai-tools/releases", guidance: "Review the official release notes and installation instructions before updating. This command does not determine the latest release or install anything." });
+  assert.equal((await run(["diagnostics", "--profile", "default"], storage)).exitCode, 2);
+});
+
 void test("explicit JSON mode works for help and version and rejects duplicate flags", async () => {
   const help = await run(["--help", "--json"]);
   assert.equal(help.exitCode, 0);

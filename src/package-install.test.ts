@@ -109,11 +109,15 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
     const located = await run(commandLookup().command, commandLookup().args, directory, pathEnvironment);
     const help = await run(installedCli(directory), ["--help"], directory, pathEnvironment);
     const version = await run(installedCli(directory), ["--version"], directory, pathEnvironment);
+    const diagnostics = await run(installedCli(directory), ["diagnostics", "--json"], directory, pathEnvironment);
     const status = await run(installedCli(directory), ["auth", "status", "--profile", "package-check"], directory, pathEnvironment);
 
     assert.match(located, /bizyeet/u);
     assert.match(help, /OAuth/u);
     assert.match(version, /"version":"0\.0\.0-development"/u);
+    assert.match(diagnostics, /"automatic":false/u);
+    assert.match(diagnostics, /"required":">=24"/u);
+    assert.doesNotMatch(diagnostics, /synthetic-access|synthetic-refresh/u);
     assert.match(status, /"authenticated":true/u);
     assert.doesNotMatch(status, /synthetic-access|synthetic-refresh/u);
   } finally {

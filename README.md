@@ -36,6 +36,12 @@ tenant ID, or copied bearer token.
 Use `bizyeet --version` to report the installed package version without making
 a network request or reading stored credentials.
 
+`bizyeet diagnostics` reports the package/runtime version, OS/architecture and
+runtime requirement, with the official releases link for manual updates. It
+does not access credentials, call the network, claim that this is the latest
+release, or install updates. Use `bizyeet auth check` separately to verify
+server authorization. The current development package is not a published release.
+
 ```sh
 # Browser Authorization Code + PKCE S256 flow.
 bizyeet auth login --issuer https://your-bizyeet-origin

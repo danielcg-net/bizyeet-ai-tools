@@ -69,6 +69,7 @@ const helpMessage = [
   "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>]",
   "       bizyeet customers get <opaque-id> [--profile <name>]",
   "       bizyeet --version",
+  "       bizyeet diagnostics (local runtime and manual-update guidance; no network or credentials)",
   "Authentication uses OAuth with PKCE or Device Authorization; API keys, personal access tokens, and passwords are not accepted.",
   "All command output is structured JSON. OAuth token material is never printed.",
   "JSON is the default; an explicit --json may precede the command or follow its arguments.",
@@ -79,6 +80,13 @@ const packageVersion = (): string => {
   if (typeof packageMetadata !== "object" || packageMetadata === null || typeof (packageMetadata as Record<string, unknown>).version !== "string") throw new Error("The installed package version is invalid.");
   return (packageMetadata as Record<string, unknown>).version as string;
 };
+
+const diagnostics = (): Readonly<Record<string, unknown>> => ({
+  version: packageVersion(),
+  runtime: { name: "node", version: process.versions.node, platform: process.platform, architecture: process.arch, required: ">=24", supported: Number(process.versions.node.split(".")[0]) >= 24 },
+  authentication: { checked: false, next_step: "bizyeet auth check" },
+  update: { checked: false, automatic: false, releases_url: "https://github.com/danielcg-net/bizyeet-ai-tools/releases", guidance: "Review the official release notes and installation instructions before updating. This command does not determine the latest release or install anything." },
+});
 
 const envelope = (data: Readonly<Record<string, unknown>>): string => JSON.stringify({
   data,
@@ -276,6 +284,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   }
   const [first, second] = args;
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
+  if (first === "diagnostics") return args.length === 1 ? output(diagnostics()) : invalidInput("diagnostics accepts no arguments other than --json.");
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) return result(0, helpMessage, "stdout");
   if (first === "customers") return customers(args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
