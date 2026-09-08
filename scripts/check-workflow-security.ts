@@ -46,13 +46,22 @@ const hasLeastPrivilegePermissions = (permissions: unknown): boolean =>
     ([scope, access]) => typeof access === "string" && permittedPermissions[scope]?.includes(access) === true,
   );
 
+const jobPermissionsAreSafe = (jobs: unknown): boolean =>
+  isRecord(jobs) && Object.values(jobs).every((job) =>
+    isRecord(job) && (!("permissions" in job) || hasLeastPrivilegePermissions(job.permissions)),
+  );
+
+const triggerNames = (value: unknown): readonly string[] =>
+  typeof value === "string" ? [value] : isStringArray(value) ? value : isRecord(value) ? Object.keys(value) : [];
+
 const actionReferences = (jobs: unknown): readonly string[] =>
   !isRecord(jobs)
     ? []
     : Object.values(jobs).flatMap((job) =>
-        !isRecord(job) || !Array.isArray(job.steps)
-          ? []
-          : job.steps.flatMap((step) => (isRecord(step) && typeof step.uses === "string" ? [step.uses] : [])),
+        !isRecord(job) ? [] : [
+          ...(typeof job.uses === "string" ? [job.uses] : []),
+          ...(Array.isArray(job.steps) ? job.steps.flatMap((step) => (isRecord(step) && typeof step.uses === "string" ? [step.uses] : [])) : []),
+        ],
       );
 
 const isPinnedExternalAction = (reference: string): boolean => {
@@ -67,9 +76,10 @@ export const validateWorkflow = (fileName: string, source: string): readonly str
   const invalidActionReferences = actionReferences(workflow.jobs).filter((reference) => !isPinnedExternalAction(reference));
 
   return [
-    ...("pull_request_target" in workflow ? [`${fileName}: pull_request_target is forbidden`] : []),
+    ...(triggerNames(workflow.on).includes("pull_request_target") ? [`${fileName}: pull_request_target is forbidden`] : []),
     ...(jobUsesSelfHostedRunner(workflow.jobs) ? [`${fileName}: self-hosted runners are forbidden`] : []),
     ...(!hasLeastPrivilegePermissions(workflow.permissions) ? [`${fileName}: permissions must use the approved least-privilege mapping`] : []),
+    ...(!jobPermissionsAreSafe(workflow.jobs) ? [`${fileName}: job permissions must use the approved least-privilege mapping`] : []),
     ...invalidActionReferences.map((reference) => `${fileName}: action must use a full commit SHA (${reference})`),
   ];
 };
