@@ -16,7 +16,7 @@ await test("uses canonical OAuth endpoints and preserves empty results and total
   const result = await client.list("customers", { page_size: 5, cursor: "opaque", search: "Acme & Co", fields: ["business"], dir: "asc" });
   assert.deepEqual(result, { status: 200, body: emptyPage });
   assert.equal(request.mock.callCount(), 1);
-  assert.equal(request.mock.calls[0]?.arguments[0], "https://tenant.example/api/agent/customers?limit=5&cursor=opaque&search=Acme+%26+Co&dir=asc&fields=business");
+  assert.equal(request.mock.calls[0]?.arguments[0], "https://tenant.example/api/agent/customers?api_version=v1&limit=5&cursor=opaque&search=Acme+%26+Co&dir=asc&fields=business");
   assert.deepEqual(request.mock.calls[0].arguments[1].headers, { Authorization: "Bearer oauth-access", Accept: "application/json" });
   assert.equal(request.mock.calls[0].arguments[1].redirect, "error");
   assert.deepEqual(getAccessToken.mock.calls[0]?.arguments, ["https://tenant.example"]);
@@ -32,7 +32,7 @@ await test("passes opaque customer and lead IDs without choosing a provider", as
   });
   const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
   assert.deepEqual(await client.get("leads", id, { fields: ["business"] }), { status: 200, body });
-  assert.equal(request.mock.calls[0]?.arguments[0], `https://tenant.example/api/agent/leads/${id}?fields=business`);
+  assert.equal(request.mock.calls[0]?.arguments[0], `https://tenant.example/api/agent/leads/${id}?api_version=v1&fields=business`);
 });
 
 await Promise.all([401, 403, 404, 409, 422, 503].map((status) => test(`preserves canonical HTTP ${String(status)} errors with no fallback`, async () => {

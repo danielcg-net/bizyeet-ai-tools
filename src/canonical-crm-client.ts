@@ -33,6 +33,7 @@ const resourceOrigin = (input: string): string => {
   return url.origin;
 };
 const query = (options: ListOptions): string => new URLSearchParams([
+  ["api_version", "v1"],
   ...(options.page_size === undefined ? [] : [["limit", String(options.page_size)]]),
   ...(options.cursor === undefined ? [] : [["cursor", options.cursor]]),
   ...(options.search === undefined ? [] : [["search", options.search]]),
