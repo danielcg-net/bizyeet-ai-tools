@@ -66,7 +66,7 @@ const invoke = async (input: Readonly<{
   fetcher: FetchLike;
   metadata: OAuthMetadata;
   now: () => number;
-  operation: (client: CanonicalCrmClient) => ReturnType<CanonicalCrmClient["list"]>;
+  operation: (client: CanonicalCrmClient, credentials: StoredCredentials) => ReturnType<CanonicalCrmClient["list"]>;
   persistCredentials: PersistCredentials;
   profile: Profile;
 }>): Promise<AgentResult> => {
@@ -75,7 +75,7 @@ const invoke = async (input: Readonly<{
     origin: input.profile.issuer,
     getAccessToken: () => Promise.resolve(credentials.accessToken),
     request: input.fetcher,
-  }));
+  }), credentials);
   const first = await execute(initial);
   const refreshed = first.status === 401 && initial === input.credentials
     ? await currentCredentials({ ...input, credentials: { ...input.credentials, expiresAt: new Date(0).toISOString() } })
@@ -84,6 +84,32 @@ const invoke = async (input: Readonly<{
   if (response.status < 200 || response.status >= 300) throw new Error("Agent request failed.", { cause: agentFailure(response.status, response.body) });
   return { credentials: refreshed, response: response.body };
 };
+
+/** Checks current server authorization through the canonical identity endpoint, without reading business records. */
+export const checkIdentity = (input: Readonly<{
+  credentials: StoredCredentials;
+  fetcher: FetchLike;
+  metadata: OAuthMetadata;
+  now: () => number;
+  persistCredentials: PersistCredentials;
+  profile: Profile;
+}>): Promise<AgentResult> => invoke({ ...input, operation: async (_client, credentials) => {
+  const response = await input.fetcher(new URL("/api/agent/me", input.profile.issuer).toString(), {
+    method: "GET", headers: { Accept: "application/json", Authorization: `Bearer ${credentials.accessToken}` },
+    redirect: "error", signal: AbortSignal.timeout(10000),
+  }).catch(() => null);
+  if (!response) return { status: 503, body: { error: { code: "request_unavailable" } } };
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) return { status: response.status, body };
+  if (typeof body !== "object" || body === null || !("tenant_id" in body) || typeof body.tenant_id !== "string"
+      || !("client_id" in body) || body.client_id !== input.profile.clientId
+      || !("scope" in body) || !Array.isArray(body.scope) || !body.scope.every((scope: unknown) => typeof scope === "string")) {
+    return { status: 502, body: { error: { code: "invalid_response" } } };
+  }
+  return { status: response.status, body: { data: {
+    authenticated: true, verification: "server", tenant: body.tenant_id, scope: body.scope,
+  }, meta: { contract_version: "v1", request_id: crypto.randomUUID() } } };
+} });
 
 /** Lists at most 100 contract-defined customer records without accepting arbitrary paths or query keys. */
 export const listCustomers = async (input: Readonly<{

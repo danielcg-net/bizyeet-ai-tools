@@ -43,6 +43,33 @@ void test("reports the packaged version without reading credentials", async (): 
   assert.match(result.message, /"version":"0\.0\.0-development"/u);
 });
 
+void test("auth check uses the selected profile and persists refreshed credentials before reporting server verification", async () => {
+  const result = await run(["auth", "check", "--profile", "canary"], {
+    readCredentials: () => Promise.resolve({ canary: { accessToken: "access-secret", refreshToken: "refresh-secret", expiresAt: "2099-01-01T00:00:00.000Z", scope: "customers.read" } }),
+    readProfiles: () => Promise.resolve({ canary: { clientId: "client", issuer: "https://example.test" } }),
+    saveCredentials: (name, credentials) => {
+      assert.equal(name, "canary");
+      assert.equal(credentials.refreshToken, "rotated-secret");
+      return Promise.resolve();
+    },
+    saveProfile: () => Promise.resolve(), removeCredentials: () => Promise.resolve(),
+  }, {
+    checkIdentity: async (input) => {
+      assert.equal(input.profile.clientId, "client");
+      const credentials = { ...input.credentials, refreshToken: "rotated-secret" };
+      await input.persistCredentials(credentials);
+      return { credentials, response: { data: { authenticated: true, verification: "server", tenant: "tenant", scope: ["customers.read"] }, meta: { contract_version: "v1" } } };
+    },
+    getCustomer: () => Promise.reject(new Error("Must not read business data")),
+    listCustomers: () => Promise.reject(new Error("Must not read business data")),
+    loginBrowser: () => Promise.reject(new Error("Must not login")),
+    loginDevice: () => Promise.reject(new Error("Must not login")), revoke: () => Promise.resolve(),
+  });
+  assert.equal(result.exitCode, 0);
+  assert.match(result.message, /"verification":"server"/u);
+  assert.doesNotMatch(result.message, /access-secret|refresh-secret|rotated-secret/u);
+});
+
 void test("auth status does not reveal token values", async (): Promise<void> => {
   const result = await run(["auth", "status"], {
     readCredentials: () => Promise.resolve({ default: { accessToken: "secret-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "secret-refresh", scope: "customers.read" } }),
@@ -55,6 +82,7 @@ void test("auth status does not reveal token values", async (): Promise<void> =>
   assert.equal(result.exitCode, 0);
   assert.equal(result.stream, "stdout");
   assert.match(result.message, /"authenticated":true/u);
+  assert.match(result.message, /"verification":"local_only"/u);
   assert.doesNotMatch(result.message, /secret-access|secret-refresh/u);
 });
 

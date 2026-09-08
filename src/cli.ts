@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { launchBrowser } from "./browser.js";
-import { getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
 import { credentialStore } from "./credential-store.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, revokeRefreshToken } from "./oauth.js";
@@ -26,6 +26,7 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  checkIdentity?: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
   listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
@@ -42,6 +43,10 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  checkIdentity: async (input) => {
+    const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
+    return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
+  },
   getCustomer: async (input) => {
     const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
     return getAgentCustomer({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -59,7 +64,8 @@ const runtime: CliRuntime = {
 };
 
 const helpMessage = [
-  "Usage: bizyeet auth <login|status|logout> [--profile <name>]",
+  "Usage: bizyeet auth <login|status|check|logout> [--profile <name>]",
+  "       auth status inspects local credentials; auth check verifies current server access.",
   "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>]",
   "       bizyeet customers get <opaque-id> [--profile <name>]",
   "       bizyeet --version",
@@ -113,6 +119,7 @@ const status = async (args: readonly string[], dependencies: CliStorage): Promis
     if (!configured || !current) return authenticationRequired();
     return output({
       authenticated: new Date(current.expiresAt).getTime() > Date.now(),
+      verification: "local_only",
       expires_at: current.expiresAt,
       issuer: configured.issuer,
       profile,
@@ -179,6 +186,20 @@ const authenticatedProfile = async (args: readonly string[], dependencies: CliSt
   return profile && current ? { credentials: current, name, profile } : authenticationRequired();
 };
 
+const checkAuthentication = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth check accepts only --profile.");
+  try {
+    const selected = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in selected) return selected;
+    if (!execution.checkIdentity) throw new Error("Identity diagnostic is unavailable.");
+    return resourceOutput(await execution.checkIdentity({ credentials: selected.credentials, profile: selected.profile,
+      persistCredentials: (credentials) => dependencies.saveCredentials(selected.name, credentials),
+    }));
+  } catch (error) {
+    return requestFailure(error);
+  }
+};
+
 const requestFailure = (error: unknown): CliResult => {
   const failure = error instanceof Error ? error.cause : error;
   if (isAgentFailure(failure)) return result(agentFailureExitCode(failure), JSON.stringify({ error: {
@@ -240,6 +261,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
   if (second === "status") return status(args.slice(2), dependencies);
+  if (second === "check") return checkAuthentication(args.slice(2), dependencies, execution);
   if (second === "logout") return logout(args.slice(2), dependencies, execution);
   return unsupportedCommand(`auth ${second ?? ""}`.trim());
 };

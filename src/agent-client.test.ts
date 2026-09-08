@@ -1,13 +1,42 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 
-import { getCustomer, listCustomers } from "./agent-client.js";
+import { checkIdentity, getCustomer, listCustomers } from "./agent-client.js";
 import { isAgentFailure } from "./agent-error.js";
 
 const profile = { clientId: "public-client", issuer: "https://example.test" };
 const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
 const validCredentials = { accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
+
+void test("checks server identity without accessing CRM or exposing tokens and user identifiers", async () => {
+  const fetcher = mock.fn((url: string, init?: RequestInit) => {
+    assert.equal(url, "https://example.test/api/agent/me");
+    assert.equal(init?.redirect, "error");
+    assert.equal(header(init, "Authorization"), "Bearer access-token");
+    return Promise.resolve(Response.json({ tenant_id: "synthetic-tenant", client_id: profile.clientId,
+      user_id: "private-user", scope: ["customers.read"], unexpected: "secret-value" }));
+  });
+  const result = await checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,
+    persistCredentials: () => Promise.reject(new Error("Unexpected write")),
+  });
+  const serialized = JSON.stringify(result.response);
+  assert.match(serialized, /"verification":"server"/u);
+  assert.match(serialized, /synthetic-tenant/u);
+  assert.doesNotMatch(serialized, /private-user|secret-value|access-token|refresh-token/u);
+  assert.equal(fetcher.mock.callCount(), 1);
+});
+
+void test("identity probe rejects a mismatched OAuth client and malformed scopes", async () => {
+  await Promise.all([
+    { tenant_id: "tenant", client_id: "different-client", scope: [] },
+    { tenant_id: "tenant", client_id: profile.clientId, scope: [123] },
+  ].map(async (body) => {
+    await assert.rejects(checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      fetcher: () => Promise.resolve(Response.json(body)), persistCredentials: () => Promise.resolve(),
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === "invalid_response");
+  }));
+});
 
 void test("passes long opaque identifiers unchanged through the canonical transport", async (): Promise<void> => {
   const id = `crm1.${"a".repeat(489)}.customers.1234567`;

@@ -44,8 +44,17 @@ bizyeet auth login --issuer https://your-bizyeet-origin
 bizyeet auth login --device --issuer https://your-bizyeet-origin
 
 bizyeet auth status
+bizyeet auth check
 bizyeet auth logout
 ```
+
+`auth status` inspects the selected profile's local credential expiry and reports
+`verification: "local_only"`; it does not prove current server authorization.
+`auth check` verifies the existing OAuth session with the server, refreshing and
+safely persisting credentials when necessary, and reports the server-resolved
+tenant and granted scopes without reading customer data. Individual commands
+still enforce current permissions. Use `--profile <name>` to select a stored
+connection; profiles never override the server's tenant decision.
 
 The browser flow uses an ephemeral `127.0.0.1` callback with a fresh PKCE
 challenge and state. The device flow prints its verification URI and user code
