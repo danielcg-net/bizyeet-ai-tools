@@ -1,3 +1,5 @@
+import { marked } from "marked";
+
 const branchPattern = /^(bizyeet-\d+)\/[a-z0-9][a-z0-9-]*$/u;
 
 export type PullRequestMetadata = Readonly<{ branch: unknown; title: unknown }>;
@@ -13,7 +15,7 @@ export const isTrustedDependabotAuthor = (login: unknown): boolean => login === 
 
 /** Require an actual HTTPS issue URL for the branch's issue, not a lookalike host or label. */
 export const validatePullRequestBody = (issueId: string, body: unknown): readonly string[] => {
-  const candidates = typeof body === "string" ? body.match(/https:\/\/[^\s<>()"`]+/gu) ?? [] : [];
+  const candidates = typeof body === "string" && body.length <= 65_536 ? linkDestinations(marked.lexer(body, { gfm: true })) : [];
   const matches = /^bizyeet-\d+$/u.test(issueId) && candidates.some((candidate) => {
     if (!URL.canParse(candidate)) return false;
     const url = new URL(candidate);
@@ -22,6 +24,15 @@ export const validatePullRequestBody = (issueId: string, body: unknown): readonl
       && url.pathname.replace(/\/$/u, "").toLowerCase() === `/issue/${issueId}`;
   });
   return matches ? [] : [`PR body must include https://bizyeet.youtrack.cloud/issue/${issueId.toUpperCase()}.`];
+};
+
+const linkDestinations = (value: unknown): readonly string[] => {
+  if (Array.isArray(value)) return value.flatMap((item: unknown) => linkDestinations(item));
+  if (typeof value !== "object" || value === null) return [];
+  const token = value as Readonly<Record<string, unknown>>;
+  if (token.type === "link") return typeof token.href === "string" ? [token.href] : [];
+  if (["html", "code", "codespan", "image"].includes(String(token.type))) return [];
+  return Object.values(token).flatMap(linkDestinations);
 };
 
 const commitSubject = (message: unknown): string => {

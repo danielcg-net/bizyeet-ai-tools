@@ -29,6 +29,9 @@ void test("accepts canonical issue links in Markdown or plain text", () => {
     "Tracked in [YouTrack](https://bizyeet.youtrack.cloud/issue/bizyeet-741).",
     "<https://bizyeet.youtrack.cloud/issue/BIZYEET-741>",
     "https://bizyeet.youtrack.cloud/issue/BIZYEET-741/#focus=Comments",
+    "Tracked at https://bizyeet.youtrack.cloud/issue/BIZYEET-741.",
+    "Tracked at https://bizyeet.youtrack.cloud/issue/BIZYEET-741, with details.",
+    "[Work][issue]\n\n[issue]: https://bizyeet.youtrack.cloud/issue/BIZYEET-741",
   ].forEach((body) => { assert.deepEqual(validatePullRequestBody("bizyeet-741", body), []); });
 });
 
@@ -45,6 +48,13 @@ void test("rejects absent, wrong-issue and deceptive tracking links", () => {
     "https://bizyeet.youtrack.cloud:8443/issue/BIZYEET-741",
     "https://example.com/?next=https://bizyeet.youtrack.cloud/issue/BIZYEET-741",
     "[https://bizyeet.youtrack.cloud/issue/BIZYEET-741](https://example.com)",
+    "[ https://bizyeet.youtrack.cloud/issue/BIZYEET-741 ](https://evil.example)",
+    "[ https://bizyeet.youtrack.cloud/issue/BIZYEET-741 ][bad]\n\n[bad]: https://evil.example",
+    "`https://bizyeet.youtrack.cloud/issue/BIZYEET-741`",
+    "```\nhttps://bizyeet.youtrack.cloud/issue/BIZYEET-741\n```",
+    "<!-- https://bizyeet.youtrack.cloud/issue/BIZYEET-741 -->",
+    "![image](https://bizyeet.youtrack.cloud/issue/BIZYEET-741)",
+    "[unused]: https://bizyeet.youtrack.cloud/issue/BIZYEET-741",
     "https://[invalid/issue/BIZYEET-741",
   ].forEach((body) => { assert.equal(validatePullRequestBody("bizyeet-741", body).length, 1); });
 });
