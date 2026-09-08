@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, lstat, mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -19,11 +20,13 @@ type FileOperations = Readonly<{
   mkdir: (path: string, options: Readonly<{ recursive: true; mode: number }>) => Promise<string | undefined>;
   readFile: (path: string, encoding: "utf8") => Promise<string>;
   rename: (oldPath: string, newPath: string) => Promise<void>;
-  stat: (path: string) => Promise<Readonly<{ mode: number }>>;
-  writeFile: (path: string, data: string, options: Readonly<{ encoding: "utf8"; mode: number }>) => Promise<void>;
+  lstat: typeof lstat;
+  open: typeof open;
+  unlink: typeof unlink;
+  writeFile: (path: string, data: string, options: Readonly<{ encoding: "utf8"; mode: number; flag: "wx" }>) => Promise<void>;
 }>;
 
-const files: FileOperations = { chmod, mkdir, readFile, rename, stat, writeFile };
+const files: FileOperations = { chmod, lstat, mkdir, open, readFile, rename, unlink, writeFile };
 
 /** POSIX mode bits cannot establish owner-only access on Windows. */
 export const requireFileCredentialSupport = (platform: NodeJS.Platform = process.platform): void => {
@@ -48,8 +51,13 @@ const isCredentials = (value: unknown): value is StoredCredentials =>
   && typeof (value as Record<string, unknown>).refreshToken === "string"
   && typeof (value as Record<string, unknown>).scope === "string";
 
+const parseStoredJson = (value: string): unknown => {
+  try { return JSON.parse(value) as unknown; }
+  catch { throw new Error("Stored BizYeet credentials are invalid."); }
+};
+
 const parseCollection = <T>(value: string, predicate: (item: unknown) => item is T): Readonly<Record<string, T>> => {
-  const parsed: unknown = JSON.parse(value);
+  const parsed = parseStoredJson(value);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("Stored BizYeet credentials are invalid.");
   const entries = Object.entries(parsed);
   if (!entries.every(([name, item]) => profilePattern.test(name) && predicate(item))) throw new Error("Stored BizYeet credentials are invalid.");
@@ -84,14 +92,26 @@ const readCollection = async <T>(path: string, predicate: (item: unknown) => ite
   }
 };
 
-const writePrivateJson = async (path: string, value: unknown, operations: FileOperations): Promise<void> => {
+const assertPrivateDirectory = async (directory: string, operations: FileOperations): Promise<void> => {
+  const metadata = await operations.lstat(directory);
+  if (!metadata.isDirectory() || metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0) {
+    throw new Error("Credential fallback directory is unsafe; expected an owner-only directory with mode 0700.");
+  }
+};
+
+const writePrivateJson = async (path: string, value: unknown, operations: FileOperations, secret = false): Promise<void> => {
   const directory = dirname(path);
   const temporaryPath = join(directory, `.${randomUUID()}.tmp`);
   await operations.mkdir(directory, { recursive: true, mode: 0o700 });
-  await operations.writeFile(temporaryPath, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 });
-  await operations.chmod(temporaryPath, 0o600);
-  await operations.rename(temporaryPath, path);
-  await operations.chmod(path, 0o600);
+  if (secret) await assertPrivateDirectory(directory, operations);
+  // Exclusive creation cannot follow or overwrite a pre-existing temporary path.
+  await operations.writeFile(temporaryPath, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  try {
+    await operations.chmod(temporaryPath, 0o600);
+    await operations.rename(temporaryPath, path);
+  } finally {
+    await operations.unlink(temporaryPath).catch((error: unknown) => { if (!isMissing(error)) throw error; });
+  }
 };
 
 /** Reads non-secret profile metadata. Profiles deliberately never contain an OAuth token. */
@@ -107,12 +127,23 @@ export const saveProfile = async (name: string, profile: Profile, paths: ReturnT
 /** Reads the permission-checked headless fallback credential file. */
 export const readFallbackCredentials = async (paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<CredentialCollection> => {
   try {
-    const metadata = await operations.stat(paths.credentials);
+    // Preserve absent-file cleanup on Windows, where plaintext is never allowed.
+    await operations.lstat(paths.credentials);
     requireFileCredentialSupport();
-    if ((metadata.mode & 0o077) !== 0) throw new Error("Credential fallback file permissions are unsafe; expected mode 0600.");
-    return parseCollection(await operations.readFile(paths.credentials, "utf8"), isCredentials);
+    await assertPrivateDirectory(paths.directory, operations);
+    const handle = await operations.open(paths.credentials, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const metadata = await handle.stat();
+      if (!metadata.isFile() || metadata.nlink !== 1 || metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0) {
+        throw new Error("Credential fallback file permissions are unsafe; expected an owner-only regular file with mode 0600.");
+      }
+      return parseCollection(await handle.readFile("utf8"), isCredentials);
+    } finally { await handle.close(); }
   } catch (error) {
     if (isMissing(error)) return emptyCredentials;
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ELOOP") {
+      throw new Error("Credential fallback file must not be a symbolic link.", { cause: error });
+    }
     throw error;
   }
 };
@@ -121,7 +152,7 @@ export const readFallbackCredentials = async (paths: ReturnType<typeof profilePa
 export const saveFallbackCredentials = async (name: string, credentials: StoredCredentials, paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<void> => {
   requireFileCredentialSupport();
   const existing = await readFallbackCredentials(paths, operations);
-  await writePrivateJson(paths.credentials, { ...existing, [profileName(name)]: credentials }, operations);
+  await writePrivateJson(paths.credentials, { ...existing, [profileName(name)]: credentials }, operations, true);
 };
 
 /** Removes one profile's fallback credentials without changing any other profile. */
@@ -130,5 +161,5 @@ export const removeFallbackCredentials = async (name: string, paths: ReturnType<
   const existing = await readFallbackCredentials(paths, operations);
   if (!Object.hasOwn(existing, normalized)) return;
   const retained = Object.fromEntries(Object.entries(existing).filter(([key]) => key !== normalized));
-  await writePrivateJson(paths.credentials, retained, operations);
+  await writePrivateJson(paths.credentials, retained, operations, true);
 };

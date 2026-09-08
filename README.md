@@ -66,8 +66,12 @@ The browser flow uses an ephemeral `127.0.0.1` callback with a fresh PKCE
 challenge and state. The device flow prints its verification URI and user code
 to stderr. Successful token values are never printed. Where the platform has a
 native credential service, the CLI stores credentials there. On POSIX systems,
-an unavailable service permits the owner-only file fallback, with permissions
-checked before reading credentials. Windows requires its native credential
+an unavailable service permits the owner-only file fallback. It requires an
+owner-owned mode-0700 configuration directory and an owner-owned mode-0600
+regular credential file; symbolic links and multiply linked files are rejected.
+Permissions and ownership are checked on the same open file that is read.
+Do not place the configuration directory inside an untrusted/shared writable
+parent. Windows requires its native credential
 manager: POSIX mode bits do not prove owner-only Windows access, so plaintext
 fallback is refused. A locked credential service fails closed rather than
 copying a token to a fallback file.

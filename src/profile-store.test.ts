@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, chmod as changeMode, stat, writeFile } from "node:fs/promises";
+import * as fileSystem from "node:fs/promises";
+import { mkdtemp, chmod as changeMode, link, mkdir, rename, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -56,4 +57,61 @@ void test("rejects path-like and uppercase profile names", (): void => {
     assert.throws(() => profileName(name));
   });
   assert.equal(profileName(undefined), "default");
+});
+
+void test("rejects symbolic links and multiply linked credential files", { skip: process.platform === "win32" }, async (): Promise<void> => {
+  const paths = await temporaryPaths();
+  await mkdir(paths.directory, { recursive: true, mode: 0o700 });
+  const target = join(paths.directory, "original.json");
+  await writeFile(target, "{}", { mode: 0o600 });
+  await symlink(target, paths.credentials);
+  await assert.rejects(readFallbackCredentials(paths), /must not be a symbolic link/u);
+  await fileSystem.unlink(paths.credentials);
+  await link(target, paths.credentials);
+  await assert.rejects(readFallbackCredentials(paths), /permissions are unsafe/u);
+});
+
+void test("rejects a shared or symlinked fallback directory before reading or saving secrets", { skip: process.platform === "win32" }, async (): Promise<void> => {
+  const paths = await temporaryPaths();
+  await mkdir(paths.directory, { recursive: true, mode: 0o700 });
+  await writeFile(paths.credentials, "{}", { mode: 0o600 });
+  await changeMode(paths.directory, 0o755);
+  await assert.rejects(readFallbackCredentials(paths), /directory is unsafe/u);
+  await assert.rejects(saveFallbackCredentials("default", { accessToken: "synthetic", expiresAt: "2099-01-01", refreshToken: "synthetic", scope: "customers.read" }, paths), /directory is unsafe/u);
+  await changeMode(paths.directory, 0o700);
+  const moved = `${paths.directory}-original`;
+  await rename(paths.directory, moved);
+  await symlink(moved, paths.directory);
+  await assert.rejects(readFallbackCredentials(paths), /directory is unsafe/u);
+});
+
+void test("validates and reads the same open file when its pathname is replaced", { skip: process.platform === "win32" }, async (): Promise<void> => {
+  const paths = await temporaryPaths();
+  await mkdir(paths.directory, { recursive: true, mode: 0o700 });
+  await writeFile(paths.credentials, "{}", { mode: 0o600 });
+  const operations = {
+    ...fileSystem,
+    open: async (...args: Parameters<typeof fileSystem.open>): ReturnType<typeof fileSystem.open> => {
+      const handle = await fileSystem.open(...args);
+      await rename(paths.credentials, `${paths.credentials}.original`);
+      await writeFile(paths.credentials, "untrusted replacement", { mode: 0o644 });
+      return handle;
+    },
+  };
+  assert.deepEqual(await readFallbackCredentials(paths, operations), {});
+  await assert.rejects(readFallbackCredentials(paths), /permissions are unsafe/u);
+});
+
+void test("rejects non-files and hides parser excerpts from malformed credential JSON", { skip: process.platform === "win32" }, async (): Promise<void> => {
+  const paths = await temporaryPaths();
+  await mkdir(paths.credentials, { recursive: true, mode: 0o700 });
+  await assert.rejects(readFallbackCredentials(paths), /permissions are unsafe/u);
+  await fileSystem.rmdir(paths.credentials);
+  await writeFile(paths.credentials, "synthetic-refresh-token-not-json", { mode: 0o600 });
+  await assert.rejects(readFallbackCredentials(paths), (error: unknown): boolean => {
+    assert.ok(error instanceof Error);
+    assert.equal(error.message, "Stored BizYeet credentials are invalid.");
+    assert.equal(error.cause, undefined);
+    return true;
+  });
 });
