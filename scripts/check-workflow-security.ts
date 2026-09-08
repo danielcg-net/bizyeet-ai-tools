@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
+import { permitsTrustedAttestation } from "./provenance-policy.js";
 
 type Workflow = Readonly<Record<string, unknown>>;
 
@@ -47,9 +48,10 @@ const hasLeastPrivilegePermissions = (permissions: unknown): boolean =>
     ([scope, access]) => typeof access === "string" && permittedPermissions[scope]?.includes(access) === true,
   );
 
-const jobPermissionsAreSafe = (jobs: unknown): boolean =>
-  isRecord(jobs) && Object.values(jobs).every((job) =>
-    isRecord(job) && (!("permissions" in job) || hasLeastPrivilegePermissions(job.permissions)),
+const jobPermissionsAreSafe = (fileName: string, workflow: Workflow): boolean =>
+  isRecord(workflow.jobs) && Object.entries(workflow.jobs).every(([jobId, job]) =>
+    isRecord(job) && (!("permissions" in job) || hasLeastPrivilegePermissions(job.permissions)
+      || permitsTrustedAttestation(fileName, workflow, jobId, job)),
   );
 
 const triggerNames = (value: unknown): readonly string[] =>
@@ -80,7 +82,7 @@ export const validateWorkflow = (fileName: string, source: string): readonly str
     ...(triggerNames(workflow.on).includes("pull_request_target") ? [`${fileName}: pull_request_target is forbidden`] : []),
     ...(jobUsesSelfHostedRunner(workflow.jobs) ? [`${fileName}: self-hosted runners are forbidden`] : []),
     ...(!hasLeastPrivilegePermissions(workflow.permissions) ? [`${fileName}: permissions must use the approved least-privilege mapping`] : []),
-    ...(!jobPermissionsAreSafe(workflow.jobs) ? [`${fileName}: job permissions must use the approved least-privilege mapping`] : []),
+    ...(!jobPermissionsAreSafe(fileName, workflow) ? [`${fileName}: job permissions must use the approved least-privilege mapping`] : []),
     ...invalidActionReferences.map((reference) => `${fileName}: action must use a full commit SHA (${reference})`),
   ];
 };
