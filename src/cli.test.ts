@@ -4,6 +4,19 @@ import test from "node:test";
 import { isCliEntrypoint, run } from "./cli.js";
 import { agentFailure } from "./agent-error.js";
 
+void test("never reflects credential parser failures in auth or business command output", async () => {
+  const storage: Parameters<typeof run>[1] = {
+    readCredentials: () => Promise.reject(new SyntaxError('Unexpected token: {"accessToken":"secret-access","refreshToken":"secret-refresh"} is invalid JSON')),
+    readProfiles: () => Promise.resolve({ default: { clientId: "public-client", issuer: "https://example.test" } }),
+    removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(), saveProfile: () => Promise.resolve(),
+  };
+  await Promise.all([["auth", "status"], ["auth", "check"], ["auth", "logout"], ["customers", "list"]].map(async (args) => {
+    const result = await run(args, storage);
+    assert.notEqual(result.exitCode, 0);
+    assert.doesNotMatch(result.message, /secret-access|secret-refresh|accessToken|refreshToken/u);
+  }));
+});
+
 void test("CLI preserves canonical error codes, retryability and correlation without credentials", async () => {
   const requestId = "12345678-1234-1234-1234-123456789abc";
   const failure = agentFailure(400, { error: { code: "invalid_cursor", request_id: requestId, retryable: false,
@@ -41,6 +54,17 @@ void test("reports the packaged version without reading credentials", async (): 
 
   assert.equal(result.exitCode, 0);
   assert.match(result.message, /"version":"0\.0\.0-development"/u);
+});
+
+void test("explicit JSON mode works for help and version and rejects duplicate flags", async () => {
+  const help = await run(["--help", "--json"]);
+  assert.equal(help.exitCode, 0);
+  assert.doesNotThrow(() => JSON.parse(help.message));
+  assert.match(help.message, /"help":/u);
+  const version = await run(["--json", "--version"]);
+  assert.equal(version.exitCode, 0);
+  assert.doesNotThrow(() => JSON.parse(version.message));
+  assert.equal((await run(["--json", "--version", "--json"])).exitCode, 2);
 });
 
 void test("auth check uses the selected profile and persists refreshed credentials before reporting server verification", async () => {

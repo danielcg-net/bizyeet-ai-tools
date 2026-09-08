@@ -71,6 +71,7 @@ const helpMessage = [
   "       bizyeet --version",
   "Authentication uses OAuth with PKCE only; API keys, personal access tokens, and passwords are not accepted.",
   "All command output is structured JSON. OAuth token material is never printed.",
+  "JSON is the default; an explicit --json may precede the command or follow its arguments.",
 ].join("\n");
 
 const packageVersion = (): string => {
@@ -92,6 +93,18 @@ const result = (exitCode: number, message: string, stream: CliResult["stream"]):
 const output = (data: Readonly<Record<string, unknown>>): CliResult => result(0, envelope(data), "stdout");
 const invalidInput = (message: string): CliResult => result(2, errorEnvelope("invalid_request", message), "stderr");
 const authenticationRequired = (): CliResult => result(3, errorEnvelope("authentication_required", "Run auth login before using this profile."), "stderr");
+
+const safeValidationMessages = new Set([
+  "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.",
+  "Search is limited to 120 characters.", "Requested fields are invalid.",
+  "Use --profile once with a valid profile name.", "Profile names use lowercase letters, digits, and hyphens only.",
+  "Stored BizYeet credentials are invalid.", "Credential fallback file permissions are unsafe; expected mode 0600.",
+  "customers list accepts --cursor, --fields, --limit, --profile, and --search only.",
+  "customers get requires one opaque ID and optional --profile.",
+  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope"].map((option) => `Use ${option} once with a value.`),
+]);
+const safeLocalMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error && safeValidationMessages.has(error.message) ? error.message : fallback;
 
 const valuesFor = (args: readonly string[], option: string): readonly string[] =>
   args.flatMap((argument, index) => argument === option ? [args[index + 1] ?? ""] : []);
@@ -126,7 +139,7 @@ const status = async (args: readonly string[], dependencies: CliStorage): Promis
       scope: current.scope,
     });
   } catch (error) {
-    return invalidInput(error instanceof Error ? error.message : "Invalid auth status request.");
+    return invalidInput(safeLocalMessage(error, "Could not read this profile. Check credential storage and configuration."));
   }
 };
 
@@ -143,7 +156,7 @@ const logout = async (args: readonly string[], dependencies: CliStorage, executi
     await dependencies.removeCredentials(name);
     return output({ logged_out: true, profile: name, revocation: remoteRevoked ? "confirmed" : "local_only" });
   } catch (error) {
-    return invalidInput(error instanceof Error ? error.message : "Invalid logout request.");
+    return invalidInput(safeLocalMessage(error, "Could not clear this profile. Check credential storage and configuration."));
   }
 };
 
@@ -171,7 +184,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
     ]);
     return output({ authenticated: true, expires_at: completed.credentials.expiresAt, issuer: completed.profile.issuer, profile: profileNameValue, scope: completed.credentials.scope });
   } catch (error) {
-    return result(3, errorEnvelope("authentication_required", error instanceof Error ? error.message : "OAuth login failed."), "stderr");
+    return result(3, errorEnvelope("authentication_required", safeLocalMessage(error, "OAuth login failed. Check the issuer, approval status and credential storage, then try again.")), "stderr");
   }
 };
 
@@ -207,7 +220,7 @@ const requestFailure = (error: unknown): CliResult => {
     message: agentFailureMessage(failure), request_id: failure.requestId, retryable: failure.retryable, details: {},
   } }), "stderr");
   const message = error instanceof Error ? error.message : "The agent request failed.";
-  if (/must be|invalid|Cursor|Customer ID|Search|fields/u.test(message)) return invalidInput(message);
+  if (safeValidationMessages.has(message)) return invalidInput(message);
   if (message.includes("session expired") || message.includes("auth login") || message.includes("OAuth refresh")) return authenticationRequired();
   if (message.includes("authorization_denied")) return result(4, errorEnvelope("authorization_denied", "You do not have permission for this operation."), "stderr");
   if (message.includes("not_found") || message.includes("conflict")) return result(6, errorEnvelope("not_found", "The requested resource is unavailable."), "stderr");
@@ -254,6 +267,13 @@ const customers = async (args: readonly string[], dependencies: CliStorage, exec
 
 /** Resolves a CLI invocation without printing OAuth credentials or mutating user input. */
 export const run = async (args: readonly string[], dependencies: CliStorage = storage, execution: CliRuntime = runtime, onVerification: (device: DeviceAuthorization) => void = () => undefined): Promise<CliResult> => {
+  if (args[0] === "--json" || args.at(-1) === "--json") {
+    const normalized = args[0] === "--json" ? args.slice(1) : args.slice(0, -1);
+    if (normalized.includes("--json")) return invalidInput("Use --json only once.");
+    const resolved = await run(normalized, dependencies, execution, onVerification);
+    return resolved.exitCode === 0 && (normalized.length === 0 || normalized.includes("--help") || normalized.includes("-h"))
+      ? output({ help: resolved.message }) : resolved;
+  }
   const [first, second] = args;
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) return result(0, helpMessage, "stdout");
