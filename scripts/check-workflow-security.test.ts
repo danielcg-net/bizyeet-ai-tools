@@ -23,3 +23,22 @@ void test("accepts a quoted immutable action reference", (): void => {
 
   assert.deepEqual(validateWorkflow("test.yml", source), []);
 });
+
+void test("rejects privileged pull request triggers in all valid YAML forms", (): void => {
+  ["on: pull_request_target", "on: [push, pull_request_target]", "on:\n  pull_request_target:\n    types: [opened]", "\"on\":\n  pull_request_target:"].forEach((trigger) => {
+    assert.deepEqual(validateWorkflow("test.yml", `${trigger}\n${workflow("  check:\n    runs-on: ubuntu-latest\n")}`), ["test.yml: pull_request_target is forbidden"]);
+  });
+});
+
+void test("rejects job permission escalation even with safe workflow defaults", (): void => {
+  ["write-all", "{ contents: write }", "{ id-token: write }", "{ packages: write }"].forEach((permissions) => {
+    assert.deepEqual(validateWorkflow("test.yml", workflow(`  check:\n    runs-on: ubuntu-latest\n    permissions: ${permissions}\n`)), ["test.yml: job permissions must use the approved least-privilege mapping"]);
+  });
+  assert.deepEqual(validateWorkflow("test.yml", workflow("  check:\n    runs-on: ubuntu-latest\n    permissions: {}\n")), []);
+});
+
+void test("requires immutable references for reusable workflows as well as steps", (): void => {
+  const reference = "example/security/.github/workflows/check.yml";
+  assert.deepEqual(validateWorkflow("test.yml", workflow(`  check:\n    uses: ${reference}@main\n`)), [`test.yml: action must use a full commit SHA (${reference}@main)`]);
+  assert.deepEqual(validateWorkflow("test.yml", workflow(`  check:\n    uses: ${reference}@${"a".repeat(40)}\n`)), []);
+});
