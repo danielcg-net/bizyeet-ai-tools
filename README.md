@@ -87,6 +87,42 @@ never replace them with URLs, database IDs, or tenant identifiers. All command
 results use the versioned BizYeet JSON envelope on stdout. Diagnostics and
 errors use stderr with deterministic exit codes.
 
+## Preview and approve a customer update
+
+This draft CLI includes customer update commands; the matching server endpoints
+must be available on the selected issuer. They require `customers.write` and
+the server's current provider/role policy. Unsupported provider operations fail
+explicitly; the CLI never selects a different database.
+
+Supply a JSON object of proposed changed fields through stdin, not argument values:
+
+```sh
+bizyeet customers update preview "$CUSTOMER_ID" --input-stdin < changes.json
+```
+
+Open the returned `approval_path` on the selected issuer in your signed-in
+dashboard. Review the proposed change and approve or deny it there. Opening
+the page or approving does not itself update the customer.
+
+Generate and retain one UUID execution key. Then run:
+
+```sh
+bizyeet customers update execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Paste the dashboard receipt into the hidden terminal prompt. It is not echoed,
+stored by the CLI or accepted as an argument. Headless harnesses may use
+`--receipt-stdin` with a private pipe; never construct an inline shell command,
+environment variable or chat message containing the receipt. Keep harness input
+logging disabled for this secret channel. Preview JSON is capped at 16 KiB;
+receipt input is one 43-character value with an optional line ending.
+
+Execution does not automatically retry, even after a token denial. Refreshing
+expired credentials happens before dispatch. If the result is uncertain, verify
+the existing execution; do not create a new preview or idempotency key to repeat
+the change. An exact same-key request can only replay the server's recorded
+outcome or report an in-progress/uncertain state.
+
 ## Planned surfaces
 
 - OAuth-protected Streamable HTTP MCP tools for Codex and compatible harnesses.

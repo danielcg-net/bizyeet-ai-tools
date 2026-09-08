@@ -14,6 +14,12 @@ Never advertise them as retryable, generate a replacement idempotency key or
 silently submit a new preview. Only documented safe result fields are returned;
 unexpected receipt fields and nested/private record fields must not leak.
 
-These are transport/session functions, not yet a shipped CLI command workflow.
-Remaining work includes bounded secret-safe input, command parsing/discovery,
-installed-command and real server integration tests, and review/delivery gates.
+CLI commands are customers update preview (JSON changes via --input-stdin) and
+customers update execute (preview UUID plus caller-owned --idempotency-key).
+Receipt entry uses hidden raw-mode terminal input or explicit --receipt-stdin.
+No receipt argv/environment/file-path flag. Restore terminal mode on completion
+and Ctrl+C, bound pipe bytes and timeout, and never reflect parser diagnostics.
+Installed package tests exercise piped preview/execute over trusted local HTTPS.
+Real terminal manual checks verify no echo and mode restoration on success/cancel.
+Remaining: integrated real server/CLI browser proof, cross-platform new-head CI
+and review/release gates. Draft implementation is not a publication/deployment.

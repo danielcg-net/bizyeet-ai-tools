@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { launchBrowser } from "./browser.js";
-import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
+import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore } from "./credential-store.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, revokeRefreshToken } from "./oauth.js";
@@ -26,6 +27,10 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  previewCustomerUpdate?: (input: Omit<Parameters<typeof previewCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeCustomerUpdate?: (input: Omit<Parameters<typeof executeCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  readChanges?: typeof readChanges;
+  readApprovalReceipt?: typeof readApprovalReceipt;
   checkIdentity?: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
   listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
@@ -43,6 +48,10 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  readChanges,
+  readApprovalReceipt,
+  previewCustomerUpdate: async (input) => previewCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: await discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeCustomerUpdate: async (input) => executeCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: await discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
     const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -68,6 +77,11 @@ const helpMessage = [
   "       auth status inspects local credentials; auth check verifies current server access.",
   "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>]",
   "       bizyeet customers get <opaque-id> [--profile <name>]",
+  "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
+  "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "Preview reads a bounded JSON changes object from stdin; review its approval_path in your signed-in dashboard.",
+  "Execution prompts for a hidden approval receipt. Harnesses use a private pipe with --receipt-stdin; never put receipts in commands, shell history or chat.",
+  "Generate and retain one UUID idempotency key for this execution. Never replace it to recover an uncertain outcome.",
   "       bizyeet --version",
   "       bizyeet diagnostics (local runtime and manual-update guidance; no network or credentials)",
   "Authentication uses OAuth with PKCE or Device Authorization; API keys, personal access tokens, and passwords are not accepted.",
@@ -103,13 +117,16 @@ const invalidInput = (message: string): CliResult => result(2, errorEnvelope("in
 const authenticationRequired = (): CliResult => result(3, errorEnvelope("authentication_required", "Run auth login before using this profile."), "stderr");
 
 const safeValidationMessages = new Set([
+  "Write input is invalid, oversized, cancelled or expired.",
+  "Preview changes require piped JSON with --input-stdin.",
+  "Use hidden terminal entry, or --receipt-stdin with a pipe.",
   "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.",
   "Search is limited to 120 characters.", "Requested fields are invalid.",
   "Use --profile once with a valid profile name.", "Profile names use lowercase letters, digits, and hyphens only.",
   "Stored BizYeet credentials are invalid.", "Credential fallback file permissions are unsafe; expected mode 0600.",
   "customers list accepts --cursor, --fields, --limit, --profile, and --search only.",
   "customers get requires one opaque ID and optional --profile.",
-  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope"].map((option) => `Use ${option} once with a value.`),
+  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key"].map((option) => `Use ${option} once with a value.`),
 ]);
 const safeLocalMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && safeValidationMessages.has(error.message) ? error.message : fallback;
@@ -259,6 +276,7 @@ const customerResourceId = (args: readonly string[]): string => {
 
 const customers = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
+  if (command === "update") return customerUpdate(options, dependencies, execution);
   try {
     const listOptions = command === "list" ? customerListOptions(options) : undefined;
     const resourceId = command === "get" ? customerResourceId(options) : undefined;
@@ -271,6 +289,31 @@ const customers = async (args: readonly string[], dependencies: CliStorage, exec
   } catch (error) {
     return requestFailure(error);
   }
+};
+
+const customerUpdate = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const [mode, id, ...options] = args;
+  if (mode !== "preview" && mode !== "execute") return invalidInput("Use customers update preview or execute.");
+  if (!id || !/^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,512}$/u.test(id)) return invalidInput("Customer ID is invalid.");
+  if (!hasOnlyOptions(options, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"], mode === "preview" ? ["--input-stdin"] : ["--receipt-stdin"])) return invalidInput("Unsupported update option. Receipts and changes must never be passed as argument values.");
+  if (options.filter((value) => value === "--input-stdin" || value === "--receipt-stdin").length > 1) return invalidInput("Use each input flag only once.");
+  if (mode === "preview" && !options.includes("--input-stdin")) return invalidInput("Preview changes require piped JSON with --input-stdin.");
+  try {
+    const key = mode === "execute" ? oneOption(options, "--idempotency-key") : "";
+    const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu;
+    if (mode === "execute" && (!uuid.test(id) || !uuid.test(key))) return invalidInput("Execution requires a preview UUID and --idempotency-key UUID.");
+    const selected = await authenticatedProfile(options, dependencies);
+    if ("exitCode" in selected) return selected;
+    const session = { credentials: selected.credentials, profile: selected.profile,
+      persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
+    if (mode === "preview") {
+      if (!execution.readChanges || !execution.previewCustomerUpdate) throw new Error("Write runtime unavailable");
+      return resourceOutput(await execution.previewCustomerUpdate({ ...session, proposal: { resource_id: id, changes: await execution.readChanges() } }));
+    }
+    if (!execution.readApprovalReceipt || !execution.executeCustomerUpdate) throw new Error("Write runtime unavailable");
+    return resourceOutput(await execution.executeCustomerUpdate({ ...session, approval: { preview_id: id, idempotency_key: key,
+      approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
+  } catch (error) { return requestFailure(error); }
 };
 
 /** Resolves a CLI invocation without printing OAuth credentials or mutating user input. */
