@@ -8,6 +8,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "release:preflight": "npm run build && node dist/scripts/release-candidate.js",
+    "release:verify": "npm run build && node dist/scripts/release-artifacts.js",
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/src/*.test.js dist/scripts/*.test.js dist/.github/scripts/validate-youtrack-delivery-policy.test.js",
@@ -21,6 +23,7 @@
   },
   "files": [
     "dist",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE",
     "SECURITY.md"
