@@ -1,5 +1,5 @@
 import { nativeKeychain, type Keychain } from "./keychain.js";
-import { readFallbackCredentials, removeFallbackCredentials, saveFallbackCredentials, type CredentialCollection, type StoredCredentials } from "./profile-store.js";
+import { readFallbackCredentials, removeFallbackCredentials, requireFileCredentialSupport, saveFallbackCredentials, type CredentialCollection, type StoredCredentials } from "./profile-store.js";
 
 export type CredentialStore = Readonly<{
   read: (profile?: string) => Promise<CredentialCollection>;
@@ -19,6 +19,16 @@ const fallback: FallbackStore = {
   save: saveFallbackCredentials,
 };
 
+type StoreOptions = Readonly<{ mode?: () => string | undefined; platform?: NodeJS.Platform }>;
+
+const explicitlyUsesFile = (options: StoreOptions): boolean => {
+  const mode = options.mode?.();
+  if (mode === undefined || mode === "auto") return false;
+  if (mode !== "file") throw new Error("BIZYEET_CREDENTIAL_STORE must be auto or file.");
+  requireFileCredentialSupport(options.platform);
+  return true;
+};
+
 const unavailableKeychain = (error: unknown): boolean =>
   error instanceof Error
   // Only an explicit unavailable-backend result permits a downgrade. The word
@@ -34,17 +44,20 @@ const keychainOrFallback = async <T>(keychainOperation: () => Promise<T>, fallba
   }
 };
 
-/** Prefers the OS credential store, with the owner-only file used only when no secure service is available. */
-export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallbackStore: FallbackStore = fallback): CredentialStore => ({
+/** Prefer native storage; file mode is an explicit operator choice, never inferred from denied access. */
+export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallbackStore: FallbackStore = fallback, options: StoreOptions = {}): CredentialStore => ({
   read: async (profile = "default"): Promise<CredentialCollection> => {
+    if (explicitlyUsesFile(options)) return fallbackStore.read();
     const stored = await keychainOrFallback(() => keychain.read(profile), () => Promise.resolve(undefined));
     return stored === undefined ? fallbackStore.read() : { [profile]: stored };
   },
   remove: async (profile): Promise<void> => {
+    if (explicitlyUsesFile(options)) return fallbackStore.remove(profile);
     await keychainOrFallback(() => keychain.remove(profile), () => Promise.resolve());
     await fallbackStore.remove(profile);
   },
   save: async (profile, credentials): Promise<void> => {
+    if (explicitlyUsesFile(options)) return fallbackStore.save(profile, credentials);
     const storedSecurely = await keychainOrFallback(
       async () => {
         await keychain.save(profile, credentials);
@@ -57,4 +70,4 @@ export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallb
   },
 });
 
-export const credentialStore = createCredentialStore();
+export const credentialStore = createCredentialStore(nativeKeychain, fallback, { mode: () => process.env.BIZYEET_CREDENTIAL_STORE });

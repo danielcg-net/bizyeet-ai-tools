@@ -76,6 +76,20 @@ manager: POSIX mode bits do not prove owner-only Windows access, so plaintext
 fallback is refused. A locked credential service fails closed rather than
 copying a token to a fallback file.
 
+Headless POSIX harnesses whose native service denies access can explicitly set
+`BIZYEET_CREDENTIAL_STORE=file` in their trusted launch environment. This selects
+the same permission-checked file store for login, refresh, reads and logout; it
+does not probe, copy or delete native credentials. Use a dedicated profile and
+a trusted private `XDG_CONFIG_HOME`, keep this setting consistent for that
+profile, and perform OAuth login normally. These files are plaintext: protect
+them from backups, artifacts, shared volumes and other workspace processes.
+They are not a defense against a process already running as the same OS user.
+The default `auto` mode is unchanged and never interprets locked/denied access
+as permission to downgrade. File mode remains forbidden on Windows. An unknown
+setting fails closed without echoing its value. Switching modes is not a
+credential migration; logout only revokes/removes the selected store's grant
+in file mode, so manage any separate native profile independently.
+
 ## Bounded read commands
 
 The V1 client intentionally exposes explicit business commands only. It has no

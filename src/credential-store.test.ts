@@ -34,6 +34,37 @@ const fallback = (overrides: Partial<Readonly<{
   ...overrides,
 });
 
+void test("explicit POSIX file mode never queries or copies the native store", async (context): Promise<void> => {
+  const forbidden = (): Promise<never> => Promise.reject(new Error("Native store must not run."));
+  const read = context.mock.fn(() => Promise.resolve({ automation: credentials }));
+  const save = context.mock.fn(() => Promise.resolve());
+  const remove = context.mock.fn(() => Promise.resolve());
+  const stored = createCredentialStore(keychain({ read: forbidden, save: forbidden, remove: forbidden }),
+    { read, save, remove }, { mode: () => "file", platform: "linux" });
+  assert.deepEqual(await stored.read("automation"), { automation: credentials });
+  await stored.save("automation", credentials);
+  await stored.remove("automation");
+  assert.equal(read.mock.callCount(), 1);
+  assert.deepEqual(save.mock.calls[0]?.arguments, ["automation", credentials]);
+  assert.deepEqual(remove.mock.calls[0]?.arguments, ["automation"]);
+});
+
+[
+  { mode: "file", platform: "win32" as const, message: /Windows OAuth credentials/u },
+  { mode: "FILE", platform: "linux" as const, message: /must be auto or file/u },
+  { mode: "", platform: "linux" as const, message: /must be auto or file/u },
+  { mode: "untrusted-secret-value", platform: "linux" as const, message: /must be auto or file/u },
+].forEach(({ mode, platform, message }) => {
+  void test(`rejects invalid credential mode ${mode} on ${platform} before store access`, async (): Promise<void> => {
+    const forbidden = (): Promise<never> => Promise.reject(new Error("No store may be accessed."));
+    const stored = createCredentialStore(keychain({ read: forbidden, save: forbidden, remove: forbidden }),
+      fallback({ read: forbidden, save: forbidden, remove: forbidden }), { mode: () => mode, platform });
+    await assert.rejects(stored.read(), message);
+    await assert.rejects(stored.save("default", credentials), message);
+    await assert.rejects(stored.remove("default"), message);
+  });
+});
+
 void test("prefers an OS credential store and removes an old fallback token after saving", async (): Promise<void> => {
   const removed: string[] = [];
   const stored = createCredentialStore(keychain({

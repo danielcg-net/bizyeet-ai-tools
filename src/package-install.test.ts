@@ -63,7 +63,7 @@ const credentialConfig = async (directory: string, issuer = "https://example.tes
   await writeFile(join(configuration, "profiles.json"), `${JSON.stringify({ [profile]: { clientId: "public-client", issuer } })}\n`, { encoding: "utf8", mode: 0o600 });
   if (process.platform === "win32") await nativeKeychain.save(profile, credentials);
   else await writeFile(join(configuration, "credentials.json"), `${JSON.stringify({ [profile]: credentials })}\n`, { encoding: "utf8", mode: 0o600 });
-  return { ...process.env, XDG_CONFIG_HOME: join(directory, "config") };
+  return { ...process.env, BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") };
 };
 
 const opaqueId = `crm1.${"a".repeat(64)}.customers.synthetic`;

@@ -86,6 +86,7 @@ const helpMessage = [
   "       bizyeet diagnostics (local runtime and manual-update guidance; no network or credentials)",
   "Authentication uses OAuth with PKCE or Device Authorization; API keys, personal access tokens, and passwords are not accepted.",
   "All command output is structured JSON. OAuth token material is never printed.",
+  "Headless POSIX operators may explicitly select BIZYEET_CREDENTIAL_STORE=file; use a dedicated profile and trusted private config directory. Default auto mode never downgrades denied native access.",
   "JSON is the default; an explicit --json may precede the command or follow its arguments.",
 ].join("\n");
 
@@ -117,6 +118,8 @@ const invalidInput = (message: string): CliResult => result(2, errorEnvelope("in
 const authenticationRequired = (): CliResult => result(3, errorEnvelope("authentication_required", "Run auth login before using this profile."), "stderr");
 
 const safeValidationMessages = new Set([
+  "BIZYEET_CREDENTIAL_STORE must be auto or file.",
+  "Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.",
   "Write input is invalid, oversized, cancelled or expired.",
   "Preview changes require piped JSON with --input-stdin.",
   "Use hidden terminal entry, or --receipt-stdin with a pipe.",

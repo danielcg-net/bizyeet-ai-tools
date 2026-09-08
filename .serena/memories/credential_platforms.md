@@ -23,6 +23,16 @@ errors must preserve failure for reads, writes and logout cleanup. Published
 propagate. Its Linux builder tries Secret Service then keyutils. A container
 failure alone is not permission to classify an inaccessible store as absent.
 
+Headless POSIX operators can explicitly select BIZYEET_CREDENTIAL_STORE=file
+in the trusted harness environment. All credential operations then use the
+existing owner-only file implementation without probing/copying/removing native
+entries. Use a dedicated profile and stable private configuration directory;
+switching stores is not migration or logout from the other store. Defaults
+remain auto/native-first and denied native access still fails closed. Reject
+file mode on Windows and reject unknown mode values without echoing them.
+Installed POSIX fixture environments explicitly choose file mode, while Windows
+continues to exercise native storage. Unit tests preserve default denial gates.
+
 Installed package tests use unique synthetic profiles. Windows fixtures use
 the native credential manager and remove their entries afterward; POSIX fixtures
 exercise the permission-checked file path. Never seed a real user's profile.
