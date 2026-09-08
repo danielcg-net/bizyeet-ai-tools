@@ -40,14 +40,14 @@ const exactSchema = Object.freeze({
   properties: Object.freeze({
     api_version: Object.freeze({ const: "v1", type: "string" }),
     fields: Object.freeze({ items: Object.freeze({ maxLength: 64, type: "string" }), maxItems: 20, type: "array" }),
-    id: Object.freeze({ maxLength: 128, minLength: 1, type: "string" }),
+    id: Object.freeze({ maxLength: 512, minLength: 1, type: "string" }),
   }),
   required: Object.freeze(["api_version", "id"]),
   additionalProperties: false,
 });
 
 const oauthReadSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["customers.read"] as const), type: "oauth2" as const })]);
-const listOutputSchema = Object.freeze({ type: "object", properties: Object.freeze({ data: Object.freeze({ type: "object", properties: Object.freeze({ items: Object.freeze({ type: "array", items: Object.freeze({ type: "object" }) }) }), required: Object.freeze(["items"]) }), meta: Object.freeze({ type: "object", properties: Object.freeze({ contract_version: Object.freeze({ const: "v1", type: "string" }), next_cursor: Object.freeze({ type: ["string", "null"] }) }), required: Object.freeze(["contract_version", "next_cursor"]) }) }), required: Object.freeze(["data", "meta"]) });
+const listOutputSchema = Object.freeze({ type: "object", properties: Object.freeze({ data: Object.freeze({ type: "object", properties: Object.freeze({ items: Object.freeze({ type: "array", items: Object.freeze({ type: "object" }) }), total: Object.freeze({ type: "integer", minimum: 0 }) }), required: Object.freeze(["items", "total"]) }), meta: Object.freeze({ type: "object", properties: Object.freeze({ contract_version: Object.freeze({ const: "v1", type: "string" }), next_cursor: Object.freeze({ type: ["string", "null"] }) }), required: Object.freeze(["contract_version", "next_cursor"]) }) }), required: Object.freeze(["data", "meta"]) });
 const resourceOutputSchema = Object.freeze({ type: "object", properties: Object.freeze({ data: Object.freeze({ type: "object" }), meta: Object.freeze({ type: "object", properties: Object.freeze({ contract_version: Object.freeze({ const: "v1", type: "string" }) }), required: Object.freeze(["contract_version"]) }) }), required: Object.freeze(["data", "meta"]) });
 
 /** Essential MCP rules are deliberately self-contained within the first 512 characters. */
