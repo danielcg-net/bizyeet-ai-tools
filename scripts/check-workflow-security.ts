@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 
 type Workflow = Readonly<Record<string, unknown>>;
@@ -85,8 +86,8 @@ export const validateWorkflow = (fileName: string, source: string): readonly str
 };
 
 /** Reads and validates every GitHub Actions workflow in this public repository. */
-export const checkWorkflowSecurity = async (): Promise<readonly string[]> => {
-  const directoryPath = workflowDirectory.pathname;
+export const checkWorkflowSecurity = async (directory: URL = workflowDirectory): Promise<readonly string[]> => {
+  const directoryPath = fileURLToPath(directory);
   const fileNames = (await readdir(directoryPath)).filter((fileName) => workflowExtension.test(fileName));
   const workflows = await Promise.all(fileNames.map(async (fileName) => ({ fileName, source: await readFile(join(directoryPath, fileName), "utf8") })));
 

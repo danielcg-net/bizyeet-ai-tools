@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -24,6 +24,15 @@ export const validateSbom = (value: unknown): void => {
   if (!record(value) || value.bomFormat !== "CycloneDX" || typeof value.specVersion !== "string" || !record(value.metadata) || !record(value.metadata.component)) throw new Error("Invalid CycloneDX SBOM.");
 };
 
+/** Resolve the declared installed command, rejecting missing or escaping bin mappings. */
+export const declaredBinTarget = (metadata: unknown, packageRoot: string): string => {
+  if (!record(metadata) || metadata.name !== "@bizyeet/ai-tools" || !record(metadata.bin) || typeof metadata.bin.bizyeet !== "string" || !/^[A-Za-z0-9._/-]+\.js$/u.test(metadata.bin.bizyeet) || isAbsolute(metadata.bin.bizyeet)) throw new Error("Invalid installed bizyeet command mapping.");
+  const target = resolve(packageRoot, metadata.bin.bizyeet);
+  const path = relative(packageRoot, target);
+  if (path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)) throw new Error("Installed command escapes its package.");
+  return target;
+};
+
 const hashFile = async (path: string): Promise<string> => {
   const hash = createHash("sha256");
   await pipeline(createReadStream(path), hash);
@@ -36,10 +45,21 @@ const npm = async (args: readonly string[], cwd: string): Promise<string> => {
   return (await execute(process.execPath, [cli, ...args], { cwd, timeout: 120_000, maxBuffer: 8 * 1024 * 1024 })).stdout;
 };
 
+/** Remove only generated build output before running the supplied fresh-build gate. */
+export const rebuildForRelease = async (root: string, build: () => Promise<unknown>): Promise<void> => {
+  await rm(join(root, "dist"), { recursive: true, force: true });
+  await build();
+};
+
 /** Build a non-published bundle and smoke-test its installed binary outside the source tree. */
 export const buildArtifactBundle = async (root: string, output: string): Promise<string> => {
   // Never overwrite a prior verification bundle, including through a symlink.
   await mkdir(output, { mode: 0o700 });
+  const metadata: unknown = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  if (!record(metadata) || metadata.name !== "@bizyeet/ai-tools" || typeof metadata.version !== "string") throw new Error("Invalid release package.");
+  // This process has loaded its verifier already. Rebuild all generated output
+  // before tests/packing so ignored files from older revisions cannot survive.
+  await rebuildForRelease(root, (): Promise<string> => npm(["run", "check"], root));
   const packed: unknown = JSON.parse(await npm(["pack", "--json", "--ignore-scripts", "--pack-destination", output], root));
   const filename = packedFileName(packed);
   const archive = join(output, filename);
@@ -50,16 +70,17 @@ export const buildArtifactBundle = async (root: string, output: string): Promise
   const installed = await mkdtemp(join(tmpdir(), "bizyeet-artifact-smoke-"));
   try {
     await npm(["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], installed);
-    const binary = join(installed, "node_modules", "@bizyeet", "ai-tools", "dist", "src", "cli.js");
-    const help = (await execute(process.execPath, [binary, "--help"], { cwd: installed, timeout: 30_000, maxBuffer: 1024 * 1024 })).stdout;
+    const packageRoot = join(installed, "node_modules", "@bizyeet", "ai-tools");
+    const installedMetadata: unknown = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+    await access(declaredBinTarget(installedMetadata, packageRoot));
+    await access(join(installed, "node_modules", ".bin", process.platform === "win32" ? "bizyeet.cmd" : "bizyeet"));
+    const help = await npm(["exec", "--offline", "--no", "--", "bizyeet", "--help"], installed);
     if (!help.includes("OAuth")) throw new Error("Installed CLI help smoke check failed.");
   } finally {
     await rm(installed, { recursive: true, force: true });
   }
   const commit = (await execute("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
   const dirty = (await execute("git", ["status", "--porcelain"], { cwd: root })).stdout.length > 0;
-  const metadata: unknown = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  if (!record(metadata) || typeof metadata.version !== "string") throw new Error("Invalid package version.");
   const manifest = {
     schema_version: 1, package: "@bizyeet/ai-tools", version: metadata.version,
     source: { repository: "https://github.com/danielcg-net/bizyeet-ai-tools", commit, dirty },

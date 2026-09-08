@@ -2,12 +2,15 @@
 
 Run `npm run release:verify` from a clean checkout. It runs the full TypeScript,
 functional-immutability, unit, routing and workflow-security gates, then creates
-a real npm tarball in a fresh `release-artifacts/` directory. The command refuses
+a real npm tarball in a fresh `release-artifacts/` directory. A bootstrap compilation
+loads the verifier, then it removes generated `dist/` output and reruns all normal
+gates before packing, excluding stale ignored files from earlier revisions. The command refuses
 to overwrite an existing bundle. Move a previous bundle elsewhere before rerunning.
 
 The bundle contains the tarball, a production-dependency CycloneDX SBOM,
 `build-manifest.json`, and `SHA256SUMS`. The package is installed into an isolated
-temporary directory and its CLI help is executed there before success. Temporary
+temporary directory; its declared `bin.bizyeet` target and npm-generated shim must
+exist, and its CLI help is executed through offline npm exec before success. Temporary
 installation files are removed; the verification bundle is retained.
 
 The manifest records the source revision and dirty state, lockfile digest,
