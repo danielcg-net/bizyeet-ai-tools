@@ -11,6 +11,19 @@ export type PullRequestCommit = Readonly<{
 /** Identifies the only automated author exempt from human delivery identifiers. */
 export const isTrustedDependabotAuthor = (login: unknown): boolean => login === "dependabot[bot]";
 
+/** Require an actual HTTPS issue URL for the branch's issue, not a lookalike host or label. */
+export const validatePullRequestBody = (issueId: string, body: unknown): readonly string[] => {
+  const candidates = typeof body === "string" ? body.match(/https:\/\/[^\s<>()"`]+/gu) ?? [] : [];
+  const matches = /^bizyeet-\d+$/u.test(issueId) && candidates.some((candidate) => {
+    if (!URL.canParse(candidate)) return false;
+    const url = new URL(candidate);
+    return url.protocol === "https:" && url.hostname === "bizyeet.youtrack.cloud"
+      && url.port === "" && url.username === "" && url.password === ""
+      && url.pathname.replace(/\/$/u, "").toLowerCase() === `/issue/${issueId}`;
+  });
+  return matches ? [] : [`PR body must include https://bizyeet.youtrack.cloud/issue/${issueId.toUpperCase()}.`];
+};
+
 const commitSubject = (message: unknown): string => {
   if (typeof message !== "string") {
     return "(empty message)";

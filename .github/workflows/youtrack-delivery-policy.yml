@@ -52,5 +52,8 @@ jobs:
               pull_number: pull.number,
               per_page: 100,
             });
-            const errors = policy.validateCommitMessages(metadata.issueId, commits);
+            const errors = [
+              ...policy.validatePullRequestBody(metadata.issueId, pull.body),
+              ...policy.validateCommitMessages(metadata.issueId, commits),
+            ];
             if (errors.length > 0) core.setFailed(errors.join("\n"));
