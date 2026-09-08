@@ -10,7 +10,7 @@ const codes = new Set([
   "authentication_required", "authorization_required", "authorization_denied", "invalid_request",
   "not_found", "conflict", "idempotency_conflict", "preview_expired", "approval_required",
   "invalid_cursor", "rate_limited", "internal_error", "provider_unavailable", "request_unavailable",
-  "invalid_response", "unsupported_operation",
+  "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress",
 ]);
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -22,7 +22,8 @@ export const agentFailure = (status: number, body: unknown): AgentFailure => {
   const requestId = typeof error.request_id === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(error.request_id)
     ? error.request_id : crypto.randomUUID();
   return Object.freeze({ kind: "agent_failure", code, status, requestId,
-    retryable: typeof error.retryable === "boolean" ? error.retryable : status === 429 || status >= 500 });
+    retryable: ["execution_ambiguous", "execution_in_progress"].includes(code) ? false
+      : typeof error.retryable === "boolean" ? error.retryable : status === 429 || status >= 500 });
 };
 
 /** Recognizes only the typed internal failure boundary. */
@@ -42,6 +43,7 @@ export const agentFailureExitCode = (failure: AgentFailure): number => {
 
 /** Emits local safe recovery copy; never repeats an upstream error payload. */
 export const agentFailureMessage = (failure: AgentFailure): string => {
+  if (["execution_ambiguous", "execution_in_progress"].includes(failure.code)) return "The write outcome requires verification. Do not retry with a new idempotency key or create a replacement write.";
   if (agentFailureExitCode(failure) === 3) return "Run auth login to reconnect this profile.";
   if (failure.code === "invalid_cursor") return "Start a fresh list request without the expired or incompatible cursor.";
   if (failure.code === "authorization_denied") return "You do not have permission for this operation.";

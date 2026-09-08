@@ -1,6 +1,6 @@
 import { refreshAccessToken, type FetchLike, type OAuthMetadata } from "./oauth.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, type CanonicalCrmClient, type ListOptions } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 
 export type CustomerListOptions = Readonly<{
@@ -67,6 +67,7 @@ const invoke = async (input: Readonly<{
   metadata: OAuthMetadata;
   now: () => number;
   operation: (client: CanonicalCrmClient, credentials: StoredCredentials) => ReturnType<CanonicalCrmClient["list"]>;
+  retryUnauthorized?: boolean;
   persistCredentials: PersistCredentials;
   profile: Profile;
 }>): Promise<AgentResult> => {
@@ -77,7 +78,7 @@ const invoke = async (input: Readonly<{
     request: input.fetcher,
   }), credentials);
   const first = await execute(initial);
-  const refreshed = first.status === 401 && initial === input.credentials
+  const refreshed = input.retryUnauthorized !== false && first.status === 401 && initial === input.credentials
     ? await currentCredentials({ ...input, credentials: { ...input.credentials, expiresAt: new Date(0).toISOString() } })
     : initial;
   const response = first.status === 401 && refreshed !== initial ? await execute(refreshed) : first;
@@ -138,3 +139,20 @@ export const getCustomer = async (input: Readonly<{
   if (!customerIdPattern.test(input.resourceId)) throw new Error("Customer ID is invalid.");
   return invoke({ ...input, operation: (client) => client.get("customers", input.resourceId) });
 };
+
+type WriteSession = Readonly<{
+  credentials: StoredCredentials;
+  fetcher: FetchLike;
+  metadata: OAuthMetadata;
+  now: () => number;
+  persistCredentials: PersistCredentials;
+  profile: Profile;
+}>;
+
+/** Refresh before preview; canonical server owns validation, routing and approval policy. */
+export const previewCustomerUpdate = (input: WriteSession & Readonly<{ proposal: CustomerUpdatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewCustomerUpdate(input.proposal) });
+
+/** Preserve caller-owned idempotency identity and never automatically replay a mutation POST. */
+export const executeCustomerUpdate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeCustomerUpdate(input.approval) });

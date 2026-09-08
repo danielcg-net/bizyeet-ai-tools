@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 
-import { checkIdentity, getCustomer, listCustomers } from "./agent-client.js";
+import { checkIdentity, getCustomer, listCustomers, executeCustomerUpdate } from "./agent-client.js";
 import { isAgentFailure } from "./agent-error.js";
 
 const profile = { clientId: "public-client", issuer: "https://example.test" };
 const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
 const validCredentials = { accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
+
+void test("execution does not refresh and replay after an HTTP denial", async () => {
+  const fetcher = mock.fn(() => Promise.resolve(Response.json({ error: { code: "authorization_required" } }, { status: 401 })));
+  await assert.rejects(executeCustomerUpdate({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,
+    persistCredentials: () => Promise.reject(new Error("Must not refresh after dispatch")),
+    approval: { preview_id: "11111111-1111-4111-8111-111111111111", approval_receipt: "r".repeat(43), idempotency_key: "22222222-2222-4222-8222-222222222222" },
+  }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.status === 401);
+  assert.equal(fetcher.mock.callCount(), 1);
+});
 
 void test("checks server identity without accessing CRM or exposing tokens and user identifiers", async () => {
   const fetcher = mock.fn((url: string, init?: RequestInit) => {
