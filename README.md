@@ -2,6 +2,12 @@
 
 Public CLI, MCP adapter, schemas, and Codex guidance for tenant-authorized BizYeet AI agents.
 
+The shared `createCanonicalCrmClient` transport is available for CLI/MCP adapters
+after their OAuth flow obtains a resource-bound access token. It calls only the
+canonical agent API and preserves server counts, opaque IDs, cursors and errors.
+It does not implement login or add user-facing CLI commands. See the
+[canonical read contract](docs/canonical-crm-contract.md).
+
 ## Security model
 
 The CLI authenticates a human tenant user through OAuth. It never uses API
