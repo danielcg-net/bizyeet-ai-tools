@@ -21,8 +21,9 @@ const fallback: FallbackStore = {
 
 const unavailableKeychain = (error: unknown): boolean =>
   error instanceof Error
-  && !/denied|locked|permission/u.test(error.message)
-  && /backend|keyring|not supported|unavailable/u.test(error.message);
+  // Only an explicit unavailable-backend result permits a downgrade. The word
+  // "keyring" alone also occurs in denied, ambiguous and corrupt-store errors.
+  && /^(?:no (?:keyring|credential) backend is available|(?:keyring|credential) (?:backend|service|store) is (?:unavailable|not supported))\.?$/iu.test(error.message);
 
 const keychainOrFallback = async <T>(keychainOperation: () => Promise<T>, fallbackOperation: () => Promise<T>): Promise<T> => {
   try {

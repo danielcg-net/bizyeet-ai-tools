@@ -15,6 +15,14 @@ defense against another process already running as the same OS user. Atomic
 temporary writes use exclusive creation and clean up after rename failures.
 Malformed JSON must produce a fixed error without parser excerpts or causes.
 
+Never classify every error mentioning keyring as an unavailable backend. Only
+an explicit, anchored unavailable/unsupported backend statement permits file
+fallback. Denied, locked (any capitalization), ambiguous, corrupt, and unknown
+errors must preserve failure for reads, writes and logout cleanup. Published
+@napi-rs/keyring 2.0.0 returns undefined only for NoEntry; other native errors
+propagate. Its Linux builder tries Secret Service then keyutils. A container
+failure alone is not permission to classify an inaccessible store as absent.
+
 Installed package tests use unique synthetic profiles. Windows fixtures use
 the native credential manager and remove their entries afterward; POSIX fixtures
 exercise the permission-checked file path. Never seed a real user's profile.

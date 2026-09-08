@@ -83,3 +83,24 @@ void test("does not downgrade to a file when an available OS credential store is
 
   await assert.rejects(stored.save("default", credentials), /keyring is locked/u);
 });
+
+[
+  "The keyring is Locked.",
+  "Keyring: Permission Denied",
+  "keyring entry is ambiguous",
+  "keyring database is corrupt",
+  "keyring backend is unavailable: permission denied",
+  "Platform secure storage failure: Operation not permitted",
+  "unknown keyring failure",
+].forEach((message) => {
+  void test(`fails closed for credential-store error: ${message}`, async (): Promise<void> => {
+    const failure = new Error(message);
+    const reject = (): Promise<never> => Promise.reject(failure);
+    const forbidden = (): Promise<never> => Promise.reject(new Error("Fallback must not run."));
+    const stored = createCredentialStore(keychain({ read: reject, save: reject, remove: reject }),
+      fallback({ read: forbidden, save: forbidden, remove: forbidden }));
+    await assert.rejects(stored.read("default"), (error: unknown) => error === failure);
+    await assert.rejects(stored.save("default", credentials), (error: unknown) => error === failure);
+    await assert.rejects(stored.remove("default"), (error: unknown) => error === failure);
+  });
+});
