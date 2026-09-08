@@ -34,6 +34,42 @@ and changelog validation, cryptographic provenance verification, publication and
 rollback guidance, required-check reconciliation and representative fork testing.
 Do not publish or call this an attested release based only on a green dry-run.
 
+## Trusted non-publishing provenance
+
+`Verify Trusted Provenance` is a separate manual workflow. Both jobs require
+the original `danielcg-net/bizyeet-ai-tools` repository, `refs/heads/main`, and
+`workflow_dispatch`. There are no source/artifact inputs, pull-request triggers,
+completion triggers or reusable-workflow entrypoints. A fork or non-main dispatch
+cannot obtain its signing job. This is not a package-publication environment.
+
+The read-only build job checks out the dispatch commit without persisted Git
+credentials, runs the full artifact verifier and uploads a fresh bundle. The
+attestation job downloads the exact artifact ID from that job in the same run.
+It has only `contents: read`, `id-token: write`, and `attestations: write`; it
+does not check out source, install dependencies or execute the downloaded package.
+It attests the tarball and verifies its digest, repository, signer workflow,
+source ref, source commit, signer commit and GitHub-hosted runner identity using
+the generated bundle. Artifact and attestation bundles are retained for seven days.
+
+The workflow security checker permits signing permissions only for this exact
+reviewed job shape and trusted build boundary. Regression tests reject PR/fork
+events, arbitrary refs, cross-run artifacts, injected secrets, broader tokens,
+artifact execution, registry writes and weakened verification restrictions.
+Ordinary PR checks retain their existing read-only/security-analysis permissions.
+
+This workflow records provenance in GitHub's attestation service but never runs
+`npm publish`, creates a GitHub Release, changes a registry channel, enables
+OAuth clients or mutates tenant data. It does not claim human release approval or
+a SLSA level. The package remains private/development until a separate reviewed
+release change. The SBOM and local build manifest remain ordinary files in the
+build bundle; the cryptographic provenance subject here is the npm tarball.
+
+After merge, run it from `main` and verify the actual uploaded tarball and signed
+bundle before recording this gate as delivered. A skipped job, a declaration of
+permissions, or a passing local workflow test is not successful attestation proof.
+See the official [artifact attestation guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
+and [verification restrictions](https://cli.github.com/manual/gh_attestation_verify).
+
 ## Release metadata gate
 
 `npm run release:preflight -- --tag vVERSION` is a read-only local metadata gate.
