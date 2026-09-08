@@ -23,6 +23,7 @@ export type CanonicalCrmClient = Readonly<{
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const validResource = (value: unknown): value is CrmResource => value === "customers" || value === "leads";
+const validResourceId = (value: unknown): value is string => typeof value === "string" && /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,512}$/u.test(value);
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const resourceOrigin = (input: string): string => {
   const url = new URL(input);
@@ -69,7 +70,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   const read = async (resource: CrmResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
-    if (id !== null && (id.length === 0 || id.length > 512)) return failure(400, "invalid_request");
+    if (id !== null && !validResourceId(id)) return failure(400, "invalid_request");
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/.test(token)) return failure(401, "authorization_required");

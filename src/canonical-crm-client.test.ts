@@ -35,6 +35,27 @@ await test("passes opaque customer and lead IDs without choosing a provider", as
   assert.equal(request.mock.calls[0]?.arguments[0], `https://tenant.example/api/agent/leads/${id}?api_version=v1&fields=business`);
 });
 
+await Promise.all(["", ".", "..", "../me", "customer/other", "customer\\other", "%2e%2e", "https://tenant.example", "customer?tenant_id=other", "customer#fragment", "a".repeat(513)].map((id) =>
+  test(`rejects route-like or oversized resource ID ${id.slice(0, 40)} before reading credentials`, async () => {
+    const request = mock.fn((): Promise<Response> => Promise.resolve(Response.json(emptyPage)));
+    const getAccessToken = mock.fn(token);
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken, request });
+    assert.deepEqual(await client.get("customers", id), { status: 400, body: { error: { code: "invalid_request" } } });
+    assert.equal(getAccessToken.mock.callCount(), 0);
+    assert.equal(request.mock.callCount(), 0);
+  })));
+
+await test("accepts the maximum opaque ID length unchanged", async () => {
+  const id = "a".repeat(512);
+  const body = { data: { id }, meta: { contract_version: "v1" } };
+  const request = mock.fn((url: string): Promise<Response> => {
+    assert.equal(new URL(url).pathname, `/api/agent/customers/${id}`);
+    return Promise.resolve(Response.json(body));
+  });
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  assert.deepEqual(await client.get("customers", id), { status: 200, body });
+});
+
 await Promise.all([401, 403, 404, 409, 422, 503].map((status) => test(`preserves canonical HTTP ${String(status)} errors with no fallback`, async () => {
   const body = { error: { code: "canonical_error", request_id: "request-id", retryable: false } };
   const request = mock.fn((): Promise<Response> => Promise.resolve(Response.json(body, { status })));
