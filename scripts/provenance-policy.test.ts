@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { validateWorkflow } from "./check-workflow-security.js";
 
-const source = await readFile(new URL("../../.github/workflows/provenance.yml", import.meta.url), "utf8");
+const source = (await readFile(new URL("../../.github/workflows/provenance.yml", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
 
 void test("permits only the reviewed main-only non-publishing provenance workflow", (): void => {
   assert.deepEqual(validateWorkflow("provenance.yml", source), []);
+  assert.deepEqual(validateWorkflow("provenance.yml", source.replaceAll("\n", "\r\n")), []);
   assert.match(source, /needs: build/u);
   assert.doesNotMatch(source, /secrets\s*[.[]|npm publish|workflow_run|pull_request/u);
   assert.ok(validateWorkflow("other.yml", source).length > 0);
@@ -44,5 +45,6 @@ void test("permits only the reviewed main-only non-publishing provenance workflo
     assert.ok(before !== undefined && after !== undefined);
     assert.ok(source.includes(before));
     assert.ok(validateWorkflow("provenance.yml", source.replaceAll(before, after)).length > 0);
+    assert.ok(validateWorkflow("provenance.yml", source.replaceAll(before, after).replaceAll("\n", "\r\n")).length > 0);
   });
 });

@@ -21,3 +21,10 @@ approval is implied. Attestation subject is the tarball, not the separate SBOM.
 Real trusted post-merge dispatch and downloaded artifact verification remain
 required before claiming provenance success. Fork test/required-check policy,
 protected publication reviewer and final release metadata are separate gates.
+# Platform and storage review notes
+
+Mutation fixtures normalize checkout CRLF to LF before finding multiline anchors,
+then validate both LF and CRLF versions of every valid/invalid workflow. Do not
+remove anchors/assertions to hide Windows failures. The pinned actions/attest v4
+uploads attestations independently of create-storage-record; that option controls
+separate linked-artifact metadata, not the GitHub attestation store.

@@ -64,6 +64,12 @@ a SLSA level. The package remains private/development until a separate reviewed
 release change. The SBOM and local build manifest remain ordinary files in the
 build bundle; the cryptographic provenance subject here is the npm tarball.
 
+`create-storage-record: false` disables the separate linked-artifact storage
+metadata record, not the attestation upload. The pinned action uploads its
+attestation independently; `attestations: write` is still required. We do not
+grant `artifact-metadata: write` or publish a registry artifact for that optional
+record. Verify the actual attestation URL after the trusted run.
+
 After merge, run it from `main` and verify the actual uploaded tarball and signed
 bundle before recording this gate as delivered. A skipped job, a declaration of
 permissions, or a passing local workflow test is not successful attestation proof.
