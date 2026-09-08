@@ -13,6 +13,7 @@ export type ClientDependencies = Readonly<{
   /** Obtain an OAuth access token bound to this resource origin; never an API key. */
   getAccessToken: (resourceOrigin: string) => Promise<string>;
   request?: (url: string, init: RequestInit) => Promise<Response>;
+  wait?: (milliseconds: number) => Promise<void>;
 }>;
 export type CanonicalCrmClient = Readonly<{
   list: (resource: CrmResource, options?: ListOptions) => Promise<CanonicalResult>;
@@ -53,6 +54,19 @@ const validEnvelope = (body: unknown, list: boolean): boolean => {
 export const createCanonicalCrmClient = (dependencies: ClientDependencies): CanonicalCrmClient => {
   const origin = resourceOrigin(dependencies.origin);
   const request = dependencies.request ?? fetch;
+  const wait = dependencies.wait ?? ((milliseconds: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, milliseconds); }));
+  const requestRead = async (url: string, init: RequestInit): Promise<Response> => {
+    try {
+      return await request(url, init);
+    } catch (error) {
+      // Only transport failures on this GET-only boundary may retry, once.
+      // Keep the original deadline; never replay an HTTP denial or token exchange.
+      if (init.signal?.aborted) throw error;
+      await wait(250);
+      if (init.signal?.aborted) throw error;
+      return request(url, init);
+    }
+  };
   const read = async (resource: CrmResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
     if (id !== null && (id.length === 0 || id.length > 512)) return failure(400, "invalid_request");
@@ -60,7 +74,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/.test(token)) return failure(401, "authorization_required");
       const path = `/api/agent/${resource}${id === null ? "" : `/${encodeURIComponent(id)}`}`;
-      const response = await request(`${origin}${path}?${query(options)}`, {
+      const response = await requestRead(`${origin}${path}?${query(options)}`, {
         method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         redirect: "error", signal: AbortSignal.timeout(15_000),
       });

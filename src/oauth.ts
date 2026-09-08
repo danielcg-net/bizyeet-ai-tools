@@ -133,7 +133,7 @@ export const createPkce = (): PkcePair => {
 
 /** Retrieves only same-origin OAuth metadata and rejects a server that does not advertise PKCE S256. */
 export const discoverOAuth = async (issuer: URL, fetcher: FetchLike): Promise<OAuthMetadata> => {
-  const response = await fetcher(new URL(oauthMetadataPath, issuer).toString(), { headers: { Accept: "application/json" }, redirect: "error" });
+  const response = await fetcher(new URL(oauthMetadataPath, issuer).toString(), { headers: { Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(15000) });
   const metadata: unknown = await response.json().catch(() => null);
   if (!response.ok || !isOAuthMetadata(metadata, issuer) || !metadata.code_challenge_methods_supported?.includes("S256")) {
     throw new Error("The authorization server does not provide compatible OAuth PKCE metadata.");
@@ -168,6 +168,8 @@ const formRequest = (parameters: Readonly<Record<string, string>>): RequestInit 
   body: new URLSearchParams(parameters),
   headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
   method: "POST",
+  redirect: "error",
+  signal: AbortSignal.timeout(15000),
 });
 
 /** Exchanges a one-time authorization code without logging or returning raw token values to command output. */
@@ -317,6 +319,8 @@ export const registerPublicClient = async (input: Readonly<{
     body: JSON.stringify({ redirect_uris: [input.redirectUri], token_endpoint_auth_method: "none" }),
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     method: "POST",
+    redirect: "error",
+    signal: AbortSignal.timeout(15000),
   });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok || !isRegisteredPublicClient(body)) throw new Error("Public OAuth client registration failed.");

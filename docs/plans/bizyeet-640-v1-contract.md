@@ -1,6 +1,6 @@
 # BIZYEET-640: V1 CLI and MCP contract
 
-**Status:** Proposed for maintainer, security, and product approval before BIZYEET-641 implementation.
+**Status:** Approved baseline under BIZYEET-640. CLI authentication details below incorporate the delivered BIZYEET-641 and BIZYEET-643 requirements.
 
 This is the public contract for the OAuth-only BizYeet agent interface. It is
 deliberately independent of dashboard routes, database tables, provider
@@ -12,7 +12,8 @@ configuration, tenant records, and deployment details.
   agent API. A command and its matching MCP tool have identical request,
   response, authorization, approval, and audit semantics.
 - OAuth 2.1 authorization-code flow with PKCE S256 is the only end-user
-  authentication flow. The server supports OAuth discovery, CIMD, and DCR for
+  browser/MCP authentication flow. The CLI also supports OAuth Device Authorization
+  for headless use, without replacing MCP's authorization-code flow. The server supports OAuth discovery, CIMD, and DCR for
   remote Codex MCP clients. It binds tokens to the intended resource/audience.
 - No API keys, personal access tokens, passwords, shared dashboard sessions,
   client secrets in the public client, raw SQL, arbitrary HTTP pass-through,
@@ -27,10 +28,12 @@ their first 512 characters. [OpenAI MCP documentation](https://learn.chatgpt.com
 ## Identity and authorization
 
 The authorization server authenticates a human BizYeet user in a browser. The
-client sends a PKCE verifier/challenge and a resource indicator; it never sees
-or stores a client secret. Refresh tokens are rotated and held only in the OS
-credential store. Headless credential collection and password/device-code
-shortcuts are not V1 flows.
+browser client sends a PKCE verifier/challenge and a resource indicator; it never sees
+or stores a client secret. The headless CLI uses the server's OAuth Device
+Authorization flow with user approval in a browser; it never collects passwords.
+Refresh tokens are rotated and held in the OS credential store where available.
+A permission-checked owner-only fallback is permitted only when the OS service
+is unavailable, never as a downgrade from a locked available store.
 
 Every request is authorized from four server-derived values:
 

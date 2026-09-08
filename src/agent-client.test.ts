@@ -129,7 +129,7 @@ void test("persists rotation before a failed resource request, including a 401-t
       fetcher, metadata, now: () => 1000, persistCredentials, profile, resourceId: "customer-1",
     }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === "request_unavailable");
     assert.equal(persistCredentials.mock.callCount(), 1);
-    assert.equal(fetcher.mock.callCount(), expired ? 2 : 3);
+    assert.equal(fetcher.mock.callCount(), expired ? 3 : 4);
   }));
 });
 

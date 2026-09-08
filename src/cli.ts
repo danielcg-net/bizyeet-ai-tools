@@ -69,7 +69,7 @@ const helpMessage = [
   "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>]",
   "       bizyeet customers get <opaque-id> [--profile <name>]",
   "       bizyeet --version",
-  "Authentication uses OAuth with PKCE only; API keys, personal access tokens, and passwords are not accepted.",
+  "Authentication uses OAuth with PKCE or Device Authorization; API keys, personal access tokens, and passwords are not accepted.",
   "All command output is structured JSON. OAuth token material is never printed.",
   "JSON is the default; an explicit --json may precede the command or follow its arguments.",
 ].join("\n");

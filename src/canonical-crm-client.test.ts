@@ -62,6 +62,31 @@ await test("network failure is explicit and never an empty success", async () =>
   assert.deepEqual(await client.list("leads"), { status: 503, body: { error: { code: "request_unavailable" } } });
 });
 
+await test("retries a transport failure once with the same deadline and OAuth binding", async () => {
+  const request = mock.fn<(url: string, init: RequestInit) => Promise<Response>>();
+  request.mock.mockImplementationOnce(() => Promise.reject(new Error("temporary socket failure")));
+  request.mock.mockImplementationOnce(() => Promise.resolve(Response.json(emptyPage)), 1);
+  const wait = mock.fn((milliseconds: number): Promise<void> => { assert.equal(milliseconds, 250); return Promise.resolve(); });
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request, wait });
+  assert.deepEqual(await client.list("customers"), { status: 200, body: emptyPage });
+  assert.equal(request.mock.callCount(), 2);
+  assert.equal(wait.mock.callCount(), 1);
+  const first = request.mock.calls[0];
+  const second = request.mock.calls[1];
+  assert.ok(first && second);
+  assert.equal(first.arguments[1].signal, second.arguments[1].signal);
+  assert.deepEqual(first.arguments, second.arguments);
+});
+
+await test("transport recovery has a hard two-attempt limit", async () => {
+  const request = mock.fn((): Promise<Response> => Promise.reject(new Error("offline")));
+  const wait = mock.fn((): Promise<void> => Promise.resolve());
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request, wait });
+  assert.equal((await client.get("customers", "opaque")).status, 503);
+  assert.equal(request.mock.callCount(), 2);
+  assert.equal(wait.mock.callCount(), 1);
+});
+
 await test("missing OAuth credentials make no request", async () => {
   const request = mock.fn((): Promise<Response> => Promise.resolve(Response.json(emptyPage)));
   const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: (): Promise<string> => Promise.resolve(""), request });

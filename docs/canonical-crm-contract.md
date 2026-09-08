@@ -43,6 +43,13 @@ The public guard in `npm run check` rejects private repository/provider imports
 and noncanonical HTTP paths. Its negative fixtures and the shared transport tests
 must pass together with typecheck and immutable TypeScript lint.
 
+The read transport retries a network exception at most once after 250 ms, using
+the same OAuth binding and original 15-second deadline. HTTP responses (including
+denials, rate limits and provider failures) are not automatically retried. OAuth
+token exchanges, registration and revocation have independent 15-second
+deadlines, reject redirects, and never use this read-retry path. Future mutation
+commands must not inherit automatic read retries.
+
 Delivery dependency: these response/schema additions accompany the private
 BIZYEET-801 server migration, which follows BIZYEET-800. They do not claim that
 the older deployed endpoint already provides this complete contract. The

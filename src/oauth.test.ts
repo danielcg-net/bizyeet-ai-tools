@@ -1,11 +1,34 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 
-import { authorizationUrl, createPkce, discoverOAuth, exchangeDeviceCode, issuerOrigin, registerPublicClient, requestDeviceAuthorization, revokeRefreshToken } from "./oauth.js";
+import { authorizationUrl, createPkce, discoverOAuth, exchangeAuthorizationCode, exchangeDeviceCode, issuerOrigin, refreshAccessToken, registerPublicClient, requestDeviceAuthorization, revokeRefreshToken, type FetchLike } from "./oauth.js";
 
 const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
+
+void test("credential-bearing OAuth POSTs have deadlines, reject redirects and never retry transport errors", async () => {
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token",
+    registration_endpoint: "https://example.test/register", revocation_endpoint: "https://example.test/revoke",
+    device_authorization_endpoint: "https://example.test/device" };
+  const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [
+    (fetcher): Promise<unknown> => exchangeAuthorizationCode({ fetcher, metadata, clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:1234/callback", resource: issuer }),
+    (fetcher): Promise<unknown> => refreshAccessToken({ fetcher, metadata, clientId: "client", refreshToken: "refresh", resource: issuer }),
+    (fetcher): Promise<unknown> => revokeRefreshToken({ fetcher, metadata, clientId: "client", refreshToken: "refresh" }),
+    (fetcher): Promise<unknown> => requestDeviceAuthorization({ fetcher, metadata, clientId: "client", resource: issuer, scope: "customers.read" }),
+    (fetcher): Promise<unknown> => registerPublicClient({ fetcher, metadata, redirectUri: "http://127.0.0.1:1234/callback" }),
+  ];
+  await Promise.all(operations.map(async (operation) => {
+    const fetcher = mock.fn((_url: string, init?: RequestInit): Promise<Response> => {
+      assert.equal(init?.method, "POST");
+      assert.equal(init.redirect, "error");
+      assert.ok(init.signal instanceof AbortSignal);
+      return Promise.reject(new Error("synthetic transport failure"));
+    });
+    await assert.rejects(operation(fetcher), /synthetic transport failure/u);
+    assert.equal(fetcher.mock.callCount(), 1);
+  }));
+});
 
 void test("rejects discovery issuer mismatch and credential-bearing endpoints", async (): Promise<void> => {
   const metadata = { issuer: issuer.origin, authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", code_challenge_methods_supported: ["S256"] };
