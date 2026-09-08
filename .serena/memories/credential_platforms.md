@@ -14,3 +14,8 @@ offline npm exec, not direct spawn of Windows cmd files. When constructing a
 child environment, consolidate PATH/Path casing so the system search path is
 retained. Release verification streams full test output so late failures are
 not truncated inside an execFile error's stdout property.
+
+Let the CLI event loop drain instead of forcing process.exit after native async
+credential work. The sole process.exitCode assignment is a documented external
+I/O boundary exception; application variables and data remain immutable and
+the global ESLint rules stay enabled. Installed tests verify nonzero exit codes.

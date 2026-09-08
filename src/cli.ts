@@ -312,5 +312,8 @@ export const isCliEntrypoint = (
 ): boolean => entrypointPath !== undefined && resolvePath(entrypointPath) === resolvePath(modulePath);
 
 if (isCliEntrypoint(process.argv[1], realpathSync, fileURLToPath(import.meta.url))) {
-  void execute(process.argv.slice(2), console).then((exitCode) => process.exit(exitCode));
+  const exitCode = await execute(process.argv.slice(2), console);
+  // Process status is external I/O: let native cleanup and stdout drain normally.
+  // eslint-disable-next-line no-restricted-syntax -- Sole process-boundary assignment; application data stays immutable.
+  process.exitCode = exitCode;
 }
