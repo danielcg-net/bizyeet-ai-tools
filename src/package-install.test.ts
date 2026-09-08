@@ -24,14 +24,20 @@ const run = async (command: string, args: readonly string[], cwd: string, enviro
 };
 
 const packedArchive = async (directory: string): Promise<string> => {
-  await run("npm", ["pack", "--pack-destination", directory], process.cwd());
+  await runNpm(["pack", "--pack-destination", directory], process.cwd());
   const archives = (await readdir(directory)).filter((file) => file.endsWith(".tgz"));
   if (archives.length !== 1) throw new Error("Expected exactly one package archive.");
   return join(directory, archives[0] ?? "");
 };
 
-const installedCli = (directory: string): string =>
-  join(directory, "node_modules", ".bin", process.platform === "win32" ? "bizyeet.cmd" : "bizyeet");
+const runNpm = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv = process.env): Promise<string> => {
+  const cli = process.env.npm_execpath;
+  if (!cli) throw new Error("Run package tests through npm test.");
+  return run(process.execPath, [cli, ...args], directory, environment);
+};
+
+const runInstalled = (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv): Promise<string> =>
+  runNpm(["exec", "--offline", "--no", "--", "bizyeet", ...args], directory, environment);
 
 const commandLookup = (): Readonly<{ args: readonly string[]; command: string }> =>
   process.platform === "win32"
@@ -77,11 +83,11 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Expected a loopback test port.");
       const archive = await packedArchive(directory);
-      await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
+      await runNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
       const environment = { ...await credentialConfig(directory, `https://127.0.0.1:${String(address.port)}`), NODE_EXTRA_CA_CERTS: certificate };
-      const check = await run(installedCli(directory), ["auth", "check", "--profile", "package-check"], directory, environment);
-      const list = await run(installedCli(directory), ["customers", "list", "--limit", "1", "--fields", "id", "--profile", "package-check"], directory, environment);
-      const detail = await run(installedCli(directory), ["customers", "get", opaqueId, "--profile", "package-check"], directory, environment);
+      const check = await runInstalled(["auth", "check", "--profile", "package-check"], directory, environment);
+      const list = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--profile", "package-check"], directory, environment);
+      const detail = await runInstalled(["customers", "get", opaqueId, "--profile", "package-check"], directory, environment);
       assert.match(check, /"verification":"server"/u);
       assert.match(check, /synthetic-tenant/u);
       assert.deepEqual(JSON.parse(list), { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: null } });
@@ -103,14 +109,14 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
   const directory = await mkdtemp(join(tmpdir(), "bizyeet-cli-install-"));
   try {
     const archive = await packedArchive(directory);
-    await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
+    await runNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
     const environment = await credentialConfig(directory);
     const pathEnvironment = { ...environment, PATH: [join(directory, "node_modules", ".bin"), environment.PATH].filter(Boolean).join(delimiter) };
     const located = await run(commandLookup().command, commandLookup().args, directory, pathEnvironment);
-    const help = await run(installedCli(directory), ["--help"], directory, pathEnvironment);
-    const version = await run(installedCli(directory), ["--version"], directory, pathEnvironment);
-    const diagnostics = await run(installedCli(directory), ["diagnostics", "--json"], directory, pathEnvironment);
-    const status = await run(installedCli(directory), ["auth", "status", "--profile", "package-check"], directory, pathEnvironment);
+    const help = await runInstalled(["--help"], directory, pathEnvironment);
+    const version = await runInstalled(["--version"], directory, pathEnvironment);
+    const diagnostics = await runInstalled(["diagnostics", "--json"], directory, pathEnvironment);
+    const status = await runInstalled(["auth", "status", "--profile", "package-check"], directory, pathEnvironment);
 
     assert.match(located, /bizyeet/u);
     assert.match(help, /OAuth/u);
