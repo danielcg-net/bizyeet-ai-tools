@@ -12,6 +12,7 @@ import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, revokeRefreshToken } from "./oauth.js";
 import { profileName, readProfiles, saveProfile } from "./profile-store.js";
 import { openLoopbackCallback } from "./loopback.js";
+import { agentFailureExitCode, agentFailureMessage, isAgentFailure } from "./agent-error.js";
 
 export type CliResult = Readonly<{ exitCode: number; message: string; stream: "stderr" | "stdout" }>;
 export type CliIo = Readonly<{ error: (message: string) => void; log: (message: string) => void }>;
@@ -179,6 +180,11 @@ const authenticatedProfile = async (args: readonly string[], dependencies: CliSt
 };
 
 const requestFailure = (error: unknown): CliResult => {
+  const failure = error instanceof Error ? error.cause : error;
+  if (isAgentFailure(failure)) return result(agentFailureExitCode(failure), JSON.stringify({ error: {
+    code: failure.code === "authorization_required" ? "authentication_required" : failure.code,
+    message: agentFailureMessage(failure), request_id: failure.requestId, retryable: failure.retryable, details: {},
+  } }), "stderr");
   const message = error instanceof Error ? error.message : "The agent request failed.";
   if (/must be|invalid|Cursor|Customer ID|Search|fields/u.test(message)) return invalidInput(message);
   if (message.includes("session expired") || message.includes("auth login") || message.includes("OAuth refresh")) return authenticationRequired();

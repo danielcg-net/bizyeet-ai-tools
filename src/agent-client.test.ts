@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 
 import { getCustomer, listCustomers } from "./agent-client.js";
+import { isAgentFailure } from "./agent-error.js";
 
 const profile = { clientId: "public-client", issuer: "https://example.test" };
 const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
@@ -24,14 +25,14 @@ void test("passes long opaque identifiers unchanged through the canonical transp
 
 void test("does not turn provider failures, stale cursors or invalid envelopes into empty success", async (): Promise<void> => {
   await Promise.all([
-    { status: 503, body: { error: { code: "provider_unavailable" } }, expected: /provider_unavailable/u },
-    { status: 400, body: { error: { code: "invalid_cursor" } }, expected: /invalid_cursor/u },
-    { status: 200, body: { data: { items: [] }, meta: { contract_version: "v1" } }, expected: /invalid_response/u },
+    { status: 503, body: { error: { code: "provider_unavailable" } }, expected: { code: "provider_unavailable" } },
+    { status: 400, body: { error: { code: "invalid_cursor" } }, expected: { code: "invalid_cursor" } },
+    { status: 200, body: { data: { items: [] }, meta: { contract_version: "v1" } }, expected: { code: "invalid_response" } },
   ].map(async ({ status, body, expected }) => {
     const fetcher = mock.fn(() => Promise.resolve(Response.json(body, { status })));
     await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
       options: {}, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
-    }), expected);
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === expected.code);
     assert.equal(fetcher.mock.callCount(), 1);
   }));
 });
@@ -97,7 +98,7 @@ void test("persists rotation before a failed resource request, including a 401-t
     await assert.rejects(getCustomer({
       credentials: { ...validCredentials, expiresAt: expired ? "1970-01-01T00:00:00.000Z" : validCredentials.expiresAt },
       fetcher, metadata, now: () => 1000, persistCredentials, profile, resourceId: "customer-1",
-    }), /request_unavailable/u);
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === "request_unavailable");
     assert.equal(persistCredentials.mock.callCount(), 1);
     assert.equal(fetcher.mock.callCount(), expired ? 2 : 3);
   }));

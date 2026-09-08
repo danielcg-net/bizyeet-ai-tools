@@ -2,6 +2,29 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { isCliEntrypoint, run } from "./cli.js";
+import { agentFailure } from "./agent-error.js";
+
+void test("CLI preserves canonical error codes, retryability and correlation without credentials", async () => {
+  const requestId = "12345678-1234-1234-1234-123456789abc";
+  const failure = agentFailure(400, { error: { code: "invalid_cursor", request_id: requestId, retryable: false,
+    message: "access-secret", details: { token: "refresh-secret" } } });
+  const result = await run(["customers", "list"], {
+    readCredentials: () => Promise.resolve({ default: { accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" } }),
+    readProfiles: () => Promise.resolve({ default: { clientId: "public-client", issuer: "https://example.test" } }),
+    removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(), saveProfile: () => Promise.resolve(),
+  }, {
+    getCustomer: () => Promise.reject(new Error("Agent request failed.", { cause: failure })),
+    listCustomers: () => Promise.reject(new Error("Agent request failed.", { cause: failure })),
+    loginBrowser: () => Promise.reject(new Error("Unexpected login")),
+    loginDevice: () => Promise.reject(new Error("Unexpected login")), revoke: () => Promise.resolve(),
+  });
+  assert.equal(result.exitCode, 2);
+  assert.equal(result.stream, "stderr");
+  const body: unknown = JSON.parse(result.message);
+  assert.deepEqual(body, { error: { code: "invalid_cursor", request_id: requestId, retryable: false, details: {},
+    message: "Start a fresh list request without the expired or incompatible cursor." } });
+  assert.doesNotMatch(result.message, /access-secret|refresh-secret/u);
+});
 
 void test("help documents the OAuth-only command surface", async (): Promise<void> => {
   const result = await run(["--help"]);

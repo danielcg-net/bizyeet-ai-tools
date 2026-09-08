@@ -1,0 +1,50 @@
+export type AgentFailure = Readonly<{
+  kind: "agent_failure";
+  code: string;
+  status: number;
+  requestId: string;
+  retryable: boolean;
+}>;
+
+const codes = new Set([
+  "authentication_required", "authorization_required", "authorization_denied", "invalid_request",
+  "not_found", "conflict", "idempotency_conflict", "preview_expired", "approval_required",
+  "invalid_cursor", "rate_limited", "internal_error", "provider_unavailable", "request_unavailable",
+  "invalid_response", "unsupported_operation",
+]);
+const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** Retains machine semantics without reflecting server messages, details or credentials. */
+export const agentFailure = (status: number, body: unknown): AgentFailure => {
+  const error = record(body) && record(body.error) ? body.error : {};
+  const code = typeof error.code === "string" && codes.has(error.code) ? error.code : "internal_error";
+  const requestId = typeof error.request_id === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(error.request_id)
+    ? error.request_id : crypto.randomUUID();
+  return Object.freeze({ kind: "agent_failure", code, status, requestId,
+    retryable: typeof error.retryable === "boolean" ? error.retryable : status === 429 || status >= 500 });
+};
+
+/** Recognizes only the typed internal failure boundary. */
+export const isAgentFailure = (value: unknown): value is AgentFailure => record(value) && value.kind === "agent_failure"
+  && typeof value.code === "string" && codes.has(value.code) && typeof value.status === "number"
+  && typeof value.requestId === "string" && typeof value.retryable === "boolean";
+
+/** Maps the common API contract to stable CLI exit codes. */
+export const agentFailureExitCode = (failure: AgentFailure): number => {
+  if (["authentication_required", "authorization_required"].includes(failure.code) || failure.status === 401) return 3;
+  if (failure.code === "authorization_denied" || failure.status === 403) return 4;
+  if (["approval_required", "preview_expired", "idempotency_conflict"].includes(failure.code)) return 5;
+  if (["not_found", "conflict"].includes(failure.code)) return 6;
+  if (["invalid_request", "invalid_cursor", "unsupported_operation"].includes(failure.code)) return 2;
+  return failure.retryable ? 7 : 1;
+};
+
+/** Emits local safe recovery copy; never repeats an upstream error payload. */
+export const agentFailureMessage = (failure: AgentFailure): string => {
+  if (agentFailureExitCode(failure) === 3) return "Run auth login to reconnect this profile.";
+  if (failure.code === "invalid_cursor") return "Start a fresh list request without the expired or incompatible cursor.";
+  if (failure.code === "authorization_denied") return "You do not have permission for this operation.";
+  if (failure.code === "unsupported_operation") return "This operation is not supported by the configured service.";
+  return failure.retryable ? "The service is temporarily unavailable. Retry later." : "The service could not complete this request.";
+};

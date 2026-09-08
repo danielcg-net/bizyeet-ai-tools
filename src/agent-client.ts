@@ -1,6 +1,7 @@
 import { refreshAccessToken, type FetchLike, type OAuthMetadata } from "./oauth.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, type CanonicalCrmClient, type ListOptions } from "./canonical-crm-client.js";
+import { agentFailure } from "./agent-error.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -15,12 +16,6 @@ export type PersistCredentials = (credentials: StoredCredentials) => Promise<voi
 const customerIdPattern = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,512}$/u;
 const cursorPattern = /^[A-Za-z0-9_-]{32,128}$/u;
 const fieldPattern = /^[a-z][a-z0-9_]{0,63}$/u;
-
-const parseErrorCode = (value: unknown): string =>
-  typeof value === "object" && value !== null && "error" in value
-  && typeof value.error === "object" && value.error !== null && "code" in value.error && typeof value.error.code === "string"
-    ? value.error.code
-    : "internal_error";
 
 const boundedOptions = (options: CustomerListOptions): ListOptions => {
   const limit = options.limit ?? 25;
@@ -86,7 +81,7 @@ const invoke = async (input: Readonly<{
     ? await currentCredentials({ ...input, credentials: { ...input.credentials, expiresAt: new Date(0).toISOString() } })
     : initial;
   const response = first.status === 401 && refreshed !== initial ? await execute(refreshed) : first;
-  if (response.status < 200 || response.status >= 300) throw new Error(`Agent request failed: ${parseErrorCode(response.body)}.`);
+  if (response.status < 200 || response.status >= 300) throw new Error("Agent request failed.", { cause: agentFailure(response.status, response.body) });
   return { credentials: refreshed, response: response.body };
 };
 
