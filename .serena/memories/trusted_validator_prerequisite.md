@@ -10,3 +10,5 @@ This prerequisite alone does not enforce PR-body links in the main workflow.
 After merge, reconcile PR21 with main, use a separate base-SHA checkout/build/import,
 and add a regression proving a modified PR validator cannot change the result.
 Keep PR21 unmerged until that wiring and independent review are complete.
+Link destinations must contain an explicit HTTPS authority before URL parsing;
+authority-less HTTPS strings resolve differently against a browser's GitHub base.
