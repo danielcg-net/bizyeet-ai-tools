@@ -8,3 +8,5 @@ satisfy the requirement. This is offline metadata validation, not a network look
 or proof that an issue exists. Never add YouTrack credentials to fork workflows.
 Marked's GFM lexer supplies actual destinations, including reference/autolinks;
 link labels, code, images, unused definitions and HTML are not tracking links.
+Require an explicit HTTPS authority before URL normalization; relative HTTPS
+destinations can otherwise resolve against GitHub instead of YouTrack.

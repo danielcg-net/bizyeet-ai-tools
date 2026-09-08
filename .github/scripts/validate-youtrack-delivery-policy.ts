@@ -17,7 +17,7 @@ export const isTrustedDependabotAuthor = (login: unknown): boolean => login === 
 export const validatePullRequestBody = (issueId: string, body: unknown): readonly string[] => {
   const candidates = typeof body === "string" && body.length <= 65_536 ? linkDestinations(marked.lexer(body, { gfm: true })) : [];
   const matches = /^bizyeet-\d+$/u.test(issueId) && candidates.some((candidate) => {
-    if (!URL.canParse(candidate)) return false;
+    if (!/^https:\/\/[^/\\\s]+(?:\/|$)/iu.test(candidate) || /[\s\\]/u.test(candidate) || !URL.canParse(candidate)) return false;
     const url = new URL(candidate);
     return url.protocol === "https:" && url.hostname === "bizyeet.youtrack.cloud"
       && url.port === "" && url.username === "" && url.password === ""
