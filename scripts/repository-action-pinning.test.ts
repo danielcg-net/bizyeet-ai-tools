@@ -10,6 +10,7 @@ void test("inspection is read-only and already enforced policy needs no write", 
   const inspect = mock.fn(() => Promise.resolve(policy()));
   assert.equal((await enforceActionPinning(inspect, false)).changed, false);
   assert.equal(inspect.mock.callCount(), 1);
+  assert.deepEqual(inspect.mock.calls[0]?.arguments, [["api", "--hostname", "github.com", "repos/danielcg-net/bizyeet-ai-tools/actions/permissions"]]);
   const enforced = mock.fn(() => Promise.resolve(policy(true)));
   assert.equal((await enforceActionPinning(enforced, true)).changed, false);
   assert.equal(enforced.mock.callCount(), 1);
@@ -21,9 +22,10 @@ void test("only enables SHA pinning and preserves each allowed policy and disabl
     github.mock.mockImplementationOnce(() => Promise.resolve(policy(false, allowed, false)));
     const result = await enforceActionPinning(github, true);
     assert.deepEqual(result, { changed: true, policy: actionPolicy(policy(true, allowed, false)) });
-    assert.deepEqual(github.mock.calls[1]?.arguments[0], ["api", "repos/danielcg-net/bizyeet-ai-tools/actions/permissions", "--method", "PUT",
+    assert.deepEqual(github.mock.calls[1]?.arguments[0], ["api", "--hostname", "github.com", "repos/danielcg-net/bizyeet-ai-tools/actions/permissions", "--method", "PUT",
       "-F", "enabled=false", "-f", `allowed_actions=${allowed}`, "-F", "sha_pinning_required=true"]);
     assert.equal(github.mock.callCount(), 3);
+    github.mock.calls.forEach((call) => { assert.deepEqual(call.arguments[0].slice(0, 3), ["api", "--hostname", "github.com"]); });
   }));
 });
 

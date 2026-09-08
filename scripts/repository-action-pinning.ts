@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 type Policy = Readonly<{ enabled: boolean; allowed_actions: "all" | "local_only" | "selected"; sha_pinning_required: boolean }>;
 type Github = (args: readonly string[]) => Promise<string>;
 const endpoint = "repos/danielcg-net/bizyeet-ai-tools/actions/permissions";
+const request = ["api", "--hostname", "github.com", endpoint] as const;
 const execute = promisify(execFile);
 
 /** Parse only the policy fields needed for a narrow, explicit repository update. */
@@ -22,11 +23,11 @@ export const actionPolicy = (source: string): Policy => {
 
 /** Inspect by default; explicitly apply SHA enforcement without changing the action allow policy. */
 export const enforceActionPinning = async (github: Github, apply: boolean): Promise<Readonly<{ changed: boolean; policy: Policy }>> => {
-  const before = actionPolicy(await github(["api", endpoint]));
+  const before = actionPolicy(await github(request));
   if (!apply || before.sha_pinning_required) return { changed: false, policy: before };
-  await github(["api", endpoint, "--method", "PUT", "-F", `enabled=${String(before.enabled)}`,
+  await github([...request, "--method", "PUT", "-F", `enabled=${String(before.enabled)}`,
     "-f", `allowed_actions=${before.allowed_actions}`, "-F", "sha_pinning_required=true"]);
-  const after = actionPolicy(await github(["api", endpoint]));
+  const after = actionPolicy(await github(request));
   if (!after.sha_pinning_required || after.enabled !== before.enabled || after.allowed_actions !== before.allowed_actions) {
     throw new Error("Actions policy verification failed after update; inspect repository settings before retrying.");
   }

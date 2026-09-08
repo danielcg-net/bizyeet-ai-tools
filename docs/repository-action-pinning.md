@@ -12,6 +12,9 @@ the enabled and allowed-actions settings, and reads back the policy to verify.
 Existing selected-action patterns are not modified. It does not alter branch
 protection, environments, secrets, review requirements or package publication.
 
+Every request explicitly selects `--hostname github.com`; an Enterprise
+`GH_HOST` setting cannot redirect inspection or application to another host.
+
 Coordinate with other administrators: this read/update/read sequence is not an
 atomic compare-and-swap. An update or verification failure is reported without
 automatic retries or rollback. Inspect the actual policy before trying again.
