@@ -1,5 +1,10 @@
 # Customer write transport
 
+The real server preview request_hash is a 43-character base64url SHA-256 digest,
+not a 64-character hex digest. Keep fixture encoding aligned with this contract.
+The private cross-repository test uses real CLI processes, local OAuth and human
+browser approval over ephemeral HTTPS; fake HTTP responses alone missed this gap.
+
 The canonical client exposes only customer update preview and execute methods,
 using explicit OAuth agent endpoints. Provider policy and business field
 validation remain server-owned; never import private provider code here.

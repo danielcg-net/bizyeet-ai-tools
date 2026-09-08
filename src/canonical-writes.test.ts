@@ -7,7 +7,7 @@ const id = "11111111-1111-4111-8111-111111111111";
 const resourceId = `crm1.${"a".repeat(64)}.customers.123`;
 const approval = { preview_id: id, approval_receipt: "r".repeat(43), idempotency_key: "22222222-2222-4222-8222-222222222222" };
 const proposal = { resource_id: resourceId, changes: { business: "Proposed name" } };
-const preview = { preview_id: id, request_hash: "b".repeat(64), expires_at: "2099-01-01T00:00:00.000Z", confirmation_class: "reversible_write",
+const preview = { preview_id: id, request_hash: "b".repeat(41) + "-_", expires_at: "2099-01-01T00:00:00.000Z", confirmation_class: "reversible_write",
   resource_id: resourceId, proposed_changes: proposal.changes, side_effects: ["Update customer"], warnings: [], idempotency_key_format: "uuid", approval_path: `/dashboard/#/agent-approvals/${id}` };
 const envelope = (data: unknown): Readonly<Record<string, unknown>> => ({ data, meta: { contract_version: "v1", request_id: id } });
 const token = (): Promise<string> => Promise.resolve("oauth-access");

@@ -39,7 +39,7 @@ const validWrite = (body: unknown, preview: boolean): boolean => {
     && Object.keys(data.resource).every((key) => ["id", "business", "company", "contact_name", "updated_at"].includes(key))
     && Object.values(data.resource).every((value) => value === null || typeof value === "string");
   return uuid(data.preview_id) && validResourceId(data.resource_id) && data.confirmation_class === "reversible_write"
-    && typeof data.request_hash === "string" && /^[a-f0-9]{64}$/u.test(data.request_hash)
+    && typeof data.request_hash === "string" && /^[A-Za-z0-9_-]{43}$/u.test(data.request_hash)
     && typeof data.expires_at === "string" && Number.isFinite(Date.parse(data.expires_at))
     && data.approval_path === `/dashboard/#/agent-approvals/${data.preview_id}`
     && record(data.proposed_changes) && Object.values(data.proposed_changes).every((value) => typeof value === "string")

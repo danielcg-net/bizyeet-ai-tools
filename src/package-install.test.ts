@@ -76,7 +76,7 @@ const serveSyntheticWrite = async (request: IncomingMessage, response: ServerRes
   const input: unknown = JSON.parse(await text(request));
   assert.deepEqual(input, preview ? { resource_id: opaqueId, changes: { business: "Proposed" } }
     : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
-  const data = preview ? { preview_id: previewId, request_hash: "b".repeat(64), expires_at: "2099-01-01T00:00:00.000Z", confirmation_class: "reversible_write",
+  const data = preview ? { preview_id: previewId, request_hash: "b".repeat(43), expires_at: "2099-01-01T00:00:00.000Z", confirmation_class: "reversible_write",
     resource_id: opaqueId, proposed_changes: { business: "Proposed" }, side_effects: ["Update customer"], warnings: [], idempotency_key_format: "uuid", approval_path: `/dashboard/#/agent-approvals/${previewId}` }
     : { resource: { id: opaqueId, business: "Proposed" }, audit_reference: previewId };
   response.writeHead(200, { "Content-Type": "application/json" });
