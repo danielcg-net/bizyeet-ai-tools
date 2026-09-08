@@ -65,10 +65,12 @@ connection; profiles never override the server's tenant decision.
 The browser flow uses an ephemeral `127.0.0.1` callback with a fresh PKCE
 challenge and state. The device flow prints its verification URI and user code
 to stderr. Successful token values are never printed. Where the platform has a
-native credential service, the CLI stores credentials there; otherwise it uses
-the local owner-only fallback and rejects unsafe file permissions before reading
-credentials. A locked credential service fails closed rather than copying a
-token to the fallback file.
+native credential service, the CLI stores credentials there. On POSIX systems,
+an unavailable service permits the owner-only file fallback, with permissions
+checked before reading credentials. Windows requires its native credential
+manager: POSIX mode bits do not prove owner-only Windows access, so plaintext
+fallback is refused. A locked credential service fails closed rather than
+copying a token to a fallback file.
 
 ## Bounded read commands
 

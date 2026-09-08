@@ -24,6 +24,11 @@ type FileOperations = Readonly<{
 }>;
 
 const files: FileOperations = { chmod, mkdir, readFile, rename, stat, writeFile };
+
+/** POSIX mode bits cannot establish owner-only access on Windows. */
+export const requireFileCredentialSupport = (platform: NodeJS.Platform = process.platform): void => {
+  if (platform === "win32") throw new Error("Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.");
+};
 const profilePattern = /^[a-z0-9][a-z0-9-]{0,31}$/u;
 const emptyProfiles: ProfileCollection = Object.freeze({});
 const emptyCredentials: CredentialCollection = Object.freeze({});
@@ -103,6 +108,7 @@ export const saveProfile = async (name: string, profile: Profile, paths: ReturnT
 export const readFallbackCredentials = async (paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<CredentialCollection> => {
   try {
     const metadata = await operations.stat(paths.credentials);
+    requireFileCredentialSupport();
     if ((metadata.mode & 0o077) !== 0) throw new Error("Credential fallback file permissions are unsafe; expected mode 0600.");
     return parseCollection(await operations.readFile(paths.credentials, "utf8"), isCredentials);
   } catch (error) {
@@ -113,6 +119,7 @@ export const readFallbackCredentials = async (paths: ReturnType<typeof profilePa
 
 /** Writes headless credentials atomically with owner-only permissions. */
 export const saveFallbackCredentials = async (name: string, credentials: StoredCredentials, paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<void> => {
+  requireFileCredentialSupport();
   const existing = await readFallbackCredentials(paths, operations);
   await writePrivateJson(paths.credentials, { ...existing, [profileName(name)]: credentials }, operations);
 };
@@ -121,6 +128,7 @@ export const saveFallbackCredentials = async (name: string, credentials: StoredC
 export const removeFallbackCredentials = async (name: string, paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<void> => {
   const normalized = profileName(name);
   const existing = await readFallbackCredentials(paths, operations);
+  if (!Object.hasOwn(existing, normalized)) return;
   const retained = Object.fromEntries(Object.entries(existing).filter(([key]) => key !== normalized));
   await writePrivateJson(paths.credentials, retained, operations);
 };
