@@ -32,6 +32,7 @@ void test("stores the device-flow result without exposing tokens through the ver
   assert.equal(result.profile.clientId, "public-client");
   assert.equal(result.credentials.expiresAt, "1970-01-01T00:05:01.000Z");
   assert.equal(result.credentials.accessToken, "access-secret");
+  assert.deepEqual(result.credentials.profile, result.profile);
 });
 
 void test("uses a fresh PKCE browser authorization and exact callback code exchange", async (): Promise<void> => {
@@ -59,4 +60,5 @@ void test("uses a fresh PKCE browser authorization and exact callback code excha
 
   assert.equal(result.profile.clientId, "public-client");
   assert.equal(result.credentials.refreshToken, "refresh-secret");
+  assert.deepEqual(result.credentials.profile, result.profile);
 });

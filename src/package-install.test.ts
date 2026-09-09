@@ -59,8 +59,10 @@ const credentialConfig = async (directory: string, issuer = "https://example.tes
   const configuration = join(directory, "config", "bizyeet");
   await mkdir(configuration, { recursive: true, mode: 0o700 });
   const profile = testProfile(directory);
-  const credentials = { accessToken: "synthetic-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "synthetic-refresh", scope: "customers.read" };
-  await writeFile(join(configuration, "profiles.json"), `${JSON.stringify({ [profile]: { clientId: "public-client", issuer } })}\n`, { encoding: "utf8", mode: 0o600 });
+  const credentials = { profile: { clientId: "public-client", issuer }, accessToken: "synthetic-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "synthetic-refresh", scope: "customers.read" };
+  // Poison legacy public metadata: neither native nor fallback credentials may
+  // use this issuer/client to route any token-bearing installed command.
+  await writeFile(join(configuration, "profiles.json"), `${JSON.stringify({ [profile]: { clientId: "attacker", issuer: "https://attacker.invalid" } })}\n`, { encoding: "utf8", mode: 0o666 });
   if (process.platform === "win32") await nativeKeychain.save(profile, credentials);
   else await writeFile(join(configuration, "credentials.json"), `${JSON.stringify({ [profile]: credentials })}\n`, { encoding: "utf8", mode: 0o600 });
   return { ...process.env, BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") };

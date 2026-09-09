@@ -34,7 +34,8 @@ type BrowserLoginDependencies = Readonly<{
   openCallback: (state: string, issuer: string) => Promise<LoopbackCallback>;
 }>;
 
-const credentialsFrom = (tokens: OAuthTokenSet, now: () => number): StoredCredentials => ({
+const credentialsFrom = (tokens: OAuthTokenSet, now: () => number, profile: Profile): StoredCredentials => ({
+  profile,
   accessToken: tokens.access_token,
   expiresAt: new Date(now() + tokens.expires_in * 1000).toISOString(),
   refreshToken: tokens.refresh_token ?? "",
@@ -54,7 +55,7 @@ export const loginWithDevice = async (input: Readonly<{
   dependencies.onVerification(device);
   const tokens = await exchangeDeviceCode({ clientId, device, fetcher: dependencies.fetcher, metadata, resource: issuer });
   return {
-    credentials: credentialsFrom(tokens, dependencies.now),
+    credentials: credentialsFrom(tokens, dependencies.now, { clientId, issuer: issuer.origin }),
     profile: { clientId, issuer: issuer.origin },
   };
 };
@@ -79,7 +80,7 @@ export const loginWithBrowser = async (input: Readonly<{
   const code = await callback.awaitCode();
   const tokens = await exchangeAuthorizationCode({ clientId, code, fetcher: dependencies.fetcher, metadata, redirectUri: callback.redirectUri, resource: issuer, verifier: pkce.verifier });
   return {
-    credentials: credentialsFrom(tokens, dependencies.now),
+    credentials: credentialsFrom(tokens, dependencies.now, { clientId, issuer: issuer.origin }),
     profile: { clientId, issuer: issuer.origin },
   };
 };

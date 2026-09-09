@@ -5,11 +5,10 @@ import { agentFailure } from "./agent-error.js";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const key = "22222222-2222-4222-8222-222222222222";
-const credentials = { accessToken: "access-secret", refreshToken: "refresh-secret", expiresAt: "2099-01-01T00:00:00.000Z", scope: "customers.write" };
+const credentials = { profile: { clientId: "client", issuer: "https://tenant.example" }, accessToken: "access-secret", refreshToken: "refresh-secret", expiresAt: "2099-01-01T00:00:00.000Z", scope: "customers.write" };
 const storage: NonNullable<Parameters<typeof run>[1]> = {
   readCredentials: () => Promise.resolve({ default: credentials }),
-  readProfiles: () => Promise.resolve({ default: { issuer: "https://tenant.example", clientId: "client" } }),
-  removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(), saveProfile: () => Promise.resolve(),
+  removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(),
 };
 const unexpected = (): never => { throw new Error("Unexpected operation"); };
 const runtime: NonNullable<Parameters<typeof run>[2]> = {

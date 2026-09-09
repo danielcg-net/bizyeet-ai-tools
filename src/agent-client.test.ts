@@ -6,7 +6,7 @@ import { isAgentFailure } from "./agent-error.js";
 
 const profile = { clientId: "public-client", issuer: "https://example.test" };
 const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
-const validCredentials = { accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
+const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
 
 void test("execution does not refresh and replay after an HTTP denial", async () => {
@@ -109,12 +109,13 @@ void test("refreshes once after an expired access token and preserves no generic
     },
     metadata,
     now: () => 1000,
-    persistCredentials: (credentials) => { assert.equal(credentials.refreshToken, "fresh-refresh"); return Promise.resolve(); },
+    persistCredentials: (credentials) => { assert.equal(credentials.refreshToken, "fresh-refresh"); assert.deepEqual(credentials.profile, profile); return Promise.resolve(); },
     profile,
     resourceId: "customer-1",
   });
 
   assert.equal(result.credentials.refreshToken, "fresh-refresh");
+  assert.deepEqual(result.credentials.profile, profile);
 });
 
 void test("rejects unbounded limits and route-like customer identifiers before making a request", async (): Promise<void> => {

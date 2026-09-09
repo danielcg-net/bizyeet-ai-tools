@@ -10,8 +10,8 @@ import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAg
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore } from "./credential-store.js";
 import type { DeviceAuthorization } from "./oauth.js";
-import { discoverOAuth, revokeRefreshToken } from "./oauth.js";
-import { profileName, readProfiles, saveProfile } from "./profile-store.js";
+import { discoverOAuth, issuerOrigin, revokeRefreshToken } from "./oauth.js";
+import { profileName } from "./profile-store.js";
 import { openLoopbackCallback } from "./loopback.js";
 import { agentFailureExitCode, agentFailureMessage, isAgentFailure } from "./agent-error.js";
 
@@ -20,10 +20,8 @@ export type CliIo = Readonly<{ error: (message: string) => void; log: (message: 
 
 type CliStorage = Readonly<{
   readCredentials: (profile?: string) => Promise<import("./profile-store.js").CredentialCollection>;
-  readProfiles: typeof readProfiles;
   removeCredentials: (profile: string) => Promise<void>;
   saveCredentials: (profile: string, credentials: import("./profile-store.js").StoredCredentials) => Promise<void>;
-  saveProfile: typeof saveProfile;
 }>;
 
 type CliRuntime = Readonly<{
@@ -41,10 +39,8 @@ type CliRuntime = Readonly<{
 
 const storage: CliStorage = {
   readCredentials: credentialStore.read,
-  readProfiles,
   removeCredentials: credentialStore.remove,
   saveCredentials: credentialStore.save,
-  saveProfile,
 };
 
 const runtime: CliRuntime = {
@@ -157,10 +153,10 @@ const status = async (args: readonly string[], dependencies: CliStorage): Promis
   if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth status accepts only --profile.");
   try {
     const profile = profileFrom(args);
-    const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials(profile)]);
-    const configured = profiles[profile];
+    const credentials = await dependencies.readCredentials(profile);
     const current = credentials[profile];
-    if (!configured || !current) return authenticationRequired();
+    const configured = current?.profile;
+    if (!configured) return authenticationRequired();
     return output({
       authenticated: new Date(current.expiresAt).getTime() > Date.now(),
       verification: "local_only",
@@ -178,10 +174,10 @@ const logout = async (args: readonly string[], dependencies: CliStorage, executi
   if (!hasOnlyOptions(args, ["--profile"])) return invalidInput("auth logout accepts only --profile.");
   try {
     const name = profileFrom(args);
-    const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials(name)]);
-    const profile = profiles[name];
+    const credentials = await dependencies.readCredentials(name);
     const current = credentials[name];
-    const remoteRevoked = profile && current?.refreshToken
+    const profile = current?.profile;
+    const remoteRevoked = profile && current.refreshToken
       ? await execution.revoke({ credentials: current, profile }).then(() => true).catch(() => false)
       : false;
     await dependencies.removeCredentials(name);
@@ -204,15 +200,13 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
     const issuer = oneOption(args, "--issuer");
     const scope = oneOption(args, "--scope", "customers.read");
     if (!issuer) return invalidInput("auth login requires --issuer.");
-    const profiles = await dependencies.readProfiles();
-    const existingClientId = profiles[profileNameValue]?.issuer === issuer ? profiles[profileNameValue].clientId : undefined;
+    const credentials = await dependencies.readCredentials(profileNameValue);
+    const previousProfile = credentials[profileNameValue]?.profile;
+    const existingClientId = previousProfile?.issuer === issuerOrigin(issuer).origin ? previousProfile.clientId : undefined;
     const completed = args.includes("--device")
       ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });
-    await Promise.all([
-      dependencies.saveProfile(profileNameValue, completed.profile),
-      dependencies.saveCredentials(profileNameValue, completed.credentials),
-    ]);
+    await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });
     return output({ authenticated: true, expires_at: completed.credentials.expiresAt, issuer: completed.profile.issuer, profile: profileNameValue, scope: completed.credentials.scope });
   } catch (error) {
     return result(3, errorEnvelope("authentication_required", safeLocalMessage(error, "OAuth login failed. Check the issuer, approval status and credential storage, then try again.")), "stderr");
@@ -224,10 +218,10 @@ const unsupportedCommand = (command: string): CliResult =>
 
 const authenticatedProfile = async (args: readonly string[], dependencies: CliStorage): Promise<Readonly<{ credentials: import("./profile-store.js").StoredCredentials; name: string; profile: import("./profile-store.js").Profile }> | CliResult> => {
   const name = profileFrom(args);
-  const [profiles, credentials] = await Promise.all([dependencies.readProfiles(), dependencies.readCredentials(name)]);
-  const profile = profiles[name];
+  const credentials = await dependencies.readCredentials(name);
   const current = credentials[name];
-  return profile && current ? { credentials: current, name, profile } : authenticationRequired();
+  const profile = current?.profile;
+  return profile ? { credentials: current, name, profile } : authenticationRequired();
 };
 
 const checkAuthentication = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {

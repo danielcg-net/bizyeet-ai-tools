@@ -7,8 +7,7 @@ import { agentFailure } from "./agent-error.js";
 void test("never reflects credential parser failures in auth or business command output", async () => {
   const storage: Parameters<typeof run>[1] = {
     readCredentials: () => Promise.reject(new SyntaxError('Unexpected token: {"accessToken":"secret-access","refreshToken":"secret-refresh"} is invalid JSON')),
-    readProfiles: () => Promise.resolve({ default: { clientId: "public-client", issuer: "https://example.test" } }),
-    removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(), saveProfile: () => Promise.resolve(),
+    removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(),
   };
   await Promise.all([["auth", "status"], ["auth", "check"], ["auth", "logout"], ["customers", "list"]].map(async (args) => {
     const result = await run(args, storage);
@@ -22,9 +21,8 @@ void test("CLI preserves canonical error codes, retryability and correlation wit
   const failure = agentFailure(400, { error: { code: "invalid_cursor", request_id: requestId, retryable: false,
     message: "access-secret", details: { token: "refresh-secret" } } });
   const result = await run(["customers", "list"], {
-    readCredentials: () => Promise.resolve({ default: { accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" } }),
-    readProfiles: () => Promise.resolve({ default: { clientId: "public-client", issuer: "https://example.test" } }),
-    removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(), saveProfile: () => Promise.resolve(),
+    readCredentials: () => Promise.resolve({ default: { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" } }),
+    removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(),
   }, {
     getCustomer: () => Promise.reject(new Error("Agent request failed.", { cause: failure })),
     listCustomers: () => Promise.reject(new Error("Agent request failed.", { cause: failure })),
@@ -58,7 +56,7 @@ void test("reports the packaged version without reading credentials", async (): 
 
 void test("local diagnostics provide runtime and truthful manual-update guidance without credentials", async () => {
   const forbidden = (): never => { throw new Error("Local diagnostics must not access profiles or credentials"); };
-  const storage: Parameters<typeof run>[1] = { readCredentials: forbidden, readProfiles: forbidden, removeCredentials: forbidden, saveCredentials: forbidden, saveProfile: forbidden };
+  const storage: Parameters<typeof run>[1] = { readCredentials: forbidden, removeCredentials: forbidden, saveCredentials: forbidden };
   const result = await run(["diagnostics", "--json"], storage);
   assert.equal(result.exitCode, 0);
   assert.equal(result.stream, "stdout");
@@ -82,14 +80,13 @@ void test("explicit JSON mode works for help and version and rejects duplicate f
 
 void test("auth check uses the selected profile and persists refreshed credentials before reporting server verification", async () => {
   const result = await run(["auth", "check", "--profile", "canary"], {
-    readCredentials: () => Promise.resolve({ canary: { accessToken: "access-secret", refreshToken: "refresh-secret", expiresAt: "2099-01-01T00:00:00.000Z", scope: "customers.read" } }),
-    readProfiles: () => Promise.resolve({ canary: { clientId: "client", issuer: "https://example.test" } }),
+    readCredentials: () => Promise.resolve({ canary: { profile: { clientId: "client", issuer: "https://example.test" }, accessToken: "access-secret", refreshToken: "refresh-secret", expiresAt: "2099-01-01T00:00:00.000Z", scope: "customers.read" } }),
     saveCredentials: (name, credentials) => {
       assert.equal(name, "canary");
       assert.equal(credentials.refreshToken, "rotated-secret");
       return Promise.resolve();
     },
-    saveProfile: () => Promise.resolve(), removeCredentials: () => Promise.resolve(),
+    removeCredentials: () => Promise.resolve(),
   }, {
     checkIdentity: async (input) => {
       assert.equal(input.profile.clientId, "client");
@@ -109,11 +106,9 @@ void test("auth check uses the selected profile and persists refreshed credentia
 
 void test("auth status does not reveal token values", async (): Promise<void> => {
   const result = await run(["auth", "status"], {
-    readCredentials: () => Promise.resolve({ default: { accessToken: "secret-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "secret-refresh", scope: "customers.read" } }),
-    readProfiles: () => Promise.resolve({ default: { clientId: "public-client", issuer: "https://example.test" } }),
+    readCredentials: () => Promise.resolve({ default: { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "secret-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "secret-refresh", scope: "customers.read" } }),
     removeCredentials: () => Promise.resolve(),
     saveCredentials: () => Promise.resolve(),
-    saveProfile: () => Promise.resolve(),
   });
 
   assert.equal(result.exitCode, 0);
@@ -126,10 +121,8 @@ void test("auth status does not reveal token values", async (): Promise<void> =>
 void test("auth logout only clears local credentials for the selected profile", async (): Promise<void> => {
   const result = await run(["auth", "logout", "--profile", "automation"], {
     readCredentials: () => Promise.resolve({}),
-    readProfiles: () => Promise.resolve({}),
     removeCredentials: (profile) => profile === "automation" ? Promise.resolve() : Promise.reject(new Error("Wrong profile.")),
     saveCredentials: () => Promise.resolve(),
-    saveProfile: () => Promise.resolve(),
   });
 
   assert.equal(result.exitCode, 0);
@@ -137,11 +130,9 @@ void test("auth logout only clears local credentials for the selected profile", 
 
 void test("auth logout attempts refresh-token revocation before clearing the local credential", async (): Promise<void> => {
   const result = await run(["auth", "logout"], {
-    readCredentials: () => Promise.resolve({ default: { accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" } }),
-    readProfiles: () => Promise.resolve({ default: { clientId: "public-client", issuer: "https://example.test" } }),
+    readCredentials: () => Promise.resolve({ default: { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" } }),
     removeCredentials: (profile) => profile === "default" ? Promise.resolve() : Promise.reject(new Error("Wrong profile.")),
     saveCredentials: () => Promise.resolve(),
-    saveProfile: () => Promise.resolve(),
   }, {
     getCustomer: () => Promise.reject(new Error("Customer command should not run.")),
     listCustomers: () => Promise.reject(new Error("Customer command should not run.")),
@@ -181,14 +172,10 @@ void test("rejects customer-list option flags used as option values before makin
 void test("device login stores its result without printing any token", async (): Promise<void> => {
   const result = await run(["auth", "login", "--device", "--issuer", "https://example.test"], {
     readCredentials: () => Promise.resolve({}),
-    readProfiles: () => Promise.resolve({}),
     removeCredentials: () => Promise.resolve(),
     saveCredentials: (_profile, credentials) => {
       assert.equal(credentials.accessToken, "access-secret");
-      return Promise.resolve();
-    },
-    saveProfile: (_profile, profile) => {
-      assert.equal(profile.clientId, "public-client");
+      assert.deepEqual(credentials.profile, { clientId: "public-client", issuer: "https://example.test" });
       return Promise.resolve();
     },
   }, {
@@ -198,7 +185,7 @@ void test("device login stores its result without printing any token", async ():
     loginDevice: (_input, onVerification) => {
       onVerification({ deviceCode: "device-secret", expiresIn: 900, interval: 5, userCode: "ABCD-EFGH", verificationUri: "https://example.test/verify" });
       return Promise.resolve({
-        credentials: { accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" },
+        credentials: { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" },
         profile: { clientId: "public-client", issuer: "https://example.test" },
       });
     },
@@ -211,14 +198,12 @@ void test("device login stores its result without printing any token", async ():
 
 void test("customer list preserves the agent response envelope and stores a rotated credential", async (): Promise<void> => {
   const result = await run(["customers", "list", "--limit", "10"], {
-    readCredentials: () => Promise.resolve({ default: { accessToken: "old-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "old-refresh", scope: "customers.read" } }),
-    readProfiles: () => Promise.resolve({ default: { clientId: "public-client", issuer: "https://example.test" } }),
+    readCredentials: () => Promise.resolve({ default: { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "old-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "old-refresh", scope: "customers.read" } }),
     removeCredentials: () => Promise.resolve(),
     saveCredentials: (_name, credentials) => {
       assert.equal(credentials.refreshToken, "new-refresh");
       return Promise.resolve();
     },
-    saveProfile: () => Promise.resolve(),
   }, {
     getCustomer: () => Promise.reject(new Error("Customer get should not run.")),
     listCustomers: async (input) => {

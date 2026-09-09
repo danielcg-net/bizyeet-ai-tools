@@ -119,7 +119,7 @@ void test("rejects non-files and hides parser excerpts from malformed credential
 void test("cleans a partially written temporary credential file without replacing saved credentials", { skip: process.platform === "win32" }, async (): Promise<void> => {
   const root = await mkdtemp(join(tmpdir(), "bizyeet-partial-credential-"));
   const paths = profilePaths({}, root);
-  const original = { accessToken: "synthetic-original", refreshToken: "synthetic-refresh", expiresAt: "2099-01-01", scope: "customers.read" };
+  const original = { profile: { clientId: "original-client", issuer: "https://original.example" }, accessToken: "synthetic-original", refreshToken: "synthetic-refresh", expiresAt: "2099-01-01", scope: "customers.read" };
   try {
     await saveFallbackCredentials("default", original, paths);
     const operations = {
@@ -137,7 +137,7 @@ void test("cleans a partially written temporary credential file without replacin
         };
       },
     };
-    await assert.rejects(saveFallbackCredentials("default", { ...original, accessToken: "synthetic-new" }, paths, operations), /partial write failure/u);
+    await assert.rejects(saveFallbackCredentials("default", { ...original, profile: { clientId: "replacement-client", issuer: "https://replacement.example" }, accessToken: "synthetic-new" }, paths, operations), /partial write failure/u);
     assert.deepEqual(await readFallbackCredentials(paths), { default: original });
     assert.deepEqual(await fileSystem.readdir(paths.directory), ["credentials.json"]);
   } finally {

@@ -1,5 +1,18 @@
 # Credential platform boundaries
 
+Issuer/client identity is authoritative only inside the protected StoredCredentials
+record alongside access/refresh tokens. Login performs one saveCredentials call,
+not separate public profile and secret writes. All CLI status/check/read/write/
+logout routing and device client reuse use that protected binding. profiles.json
+is legacy non-authoritative metadata; never migrate token destinations from it.
+Unbound legacy entries parse only for explicit re-login/replacement or local-only
+logout and must not trigger token-bearing requests. Refresh retains the binding;
+the agent boundary rejects missing/mismatched issuer/client before token use.
+Installed tests poison profiles.json and still exercise the proper issuer on
+native Windows and POSIX fallback. Partial fallback-save regression preserves the
+original identity and tokens together. These are local-process trust protections,
+not a defense against an attacker already running as the same OS user.
+
 Prefer the native OAuth credential manager. POSIX headless fallback uses
 owner-only mode checks. Windows chmod does not distinguish owner/group/others;
 refuse plaintext fallback rather than pretending0600 is protection. Missing

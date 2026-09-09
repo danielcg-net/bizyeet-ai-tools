@@ -9,6 +9,8 @@ export type StoredCredentials = Readonly<{
   expiresAt: string;
   refreshToken: string;
   scope: string;
+  /** Missing only for legacy records, which must never authorize network requests. */
+  profile?: Profile;
 }>;
 
 export type Profile = Readonly<{ clientId: string; issuer: string }>;
@@ -42,12 +44,14 @@ const isProfile = (value: unknown): value is Profile =>
   && typeof (value as Record<string, unknown>).clientId === "string"
   && typeof (value as Record<string, unknown>).issuer === "string";
 
-const isCredentials = (value: unknown): value is StoredCredentials =>
+/** Parses protected records, retaining legacy unbound entries only for replacement or local removal. */
+export const isCredentials = (value: unknown): value is StoredCredentials =>
   typeof value === "object" && value !== null
   && typeof (value as Record<string, unknown>).accessToken === "string"
   && typeof (value as Record<string, unknown>).expiresAt === "string"
   && typeof (value as Record<string, unknown>).refreshToken === "string"
-  && typeof (value as Record<string, unknown>).scope === "string";
+  && typeof (value as Record<string, unknown>).scope === "string"
+  && (!("profile" in value) || isProfile(value.profile));
 
 const parseStoredJson = (value: string): unknown => {
   try { return JSON.parse(value) as unknown; }
@@ -116,11 +120,11 @@ const writePrivateJson = async (path: string, value: unknown, operations: FileOp
   }
 };
 
-/** Reads non-secret profile metadata. Profiles deliberately never contain an OAuth token. */
+/** Reads legacy non-secret metadata. Never use this file to select OAuth token destinations. */
 export const readProfiles = async (paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<ProfileCollection> =>
   readCollection(paths.profiles, isProfile, emptyProfiles, operations);
 
-/** Persists public issuer/client metadata separately from refresh credentials. */
+/** Legacy metadata helper; authentication exclusively uses the protected credential's profile binding. */
 export const saveProfile = async (name: string, profile: Profile, paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<void> => {
   const profiles = await readProfiles(paths, operations);
   await writePrivateJson(paths.profiles, { ...profiles, [profileName(name)]: profile }, operations);

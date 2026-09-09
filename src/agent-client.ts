@@ -39,6 +39,10 @@ const currentCredentials = async (input: Readonly<{
   persistCredentials: PersistCredentials;
   profile: Profile;
 }>): Promise<StoredCredentials> => {
+  if (input.credentials.profile?.issuer !== input.profile.issuer
+    || input.credentials.profile.clientId !== input.profile.clientId) {
+    throw new Error("OAuth identity binding is missing or mismatched; run auth login again.");
+  }
   if (new Date(input.credentials.expiresAt).getTime() > input.now() + 30000) return input.credentials;
   if (!input.credentials.refreshToken) throw new Error("OAuth session expired; run auth login again.");
   const tokens = await refreshAccessToken({
@@ -50,6 +54,7 @@ const currentCredentials = async (input: Readonly<{
   });
   if (!tokens.refresh_token) throw new Error("OAuth refresh did not rotate a refresh token; run auth login again.");
   const credentials = {
+    profile: input.credentials.profile,
     accessToken: tokens.access_token,
     expiresAt: new Date(input.now() + tokens.expires_in * 1000).toISOString(),
     refreshToken: tokens.refresh_token,

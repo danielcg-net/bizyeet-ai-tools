@@ -1,6 +1,6 @@
 import { AsyncEntry } from "@napi-rs/keyring";
 
-import type { StoredCredentials } from "./profile-store.js";
+import { isCredentials, type StoredCredentials } from "./profile-store.js";
 
 const service = "net.bizyeet.ai-tools.oauth";
 
@@ -15,13 +15,6 @@ type NativeEntry = Readonly<{
   getPassword: () => Promise<unknown>;
   setPassword: (password: string) => Promise<unknown>;
 }>;
-
-const isCredentials = (value: unknown): value is StoredCredentials =>
-  typeof value === "object" && value !== null
-  && typeof (value as Record<string, unknown>).accessToken === "string"
-  && typeof (value as Record<string, unknown>).expiresAt === "string"
-  && typeof (value as Record<string, unknown>).refreshToken === "string"
-  && typeof (value as Record<string, unknown>).scope === "string";
 
 const parseCredentials = (value: string): StoredCredentials => {
   try {

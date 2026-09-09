@@ -62,6 +62,14 @@ tenant and granted scopes without reading customer data. Individual commands
 still enforce current permissions. Use `--profile <name>` to select a stored
 connection; profiles never override the server's tenant decision.
 
+Issuer, public client ID and tokens are saved together in one protected credential
+record. Legacy `profiles.json` metadata is not used to route authenticated requests
+or reuse a client registration. If you have credentials created by an earlier CLI
+without this identity binding, run `bizyeet auth login` again for that profile.
+They are never silently migrated using public metadata. Logout can clear an
+unbound legacy record locally but cannot safely revoke it remotely; revoke that
+old connection from the dashboard if needed. Refresh preserves the binding.
+
 The browser flow uses an ephemeral `127.0.0.1` callback with a fresh PKCE
 challenge and state. The device flow prints its verification URI and user code
 to stderr. Successful token values are never printed. Where the platform has a
