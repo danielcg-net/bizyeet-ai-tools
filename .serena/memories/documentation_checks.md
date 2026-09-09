@@ -1,5 +1,9 @@
 # Offline documentation contracts
 
+Normalize adjacent unquoted POSIX >| as one output redirect before tokenization,
+so the tokenizer cannot turn its clobber marker into a pipeline boundary.
+Do not normalize separated, quoted, escaped or arithmetic-context operators.
+
 Arithmetic expansions leave word context through their closing parentheses:
 an adjacent hash is a literal suffix, not a comment that hides later commands.
 Bash arithmetic commands retain their separate command-boundary semantics.

@@ -81,6 +81,9 @@ const shellLines = (source: string, bashExample: boolean): readonly string[] => 
       arithmeticDepth: opensArithmetic ? 2 : state.arithmeticDepth + (character === "(" ? 1 : character === ")" ? -1 : 0),
     };
     if (character === "\n") return { ...initial, text: `${state.text}\0`, documents: hereDocuments(state) };
+    // POSIX >| only changes noclobber behavior; for argument selection it is
+    // one output redirect. Preserve a separated or escaped pipe as written.
+    if (character === "|" && state.boundary && state.text.endsWith(">") && !state.text.endsWith(">>")) return state;
     // Drop only an unquoted all-digit word immediately adjacent to a redirect:
     // 2>out is a descriptor, while "2">out and 2 >out have a script operand 2.
     const redirectDescriptor = state.descriptorDigits > 0 && (character === ">" || character === "<");

@@ -10,6 +10,17 @@ const files = new Set(["README.md", "docs/setup.md", "docs/image name.png"]);
 const scripts = new Set(["check", "release:verify"]);
 const inspect = (source: string): readonly string[] => inspectDocumentation("docs/setup.md", source, files, scripts).map((finding) => finding.reason);
 
+void test("clobber redirects consume one target without inventing pipeline boundaries", (): void => {
+  ["sh", "bash"].forEach((language): void => {
+    ["npm run >|output", "npm >|output run", "2>|output npm run"].forEach((prefix): void => {
+      assert.deepEqual(inspect(`\`\`\`${language}\n${prefix} check\n\`\`\``), []);
+      assert.equal(inspect(`\`\`\`${language}\n${prefix} missing\n\`\`\``).length, 1);
+    });
+  });
+  assert.equal(inspect("`npm run > |output check`").length, 1);
+  assert.deepEqual(inspectDocumentation("README.md", '`npm run ">|"`', files, new Set([">|"])), []);
+});
+
 void test("arithmetic expansion suffixes are words rather than comments", (): void => {
   ["sh", "bash"].forEach((language): void => {
     ["$((1 << 2))", "$(((1 + 2) << 3))", "$((1 <<\n2))"].forEach((expression): void => {
