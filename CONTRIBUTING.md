@@ -37,6 +37,9 @@ JSON code fences and documented `npm run` script names. It is part of the full
 PR and release checks. Links are not fetched and documentation commands are never
 executed. External availability, fragment anchors, full JSON-schema validation
 and arbitrary CLI example behavior require separate review/contract tests.
+Checked shell examples must use literal package script names (quoted names are
+supported), without options before the name or environment-dependent names.
+Fence metadata after the language does not opt out of example validation.
 
 ## Canonical business routing
 

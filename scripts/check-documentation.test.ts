@@ -28,8 +28,27 @@ void test("rejects escaped, malformed and unsupported repository links", (): voi
 void test("validates JSON blocks and npm script names without executing documentation", (): void => {
   assert.deepEqual(inspect('```json\n{"data": []}\n```\n\n`npm run check`\n\n```sh\nnpm run release:verify -- --example\n```'), []);
   assert.deepEqual(inspect('```json\n{"data":}\n```'), ["JSON example is not valid JSON."]);
-  assert.deepEqual(inspect("```sh\nnpm run missing; echo should-not-execute\n```"), ["Documented npm run command is absent from package.json."]);
+  assert.deepEqual(inspect("```sh\nnpm run missing; echo should-not-execute\n```"), ["Documented npm run command is absent from package.json or is not a literal script name."]);
   assert.deepEqual(inspect("```text\nnpm run fictional\n```"), []);
+});
+
+void test("uses the first normalized fence-info word when metadata follows the language", (): void => {
+  ["json example", "JSON title=example", "json\tmetadata"].forEach((info): void => {
+    assert.deepEqual(inspect(`\`\`\`${info}\n{invalid}\n\`\`\``), ["JSON example is not valid JSON."]);
+  });
+  ["bash session", "SH title=example", "console output"].forEach((info): void => {
+    assert.equal(inspect(`\`\`\`${info}\nnpm run missing\n\`\`\``).length, 1);
+  });
+  assert.deepEqual(inspect('```JSON example\n{"valid": true}\n```\n\n```bash session\nnpm run check\n```'), []);
+});
+
+void test("checks complete quoted or punctuated npm operands and never expands environment variables", (): void => {
+  ["check.typo", '"check.typo"', "'check'.typo", "check$MISSING", '"$SCRIPT"', "$(echo check)", "check?", "check/typo", "--silent check"].forEach((operand): void => {
+    assert.equal(inspect(`\`npm run ${operand}\``).length, 1, operand);
+  });
+  assert.deepEqual(inspect('`npm run`\n\n`npm run "check"`\n\n```sh\nnpm run check && npm run release:verify # npm run ignored\n```'), []);
+  assert.deepEqual(inspectDocumentation("README.md", '`npm run test.unit`\n\n`npm run "test space"`', files, new Set(["test.unit", "test space"])), []);
+  assert.equal(inspect('`npm run "unterminated`').length, 1);
 });
 
 const withRepository = (verify: (root: string) => void): void => {

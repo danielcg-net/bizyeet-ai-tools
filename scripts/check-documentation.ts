@@ -3,6 +3,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { marked } from "marked";
+import parseShell from "shell-quote/parse.js";
 import { isCliEntrypoint } from "../src/cli.js";
 
 type Token = Readonly<Record<string, unknown>>;
@@ -32,6 +33,25 @@ const localLinkError = (file: string, href: string, files: ReadonlySet<string>):
   }
 };
 
+const scriptFindings = (file: string, source: string, scripts: ReadonlySet<string>): readonly DocumentationFinding[] => {
+  if (!/\bnpm\s+run\b/u.test(source)) return [];
+  try {
+    // Preserve expansions as an impossible literal operand, never read the
+    // process environment or allow an unset suffix to become a valid prefix.
+    const words = parseShell(source, () => "\0dynamic\0");
+    return words.flatMap((word, index): readonly DocumentationFinding[] => {
+      if (word !== "npm" || words[index + 1] !== "run") return [];
+      const operand = words[index + 2];
+      // Bare npm run lists available scripts; prose also names this command.
+      if (operand === undefined) return [];
+      return typeof operand === "string" && !operand.includes("\0") && scripts.has(operand)
+        ? [] : [{ file, reason: "Documented npm run command is absent from package.json or is not a literal script name." }];
+    });
+  } catch {
+    return [{ file, reason: "Cannot tokenize documented npm command without shell evaluation." }];
+  }
+};
+
 /** Inspect Markdown destinations and examples without rendering, fetching or executing them. */
 export const inspectDocumentation = (
   file: string, source: string, files: ReadonlySet<string>, scripts: ReadonlySet<string>,
@@ -42,13 +62,13 @@ export const inspectDocumentation = (
   }
   if (token.type !== "code" && token.type !== "codespan") return [];
   if (typeof token.text !== "string") return [];
-  if (token.type === "code" && token.lang === "json") {
+  const language = typeof token.lang === "string" ? token.lang.trim().split(/\s+/u)[0]?.toLowerCase() : undefined;
+  if (token.type === "code" && language === "json") {
     try { JSON.parse(token.text); return []; }
     catch { return [{ file, reason: "JSON example is not valid JSON." }]; }
   }
-  if (token.type === "code" && token.lang !== undefined && (typeof token.lang !== "string" || !["sh", "bash", "shell", "console"].includes(token.lang))) return [];
-  return [...token.text.matchAll(/\bnpm run ([a-zA-Z0-9:_-]+)/gu)].flatMap((match): readonly DocumentationFinding[] =>
-    scripts.has(match[1] ?? "") ? [] : [{ file, reason: "Documented npm run command is absent from package.json." }]);
+  if (token.type === "code" && language !== undefined && !["sh", "bash", "shell", "console"].includes(language)) return [];
+  return scriptFindings(file, token.text, scripts);
 });
 
 const publicMarkdown = (file: string): boolean => /^(?:[^/]+\.md|docs\/.*\.md)$/u.test(file);
