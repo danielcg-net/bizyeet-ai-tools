@@ -15,6 +15,23 @@ const runtime: NonNullable<Parameters<typeof run>[2]> = {
   getCustomer: unexpected, listCustomers: unexpected, loginBrowser: unexpected, loginDevice: unexpected, revoke: unexpected,
 };
 
+await Promise.all([6, 7, 8].map((version) => test(`execute and status accept caller UUIDv${String(version)} keys unchanged`, async () => {
+  const uuid = `abcdefab-1234-${String(version)}abc-8def-abcdefabcdef`;
+  const execute = mock.fn((input: Parameters<NonNullable<typeof runtime.executeCustomerUpdate>>[0]) => {
+    assert.equal(input.approval.idempotency_key, uuid);
+    return Promise.resolve({ credentials, response: { data: { audit_reference: id }, meta: { contract_version: "v1" } } });
+  });
+  const status = mock.fn((input: Parameters<NonNullable<typeof runtime.customerUpdateStatus>>[0]) => {
+    assert.equal(input.query.idempotency_key, uuid);
+    return Promise.resolve({ credentials, response: { data: { state: "succeeded" }, meta: { contract_version: "v1" } } });
+  });
+  const execution = { ...runtime, executeCustomerUpdate: execute, customerUpdateStatus: status, readApprovalReceipt: (): Promise<string> => Promise.resolve("r".repeat(43)) };
+  assert.equal((await run(["customers", "update", "execute", id, "--idempotency-key", uuid], storage, execution)).exitCode, 0);
+  assert.equal((await run(["customers", "update", "status", id, "--idempotency-key", uuid], storage, execution)).exitCode, 0);
+  assert.equal(execute.mock.callCount(), 1);
+  assert.equal(status.mock.callCount(), 1);
+})));
+
 await test("status reads the original execution without receipt input or mutation", async () => {
   const status = mock.fn((input: Parameters<NonNullable<typeof runtime.customerUpdateStatus>>[0]) => {
     assert.deepEqual(input.query, { preview_id: id, idempotency_key: key });

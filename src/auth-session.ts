@@ -34,12 +34,12 @@ type BrowserLoginDependencies = Readonly<{
   openCallback: (state: string, issuer: string) => Promise<LoopbackCallback>;
 }>;
 
-const credentialsFrom = (tokens: OAuthTokenSet, now: () => number, profile: Profile): StoredCredentials => ({
+const credentialsFrom = (tokens: OAuthTokenSet, now: () => number, profile: Profile, requestedScope: string): StoredCredentials => ({
   profile,
   accessToken: tokens.access_token,
   expiresAt: new Date(now() + tokens.expires_in * 1000).toISOString(),
   refreshToken: tokens.refresh_token ?? "",
-  scope: tokens.scope ?? "",
+  scope: tokens.scope ?? requestedScope,
 });
 
 /** Completes an OAuth-only device login and returns secret-bearing credentials only to the local storage boundary. */
@@ -56,7 +56,7 @@ export const loginWithDevice = async (input: Readonly<{
   const tokens = await exchangeDeviceCode({ clientId, device, fetcher: dependencies.fetcher, metadata, resource: issuer });
   const profile: Profile = { clientId, issuer: issuer.origin, deviceGrantVerified: true };
   return {
-    credentials: credentialsFrom(tokens, dependencies.now, profile),
+    credentials: credentialsFrom(tokens, dependencies.now, profile, input.scope),
     profile,
   };
 };
@@ -85,7 +85,7 @@ export const loginWithBrowser = async (input: Readonly<{
   const code = await callback.awaitCode();
   const tokens = await exchangeAuthorizationCode({ clientId, code, fetcher: dependencies.fetcher, metadata, redirectUri: callback.redirectUri, resource: issuer, verifier: pkce.verifier });
   return {
-    credentials: credentialsFrom(tokens, dependencies.now, { clientId, issuer: issuer.origin }),
+    credentials: credentialsFrom(tokens, dependencies.now, { clientId, issuer: issuer.origin }, input.scope),
     profile: { clientId, issuer: issuer.origin },
   };
 };
