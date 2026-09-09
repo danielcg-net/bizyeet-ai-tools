@@ -1,5 +1,7 @@
 # Core
 
+- Browser/device login retains requested scopes only when a successful token response omits scope; an explicit granted scope takes precedence, including narrowing. Keep default login read-only and document the explicit combined read/write scope request before update commands; never silently upgrade grants.
+
 - Share UUID shape validation between CLI arguments and canonical transport: assigned RFC9562 variant versions1–8, case-insensitive, excluding Nil/Max/reserved versions. Do not impose the server's UUIDv4 generation choice on caller idempotency keys. Server authorization and approval remain mandatory.
 
 - Opaque resource IDs must contain well-formed Unicode scalar values. Reject unpaired UTF-16 surrogates consistently in inputs and response envelopes before URL encoding, while preserving valid supplementary characters and the existing code-point bound.
