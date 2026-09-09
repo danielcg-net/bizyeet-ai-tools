@@ -44,6 +44,23 @@ owner-only mode checks. Windows chmod does not distinguish owner/group/others;
 refuse plaintext fallback rather than pretending0600 is protection. Missing
 fallback cleanup must be a no-op, especially after successful native storage.
 
+POSIX auto mode uses permission-checked credential-authority.json and a separate
+.credential-authority.lock transaction around store operations. A UUIDv4 pending
+generation is persisted before native/fallback secret writes; the identical
+storageGeneration is saved inside the protected credential. Committed ownership
+selects only its matching record. Pending recovery accepts only exact-generation
+records, never older native or fallback values. Missing/mismatched records and
+ambiguous legacy stores yield no authenticated credential so re-login can replace
+them. Legacy unversioned native/fallback records are usable only when unambiguous;
+an unavailable native service plus legacy fallback requires explicit file mode or
+re-login. No timestamps determine ordering. Native ownership is committed before
+old fallback cleanup, preventing cleanup failures from reviving stale tokens.
+Removal must confirm native deletion and remove fallback before recording removed
+ownership; never swallow native-unavailable errors or claim successful logout.
+Windows is native-only and does not use POSIX authority files. Explicit file mode
+remains an independent operator choice as documented below, not an automatic
+migration between stores. Metadata carries no tokens or issuer/client bindings.
+
 POSIX fallback checks the immediate config directory with lstat (owned by the
 current uid, no group/other permissions, not a symlink). Credential reads use
 O_NOFOLLOW plus O_NONBLOCK and validate the open descriptor: regular file,

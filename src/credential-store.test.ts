@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createCredentialStore } from "./credential-store.js";
+import { createCredentialStore as createStore } from "./credential-store.js";
 import { run } from "./cli.js";
 import type { Keychain } from "./keychain.js";
-import type { CredentialCollection, StoredCredentials } from "./profile-store.js";
+import type { CredentialAuthority, CredentialAuthorityStore, CredentialCollection, StoredCredentials } from "./profile-store.js";
+
+const memoryAuthority = (): CredentialAuthorityStore => {
+  const records = new Map<string, CredentialAuthority>();
+  return { transaction: (operation) => operation({
+    read: (name) => Promise.resolve(records.get(name)),
+    write: (name, value) => { records.set(name, value); return Promise.resolve(); },
+  }) };
+};
+const createCredentialStore = (native: Keychain, file: Parameters<typeof createStore>[1], options: Parameters<typeof createStore>[2] = {}): ReturnType<typeof createStore> =>
+  createStore(native, file, { ...options, authority: options.authority ?? memoryAuthority() });
 
 const credentials: StoredCredentials = Object.freeze({
   accessToken: "access-secret",
@@ -117,15 +127,90 @@ void test("uses the owner-only fallback only when the OS credential service is u
 
   await stored.save("default", credentials);
 
-  assert.deepEqual(written, [credentials]);
+  assert.equal(written.length, 1);
+  assert.equal(written[0]?.refreshToken, credentials.refreshToken);
+  assert.match(written[0].storageGeneration ?? "", /^[a-f0-9-]{36}$/u);
 });
 
-void test("reads a secure credential without touching an obsolete fallback file", async (): Promise<void> => {
-  const stored = createCredentialStore(keychain({ read: () => Promise.resolve(credentials) }), fallback({
-    read: () => Promise.reject(new Error("Fallback must not run.")),
-  }));
+void test("reads an unambiguous legacy native credential after checking the other store", async (): Promise<void> => {
+  const stored = createCredentialStore(keychain({ read: () => Promise.resolve(credentials) }), fallback());
 
   assert.deepEqual(await stored.read("automation"), { automation: credentials });
+});
+
+void test("recovered keychain cannot override a newer fallback generation across store instances", async (context): Promise<void> => {
+  const authority = memoryAuthority();
+  const records = new Map<string, StoredCredentials>();
+  const old = { ...credentials, profile: { issuer: "https://old.example", clientId: "old-client" } };
+  const newer = { ...credentials, refreshToken: "rotated-refresh", profile: { issuer: "https://new.example", clientId: "new-client" } };
+  const file = fallback({
+    read: () => Promise.resolve(Object.fromEntries(records)),
+    save: (name, value) => { records.set(name, value); return Promise.resolve(); },
+  });
+  const unavailable = (): Promise<never> => Promise.reject(new Error("No keyring backend is available."));
+  await createCredentialStore(keychain({ read: unavailable, save: unavailable }), file, { authority }).save("default", newer);
+  const nativeRead = context.mock.fn(() => Promise.resolve(old));
+  const recovered = createCredentialStore(keychain({ read: nativeRead }), file, { authority });
+  const result = (await recovered.read()).default;
+  assert.equal(result?.refreshToken, newer.refreshToken);
+  assert.deepEqual(result.profile, newer.profile);
+  assert.equal(nativeRead.mock.callCount(), 0);
+});
+
+void test("committed native generation wins even when obsolete fallback cleanup fails", async (): Promise<void> => {
+  const authority = memoryAuthority();
+  const nativeRecords = new Map<string, StoredCredentials>();
+  const native = keychain({
+    read: (name) => Promise.resolve(nativeRecords.get(name)),
+    save: (name, value) => { nativeRecords.set(name, value); return Promise.resolve(); },
+  });
+  const file = fallback({ read: () => Promise.resolve({ default: credentials }), remove: () => Promise.reject(new Error("Cleanup failed")) });
+  const newer = { ...credentials, refreshToken: "new-refresh" };
+  await assert.rejects(createCredentialStore(native, file, { authority }).save("default", newer), /Cleanup failed/u);
+  const restarted = createCredentialStore(native, fallback({ read: () => Promise.reject(new Error("Must not use obsolete fallback")) }), { authority });
+  assert.equal((await restarted.read()).default?.refreshToken, "new-refresh");
+});
+
+void test("pending generations recover an exact write but never revive an older credential", async (): Promise<void> => {
+  const authority = memoryAuthority();
+  const nativeRecords = new Map<string, StoredCredentials>([["default", credentials]]);
+  const native = keychain({ read: (name) => Promise.resolve(nativeRecords.get(name)), save: (name, value) => {
+    nativeRecords.set(name, value);
+    return Promise.reject(new Error("Interrupted after write"));
+  } });
+  const stored = createCredentialStore(native, fallback(), { authority });
+  await assert.rejects(stored.save("default", { ...credentials, refreshToken: "new-refresh" }), /Interrupted after write/u);
+  assert.equal((await createCredentialStore(native, fallback(), { authority }).read()).default?.refreshToken, "new-refresh");
+  nativeRecords.set("default", credentials);
+  assert.deepEqual(await stored.read(), {});
+});
+
+void test("authority failure prevents secret writes and legacy conflicts require re-login", async (context): Promise<void> => {
+  const save = context.mock.fn(() => Promise.resolve());
+  const authority: CredentialAuthorityStore = { transaction: (operation) => operation({ read: () => Promise.resolve(undefined), write: () => Promise.reject(new Error("Authority unavailable")) }) };
+  await assert.rejects(createCredentialStore(keychain({ save }), fallback({ save }), { authority }).save("default", credentials), /Authority unavailable/u);
+  assert.equal(save.mock.callCount(), 0);
+  const conflicting = createCredentialStore(keychain({ read: () => Promise.resolve(credentials) }), fallback({
+    read: () => Promise.resolve({ default: { ...credentials, refreshToken: "other-refresh" } }),
+  }));
+  assert.deepEqual(await conflicting.read(), {});
+});
+
+void test("logout cannot succeed when unavailable native deletion is unconfirmed", async (context): Promise<void> => {
+  const unavailable = (): Promise<never> => Promise.reject(new Error("No keyring backend is available."));
+  const removeFile = context.mock.fn(() => Promise.resolve());
+  const stored = createCredentialStore(keychain({ read: unavailable, remove: unavailable }), fallback({ remove: removeFile }));
+  const outcome = await run(["auth", "logout"], { readCredentials: stored.read, saveCredentials: stored.save, removeCredentials: stored.remove });
+  assert.equal(outcome.exitCode, 1);
+  assert.doesNotMatch(outcome.message, /logged_out/u);
+  assert.equal(removeFile.mock.callCount(), 0);
+});
+
+void test("successful logout records absence and cannot resurrect a restored native record", async (): Promise<void> => {
+  const authority = memoryAuthority();
+  const stored = createCredentialStore(keychain({ read: () => Promise.resolve(credentials) }), fallback(), { authority });
+  await stored.remove("default");
+  assert.deepEqual(await createCredentialStore(keychain({ read: () => Promise.resolve(credentials) }), fallback(), { authority }).read(), {});
 });
 
 void test("does not downgrade to a file when an available OS credential store is locked", async (): Promise<void> => {
