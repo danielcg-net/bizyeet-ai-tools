@@ -1,36 +1,18 @@
-import { spawn } from "node:child_process";
+import open from "open";
 
-export type BrowserCommand = Readonly<{ arguments: readonly string[]; executable: string }>;
+type BrowserOpener = (url: string) => Promise<unknown>;
 
-const commands: Readonly<Record<NodeJS.Platform, BrowserCommand>> = {
-  aix: { arguments: [], executable: "xdg-open" },
-  android: { arguments: [], executable: "xdg-open" },
-  darwin: { arguments: [], executable: "open" },
-  freebsd: { arguments: [], executable: "xdg-open" },
-  haiku: { arguments: [], executable: "xdg-open" },
-  linux: { arguments: [], executable: "xdg-open" },
-  openbsd: { arguments: [], executable: "xdg-open" },
-  sunos: { arguments: [], executable: "xdg-open" },
-  win32: { arguments: ["/d", "/s", "/c", "start", ""], executable: "cmd.exe" },
-  cygwin: { arguments: ["/d", "/s", "/c", "start", ""], executable: "cmd.exe" },
-  netbsd: { arguments: [], executable: "xdg-open" },
-};
+const openDefaultBrowser: BrowserOpener = (url) => open(url, { wait: false });
 
-/** Selects a shell-free browser command; the OAuth URL is always passed as one argument. */
-export const browserCommand = (platform: NodeJS.Platform, url: string): BrowserCommand => {
-  const command = commands[platform];
-  return { arguments: [...command.arguments, url], executable: command.executable };
-};
+/** Validate a browser target, then delegate platform escaping to the pinned opener. */
+export const createBrowserLauncher = (openUrl: BrowserOpener = openDefaultBrowser): ((url: string) => Promise<void>) =>
+  async (value: string): Promise<void> => {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.hash) {
+      throw new Error("OAuth browser target must be an HTTPS URL without credentials or a fragment.");
+    }
+    await openUrl(url.toString());
+  };
 
-/** Opens a browser without interpolating OAuth values into a shell command. */
-export const launchBrowser = (url: string, platform: NodeJS.Platform = process.platform): Promise<void> => {
-  const command = browserCommand(platform, url);
-  return new Promise((resolve, reject) => {
-    const child = spawn(command.executable, command.arguments, { detached: true, stdio: "ignore" });
-    child.once("error", reject);
-    child.once("spawn", () => {
-      child.unref();
-      resolve();
-    });
-  });
-};
+/** Open the default browser without forwarding OAuth URLs through cmd.exe. */
+export const launchBrowser = createBrowserLauncher();

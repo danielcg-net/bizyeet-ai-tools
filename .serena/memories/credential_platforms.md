@@ -52,3 +52,12 @@ Let the CLI event loop drain instead of forcing process.exit after native async
 credential work. The sole process.exitCode assignment is a documented external
 I/O boundary exception; application variables and data remain immutable and
 the global ESLint rules stay enabled. Installed tests verify nonzero exit codes.
+
+Browser launch uses pinned open11.0.2, not cmd.exe /c start. Validate HTTPS-only
+targets and pass URL data to the opener; its Windows path uses encoded PowerShell
+with literal escaping (including typographic quote delimiters). This is not a
+claim that no PowerShell process exists. Windows tests launch a temporary capture
+app, not a browser/network destination, to verify metacharacter URL preservation.
+Authorization Code requires PKCE S256; separately approved Device Authorization
+is retained for headless use under639/643. Do not remove device login by conflating
+the authorization-code proof with the distinct OAuth device grant.
