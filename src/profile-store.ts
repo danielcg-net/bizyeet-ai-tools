@@ -12,6 +12,17 @@ export type StoredCredentials = Readonly<{
   scope: string;
   /** Missing only for legacy records, which must never authorize network requests. */
   profile?: Profile;
+  /** Local store transaction generation; never used as OAuth authority. */
+  storageGeneration?: string;
+}>;
+
+export type CredentialAuthority = Readonly<{ generation: string; backend: "pending" | "native" | "fallback" | "removed" }>;
+export type CredentialAuthoritySession = Readonly<{
+  read: (name: string) => Promise<CredentialAuthority | undefined>;
+  write: (name: string, authority: CredentialAuthority) => Promise<void>;
+}>;
+export type CredentialAuthorityStore = Readonly<{
+  transaction: <T>(operation: (session: CredentialAuthoritySession) => Promise<T>) => Promise<T>;
 }>;
 
 export type Profile = Readonly<{ clientId: string; issuer: string; deviceGrantVerified?: boolean }>;
@@ -36,7 +47,10 @@ export const requireFileCredentialSupport = (platform: NodeJS.Platform = process
 };
 const profilePattern = /^[a-z0-9][a-z0-9-]{0,31}$/u;
 const emptyProfiles: ProfileCollection = Object.freeze({});
-const emptyCredentials: CredentialCollection = Object.freeze({});
+const generationPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
+const isAuthority = (value: unknown): value is CredentialAuthority => typeof value === "object" && value !== null
+  && "generation" in value && typeof value.generation === "string" && generationPattern.test(value.generation)
+  && "backend" in value && typeof value.backend === "string" && ["pending", "native", "fallback", "removed"].includes(value.backend);
 
 const isMissing = (error: unknown): boolean =>
   typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
@@ -54,7 +68,8 @@ export const isCredentials = (value: unknown): value is StoredCredentials =>
   && typeof (value as Record<string, unknown>).expiresAt === "string"
   && typeof (value as Record<string, unknown>).refreshToken === "string"
   && typeof (value as Record<string, unknown>).scope === "string"
-  && (!("profile" in value) || isProfile(value.profile));
+  && (!("profile" in value) || isProfile(value.profile))
+  && (!("storageGeneration" in value) || (typeof value.storageGeneration === "string" && generationPattern.test(value.storageGeneration)));
 
 const parseStoredJson = (value: string): unknown => {
   try { return JSON.parse(value) as unknown; }
@@ -117,12 +132,12 @@ const acquireCredentialLock = async (path: string, operations: FileOperations, r
   }
 };
 
-const withCredentialLock = async (paths: ReturnType<typeof profilePaths>, operations: FileOperations, update: () => Promise<void>): Promise<void> => {
+const withCredentialLock = async <T>(paths: ReturnType<typeof profilePaths>, operations: FileOperations, update: () => Promise<T>, lockName = ".credentials.lock"): Promise<T> => {
   await operations.mkdir(paths.directory, { recursive: true, mode: 0o700 });
   await assertPrivateDirectory(paths.directory, operations);
-  const lock = join(paths.directory, ".credentials.lock");
+  const lock = join(paths.directory, lockName);
   await acquireCredentialLock(lock, operations);
-  try { await update(); }
+  try { return await update(); }
   finally { await operations.rmdir(lock); }
 };
 
@@ -155,8 +170,8 @@ export const saveProfile = async (name: string, profile: Profile, paths: ReturnT
   await writePrivateJson(paths.profiles, { ...profiles, [profileName(name)]: profile }, operations);
 };
 
-/** Reads the permission-checked headless fallback credential file. */
-export const readFallbackCredentials = async (paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<CredentialCollection> => {
+/** Reads protected credential or ownership records through the validated descriptor. */
+const readPrivateCollection = async <T>(paths: ReturnType<typeof profilePaths>, predicate: (value: unknown) => value is T, operations: FileOperations): Promise<Readonly<Record<string, T>>> => {
   try {
     // Preserve absent-file cleanup on Windows, where plaintext is never allowed.
     await operations.lstat(paths.credentials);
@@ -168,15 +183,35 @@ export const readFallbackCredentials = async (paths: ReturnType<typeof profilePa
       if (!metadata.isFile() || metadata.nlink !== 1 || metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0) {
         throw new Error("Credential fallback file permissions are unsafe; expected an owner-only regular file with mode 0600.");
       }
-      return parseCollection(await handle.readFile("utf8"), isCredentials);
+      return parseCollection(await handle.readFile("utf8"), predicate);
     } finally { await handle.close(); }
   } catch (error) {
-    if (isMissing(error)) return emptyCredentials;
+    if (isMissing(error)) return Object.freeze({});
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ELOOP") {
       throw new Error("Credential fallback file must not be a symbolic link.", { cause: error });
     }
     throw error;
   }
+};
+
+/** Reads the permission-checked headless fallback credential file. */
+export const readFallbackCredentials = async (paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<CredentialCollection> =>
+  readPrivateCollection(paths, isCredentials, operations);
+
+/** Serializes POSIX store ownership transactions using protected, token-free metadata. */
+export const createCredentialAuthorityStore = (paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): CredentialAuthorityStore => {
+  const authorityPaths = { ...paths, credentials: join(paths.directory, "credential-authority.json") };
+  const read = (): Promise<Readonly<Record<string, CredentialAuthority>>> => readPrivateCollection(authorityPaths, isAuthority, operations);
+  return {
+    transaction: <T>(operation: (session: CredentialAuthoritySession) => Promise<T>): Promise<T> =>
+      withCredentialLock(paths, operations, () => operation({
+        read: async (name): Promise<CredentialAuthority | undefined> => (await read())[profileName(name)],
+        write: async (name, authority): Promise<void> => {
+          const existing = await read();
+          await writePrivateJson(authorityPaths.credentials, { ...existing, [profileName(name)]: authority }, operations, true);
+        },
+      }), ".credential-authority.lock"),
+  };
 };
 
 /** Writes headless credentials atomically with owner-only permissions. */

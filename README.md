@@ -107,6 +107,17 @@ stop all BizYeet commands and verify there is no live owner before an operator
 removes only that empty lock directory. Never delete credential files to recover
 the lock. This serializes local file updates, not overlapping OAuth refresh
 requests for the same profile; do not run those refreshes concurrently.
+In POSIX auto mode, protected `credential-authority.json` metadata records which
+store owns the current credential generation; it contains no OAuth tokens.
+An exclusive `.credential-authority.lock` serializes ownership and store updates.
+The new generation is recorded before a secret write. Recovery accepts only that
+generation, so a returning native service cannot revive an old fallback-era token,
+and failed fallback cleanup cannot override a newer native save. Incomplete saves
+without a matching record require re-login. Conflicting legacy stores without an
+ownership record also require re-login; auto mode does not guess which is newer.
+Do not delete or roll back ownership metadata independently of credentials.
+Logout reports failure if native deletion cannot be confirmed. Restore native
+service access and retry; an unavailable service is not proof that it is empty.
 Windows requires its native credential
 manager: POSIX mode bits do not prove owner-only Windows access, so plaintext
 fallback is refused. A locked credential service fails closed rather than
@@ -120,7 +131,7 @@ a trusted private `XDG_CONFIG_HOME`, keep this setting consistent for that
 profile, and perform OAuth login normally. These files are plaintext: protect
 them from backups, artifacts, shared volumes and other workspace processes.
 They are not a defense against a process already running as the same OS user.
-The default `auto` mode is unchanged and never interprets locked/denied access
+The default `auto` mode still never interprets locked/denied access
 as permission to downgrade. File mode remains forbidden on Windows. An unknown
 setting fails closed without echoing its value. Switching modes is not a
 credential migration; logout only revokes/removes the selected store's grant
