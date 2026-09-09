@@ -5,6 +5,9 @@ coverage and lists the six package-matrix contexts awaiting promotion. It record
 the 2026-09-09 inspection, not a timeless live-state assertion. Re-read protection
 before any mutation. Real external-fork validation needs explicit maintainer
 approval and sanitized current-head run/permission evidence before promotion.
+Review the complete exact-head diff, including executable/dependency changes, before
+approving a fork run; workflow-only inspection and contributor scope claims do not
+establish safety. New commits require renewed inspection.
 Keep the existing checks and security protections; never weaken fork permissions
 or treat a same-repository green run as external-fork proof. Publication is separate.
 

@@ -46,7 +46,12 @@ secret-exfiltration payload or production configuration.
    YouTrack. Confirm it is genuinely a different repository, not a same-repository
    branch. Use valid issue-prefixed branch, commit and title metadata and a matching
    YouTrack link in the body.
-2. Inspect the workflow changes before approving any first-contributor run.
+2. Inspect the complete diff at the exact current head before approving any
+   first-contributor run, including executable source/scripts, package metadata,
+   lockfile/dependency changes and workflows. Do not trust a stated documentation-only
+   scope: installation and checks execute checked-out PR code. Unexpected executable
+   or dependency changes require their own review; new commits invalidate the prior
+   inspection and must be reviewed before approving another run.
    Confirm PR jobs use GitHub-hosted runners, no deployment environment, no
    repository/environment/organization secret references, and no persisted checkout
    credentials. Do not grant a write token or expose secrets to make a test pass.
