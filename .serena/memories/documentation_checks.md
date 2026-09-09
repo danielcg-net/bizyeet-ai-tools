@@ -1,5 +1,12 @@
 # Offline documentation contracts
 
+Arithmetic expansions leave word context through their closing parentheses:
+an adjacent hash is a literal suffix, not a comment that hides later commands.
+Bash arithmetic commands retain their separate command-boundary semantics.
+Strip validated redirections before classifying npm arguments, including those
+between npm and run/options; redirect targets are not semantic arguments.
+Missing or operator-valued redirect targets fail closed.
+
 Track arithmetic-expansion parentheses (and Bash arithmetic commands) before
 detecting heredoc starts, so shifts are not input redirects. Parenthesized and
 multiline arithmetic retains its context; incomplete forms fail explicitly.

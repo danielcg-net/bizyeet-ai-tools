@@ -77,6 +77,7 @@ const shellLines = (source: string, bashExample: boolean): readonly string[] => 
       && (state.text.endsWith("$(") || (bashExample && state.boundary && state.text.endsWith("(")));
     if (opensArithmetic || state.arithmeticDepth > 0) return {
       ...state, text: state.text + character, lessThanRun: 0,
+      boundary: opensArithmetic ? !state.text.endsWith("$(") : state.boundary,
       arithmeticDepth: opensArithmetic ? 2 : state.arithmeticDepth + (character === "(" ? 1 : character === ")" ? -1 : 0),
     };
     if (character === "\n") return { ...initial, text: `${state.text}\0`, documents: hereDocuments(state) };
@@ -143,6 +144,19 @@ const commandPosition = (words: readonly ShellWord[]): boolean => {
   return position.command && !position.target;
 };
 
+const commandArguments = (words: readonly ShellWord[]): readonly ShellWord[] => {
+  const result = words.reduce<Readonly<{ target: boolean; arguments: readonly ShellWord[] }>>((state, word) => {
+    if (state.target) {
+      if (typeof word !== "string" && operator(word) !== "glob") throw new Error("Invalid redirect target.");
+      return { ...state, target: false };
+    }
+    if ([">", ">>", ">&", "<", "<&", "<<<"].includes(operator(word) ?? "")) return { ...state, target: true };
+    return { ...state, arguments: [...state.arguments, word] };
+  }, { target: false, arguments: [] });
+  if (result.target) throw new Error("Missing redirect target.");
+  return result.arguments;
+};
+
 const scriptFindings = (file: string, source: string, scripts: ReadonlySet<string>, consoleExample: boolean, bashExample: boolean): readonly DocumentationFinding[] => {
   if (!/\bnpm\b/u.test(source)) return [];
   try {
@@ -158,13 +172,13 @@ const scriptFindings = (file: string, source: string, scripts: ReadonlySet<strin
         const rest = words.slice(index + 1);
         const boundary = rest.findIndex((entry) => typeof entry === "object" && ("comment" in entry
           || ("op" in entry && [";", ";;", "&&", "||", "|", "|&", "&", ")"].includes(entry.op))));
-        const command = boundary < 0 ? rest : rest.slice(0, boundary);
+        const command = commandArguments(boundary < 0 ? rest : rest.slice(0, boundary));
         if (typeof command[0] === "string" && command[0].startsWith("-")) {
           const informational = command.length === 1 && ["--version", "-v", "--help", "-h"].includes(command[0]);
           return informational ? [] : [{ file, reason: "Option-prefixed npm commands are unsupported in checked examples; use direct commands." }];
         }
-        if (words[index + 1] !== "run") return [];
-        const operand = scriptOperand(words.slice(index + 2));
+        if (command[0] !== "run") return [];
+        const operand = scriptOperand(command.slice(1));
         // Bare npm run lists available scripts; prose also names this command.
         if (operand === undefined) return [];
         return typeof operand === "string" && !operand.includes("\0") && scripts.has(operand)

@@ -10,6 +10,26 @@ const files = new Set(["README.md", "docs/setup.md", "docs/image name.png"]);
 const scripts = new Set(["check", "release:verify"]);
 const inspect = (source: string): readonly string[] => inspectDocumentation("docs/setup.md", source, files, scripts).map((finding) => finding.reason);
 
+void test("arithmetic expansion suffixes are words rather than comments", (): void => {
+  ["sh", "bash"].forEach((language): void => {
+    ["$((1 << 2))", "$(((1 + 2) << 3))", "$((1 <<\n2))"].forEach((expression): void => {
+      assert.equal(inspect(`\`\`\`${language}\necho ${expression}#suffix; npm run missing\n\`\`\``).length, 1);
+      assert.deepEqual(inspect(`\`\`\`${language}\necho ${expression} # comment; npm run missing\n\`\`\``), []);
+    });
+  });
+  assert.deepEqual(inspect("```bash\n(( value = 1 << 2 ))# comment; npm run missing\n```"), []);
+});
+
+void test("redirects do not hide npm semantic arguments", (): void => {
+  [">out", "2>out <input", "<>state", "> 'two words'"].forEach((redirect): void => {
+    assert.equal(inspect(`\`npm ${redirect} --silent run missing\``).length, 1);
+    assert.equal(inspect(`\`npm ${redirect} run missing\``).length, 1);
+    assert.deepEqual(inspect(`\`npm ${redirect} run check\``), []);
+    assert.deepEqual(inspect(`\`npm ${redirect} --version\``), []);
+  });
+  assert.equal(inspect("`npm > && npm run check`").length, 1);
+});
+
 void test("arithmetic shifts do not introduce heredocs or hide later npm commands", (): void => {
   ["sh", "bash"].forEach((language): void => {
     ["echo $((1 << 2))", "echo $(((1 + 2) << 3))", "echo $((1 <<\n2))", 'echo "$((1 << 2))"'].forEach((arithmetic): void => {
