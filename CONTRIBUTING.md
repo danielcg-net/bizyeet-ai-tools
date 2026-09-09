@@ -24,6 +24,9 @@ security, test, and review checks.
 
 ## Pull request expectations
 
+Maintainers use the [required-check and fork-validation checklist](docs/required-checks.md)
+to reconcile protection with actual workflow contexts before promoting new gates.
+
 - Keep changes small and explain the user-visible or security impact.
 - Add or update tests for behavior changes.
 - Do not modify release, deployment, or security workflows to broaden token
