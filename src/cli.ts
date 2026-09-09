@@ -10,6 +10,7 @@ import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAg
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore } from "./credential-store.js";
 import { validResourceId } from "./canonical-crm-client.js";
+import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
 import { isUuid } from "./uuid.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, issuerOrigin, revokeRefreshToken } from "./oauth.js";
@@ -130,7 +131,7 @@ const safeValidationMessages = new Set([
   "Preview changes require piped JSON with --input-stdin.",
   "Use hidden terminal entry, or --receipt-stdin with a pipe.",
   "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.",
-  "Search is limited to 120 characters.", "Requested fields are invalid.",
+  CRM_SEARCH_LIMIT_MESSAGE, "Requested fields are invalid.",
   "Stored BizYeet credentials are invalid.", "Credential fallback file permissions are unsafe; expected mode 0600.",
   "Credential fallback file permissions are unsafe; expected an owner-only regular file with mode 0600.",
   "Credential fallback directory is unsafe; expected an owner-only directory with mode 0700.",
