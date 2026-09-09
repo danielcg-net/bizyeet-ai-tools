@@ -104,7 +104,7 @@ const validEnvelope = (body: unknown, id: string | null, pageSize: number): bool
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return false;
   if (id !== null) return validResourceId(body.data.id) && body.data.id === id;
   return Array.isArray(body.data.items) && body.data.items.length <= pageSize && body.data.items.every((item: unknown) => record(item) && validResourceId(item.id)) &&
-    Number.isSafeInteger(body.data.total) && typeof body.data.total === "number" && body.data.total >= 0 &&
+    Number.isSafeInteger(body.data.total) && typeof body.data.total === "number" && body.data.total >= body.data.items.length &&
     (body.meta.next_cursor === null || (typeof body.meta.next_cursor === "string"
       && body.meta.next_cursor.length > 0 && body.meta.next_cursor.length <= 4096));
 };
