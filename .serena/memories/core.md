@@ -1,5 +1,7 @@
 # Core
 
+- A successful list total must be a safe integer at least as large as the returned page. Reject contradictory untrusted count/item envelopes rather than silently dropping records or fabricating a count.
+
 - OAuth token_type is case-insensitive; accept only Bearer variants without trimming and normalize successful code/refresh/device results to Bearer. List response counts must not exceed the requested page size (default25,max100), independently of byte caps. Preview expirations require a valid UTC date-time representation, not merely a finite Date.parse result.
 
 - Error/write/status correlation references are opaque printable non-whitespace strings bounded to128 UTF-16 units, not necessarily UUIDs. Preserve valid upstream references with one shared projector; synthesize a local UUID only for invalid/missing references. Audit and preview identifiers retain their separate UUID validation.
