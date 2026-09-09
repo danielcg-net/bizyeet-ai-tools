@@ -151,8 +151,14 @@ void test("auth logout attempts refresh-token revocation before clearing the loc
 void test("other commands fail closed until explicitly implemented", async (): Promise<void> => {
   const result = await run(["quotes", "list"]);
 
-  assert.equal(result.exitCode, 1);
+  assert.equal(result.exitCode, 2);
   assert.match(result.message, /Unsupported command: quotes/u);
+});
+
+void test("unknown auth subcommands use the invalid-input exit code", async (): Promise<void> => {
+  const result = await run(["auth", "unknown"]);
+  assert.equal(result.exitCode, 2);
+  assert.match(result.message, /invalid_request/u);
 });
 
 void test("rejects option flags used as OAuth option values before starting a login", async (): Promise<void> => {

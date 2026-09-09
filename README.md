@@ -75,6 +75,9 @@ challenge and state. Waiting for the browser callback expires after five minutes
 and closes the listener; start a new login if authorization was abandoned.
 Device polling rejects advertised intervals below one second or beyond supported
 timer bounds, defaults an omitted interval to five seconds, and honors slowdown.
+Device authorization lifetimes are limited to fifteen minutes; longer advertised
+lifetimes are rejected before polling. Token exchanges reject empty or
+whitespace-bearing access tokens before reporting a successful login.
 Device registration explicitly requests the device-code and refresh grants.
 Switching from a browser or legacy profile registers a device-capable client;
 later device logins reuse it only after a successful device exchange has been

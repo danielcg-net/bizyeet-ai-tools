@@ -232,7 +232,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
 };
 
 const unsupportedCommand = (command: string): CliResult =>
-  result(1, errorEnvelope("invalid_request", `Unsupported command: ${command}. Run bizyeet --help.`), "stderr");
+  result(2, errorEnvelope("invalid_request", `Unsupported command: ${command}. Run bizyeet --help.`), "stderr");
 
 const authenticatedProfile = async (args: readonly string[], dependencies: CliStorage): Promise<Readonly<{ credentials: import("./profile-store.js").StoredCredentials; name: string; profile: import("./profile-store.js").Profile }> | CliResult> => {
   const name = profileFrom(args);

@@ -1,5 +1,8 @@
 # Core
 
+- Exact reads must echo the requested opaque ID, and every returned list/detail ID must satisfy the same input validator. Reject malformed success rather than returning a different/unreadable record.
+- Token responses require nonempty whitespace-free access tokens. Device lifetimes are capped at900 seconds at issuance parsing and direct polling entry. Unsupported commands use invalid_request with exit2, not internal-failure exit1.
+
 - Reuse a saved client for device login only after a successful device exchange has set deviceGrantVerified=true in its protected same-issuer profile. Browser/legacy profiles need a new device-capable registration; this is evidence of a completed flow, not a substitute for server authorization.
 - Attach a rejection observer to the callback promise immediately when opening the listener, before registration/browser launch. Preserve the original rejected promise for awaitCode to report; do not turn denial into success. Catch malformed HTTP URL targets inside the callback handler so they produce a controlled 400/rejection rather than an uncaught process exception.
 - Recorded failed outcomes use only server outcome codes, never local request_unavailable/invalid_response or pending/ambiguous codes. Preserve the separate ambiguous status contract and shared legacy-code normalization.

@@ -44,6 +44,7 @@ export type RegisteredPublicClient = Readonly<{ clientId: string }>;
 const oauthMetadataPath = "/.well-known/oauth-authorization-server";
 const requiredMetadataKeys = ["authorization_endpoint", "token_endpoint"] as const;
 const maximumTimerMilliseconds = 2_147_483_647;
+const maximumDeviceLifetimeSeconds = 900;
 const isDeviceInterval = (value: unknown): value is number => typeof value === "number"
   && Number.isFinite(value) && value >= 1 && Math.ceil(value * 1000) <= maximumTimerMilliseconds;
 
@@ -96,6 +97,7 @@ const isTokenSet = (value: unknown): value is OAuthTokenSet => {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return typeof candidate.access_token === "string"
+    && candidate.access_token.length > 0 && !/\s/u.test(candidate.access_token)
     && typeof candidate.expires_in === "number"
     && Number.isFinite(candidate.expires_in)
     && candidate.expires_in > 0
@@ -114,6 +116,7 @@ const isDeviceAuthorization = (value: unknown): value is DeviceAuthorizationResp
     && typeof candidate.expires_in === "number"
     && Number.isFinite(candidate.expires_in)
     && candidate.expires_in > 0
+    && candidate.expires_in <= maximumDeviceLifetimeSeconds
     && (candidate.interval === undefined || isDeviceInterval(candidate.interval))
     && (candidate.verification_uri_complete === undefined || typeof candidate.verification_uri_complete === "string");
 };
@@ -311,7 +314,8 @@ export const exchangeDeviceCode = async (input: Readonly<{
   dependencies?: DevicePollingDependencies;
 }>): Promise<OAuthTokenSet> => {
   const dependencies = input.dependencies ?? defaultPollingDependencies;
-  if (!isDeviceInterval(input.device.interval) || !Number.isFinite(input.device.expiresIn * 1000) || input.device.expiresIn <= 0) {
+  if (!isDeviceInterval(input.device.interval) || !Number.isFinite(input.device.expiresIn * 1000)
+    || input.device.expiresIn <= 0 || input.device.expiresIn > maximumDeviceLifetimeSeconds) {
     throw new Error("OAuth device authorization has unsupported timing; run auth login again.");
   }
   return pollDeviceToken({
