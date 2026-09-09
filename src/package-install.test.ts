@@ -69,6 +69,7 @@ const credentialConfig = async (directory: string, issuer = "https://example.tes
 };
 
 const opaqueId = `crm1.${"a".repeat(64)}.customers.synthetic`;
+const opaqueCursor = "next:page/2?query=a+b&filter=active#offset";
 const previewId = "11111111-1111-4111-8111-111111111111";
 const executionKey = "22222222-2222-4222-8222-222222222222";
 const receipt = "r".repeat(43);
@@ -99,7 +100,7 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
   const body = metadata ? { issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, code_challenge_methods_supported: ["S256"] }
     : !authorized ? { error: { code: "authorization_required" } }
     : url.pathname === "/api/agent/me" ? { tenant_id: "synthetic-tenant", client_id: "public-client", scope: ["customers.read"] }
-    : url.pathname === "/api/agent/customers" ? { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: null } }
+    : url.pathname === "/api/agent/customers" ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
     : url.pathname === `/api/agent/customers/${opaqueId}` ? { data: { id: opaqueId }, meta: { contract_version: "v1" } }
     : { error: { code: "not_found" } };
   response.writeHead(metadata || authorized ? ("error" in body ? 404 : 200) : 401, { "Content-Type": "application/json" });
@@ -125,21 +126,30 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const environment = { ...await credentialConfig(directory, `https://127.0.0.1:${String(address.port)}`), NODE_EXTRA_CA_CERTS: certificate };
       const check = await runInstalled(["auth", "check", "--profile", testProfile(directory)], directory, environment);
       const list = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--profile", testProfile(directory)], directory, environment);
+      const listed: unknown = JSON.parse(list);
+      assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
+      const nextPage = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--cursor", opaqueCursor, "--profile", testProfile(directory)], directory, environment);
       const detail = await runInstalled(["customers", "get", opaqueId, "--profile", testProfile(directory)], directory, environment);
       const preview = await runInstalled(["customers", "update", "preview", opaqueId, "--input-stdin", "--profile", testProfile(directory)], directory, environment, JSON.stringify({ business: "Proposed" }));
       const execution = await runInstalled(["customers", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
       assert.match(check, /"verification":"server"/u);
       assert.match(check, /synthetic-tenant/u);
-      assert.deepEqual(JSON.parse(list), { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: null } });
+      assert.deepEqual(JSON.parse(nextPage), { data: { items: [], total: 1 }, meta: { contract_version: "v1", next_cursor: null } });
       assert.deepEqual(JSON.parse(detail), { data: { id: opaqueId }, meta: { contract_version: "v1" } });
       assert.match(preview, /"confirmation_class":"reversible_write"/u);
       assert.match(execution, /"business":"Proposed"/u);
-      assert.doesNotMatch(check + list + detail + preview + execution, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
-      assert.equal(handler.mock.callCount(), 5);
+      assert.doesNotMatch(check + list + nextPage + detail + preview + execution, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
+      assert.equal(handler.mock.callCount(), 6);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
       assert.equal(new URL(listRequest, "https://localhost").searchParams.get("api_version"), "v1");
+      const pageRequests = handler.mock.calls.map((call) => new URL(call.arguments[0].url ?? "/", "https://localhost"))
+        .filter((url) => url.searchParams.has("cursor"));
+      assert.equal(pageRequests.length, 1);
+      assert.equal(pageRequests[0]?.searchParams.get("cursor"), opaqueCursor);
+      assert.equal(pageRequests[0].searchParams.has("filter"), false);
+      assert.equal(pageRequests[0].hash, "");
     } finally {
       await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve(); }); });
     }
