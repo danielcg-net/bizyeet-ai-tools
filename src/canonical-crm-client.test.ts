@@ -5,6 +5,23 @@ import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await Promise.all([undefined, 1, 25, 100].flatMap((pageSize) => [0, 1].map((extra) => test(`bounds returned records for page ${String(pageSize)} plus ${String(extra)}`, async () => {
+  const count = (pageSize ?? 25) + extra;
+  const page = { ...emptyPage, data: { items: Array.from({ length: count }, (_, index) => ({ id: `customer-${String(index)}` })), total: count } };
+  const request = mock.fn(() => Promise.resolve(Response.json(page)));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  const result = await client.list("customers", pageSize === undefined ? {} : { page_size: pageSize });
+  assert.deepEqual(result, extra === 0 ? { status: 200, body: page } : { status: 502, body: { error: { code: "invalid_response" } } });
+  assert.equal(request.mock.callCount(), 1);
+}))));
+
+await Promise.all([0, -1, 1.5, 101, Infinity, NaN].map((pageSize) => test(`rejects invalid page size ${String(pageSize)} before credentials`, async () => {
+  const getAccessToken = mock.fn(token);
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken });
+  assert.equal((await client.list("leads", { page_size: pageSize })).status, 400);
+  assert.equal(getAccessToken.mock.callCount(), 0);
+})));
+
 await Promise.all([300, 512, 513].map((length) => test(`opaque IDs count Unicode code points at ${String(length)}`, async () => {
   const id = "😀".repeat(length);
   const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,

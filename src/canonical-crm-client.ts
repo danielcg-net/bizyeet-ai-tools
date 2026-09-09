@@ -39,6 +39,11 @@ export const validResourceId = (value: unknown): value is string => typeof value
   && Array.from(value).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127);
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const uuid = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(value);
+const utcTimestamp = (value: unknown): value is string => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+00:00)$/iu.test(value)) return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 19) === value.slice(0, 19).toUpperCase();
+};
 const validWrite = (body: unknown, preview: boolean): boolean => {
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return false;
   const data = body.data;
@@ -47,7 +52,7 @@ const validWrite = (body: unknown, preview: boolean): boolean => {
     && Object.values(data.resource).every((value) => value === null || typeof value === "string");
   return uuid(data.preview_id) && validResourceId(data.resource_id) && data.confirmation_class === "reversible_write"
     && typeof data.request_hash === "string" && /^[A-Za-z0-9_-]{43}$/u.test(data.request_hash)
-    && typeof data.expires_at === "string" && Number.isFinite(Date.parse(data.expires_at))
+    && utcTimestamp(data.expires_at)
     && data.approval_path === `/dashboard/#/agent-approvals/${data.preview_id}`
     && record(data.proposed_changes) && Object.values(data.proposed_changes).every((value) => typeof value === "string")
     && Array.isArray(data.side_effects) && data.side_effects.every((value: unknown) => typeof value === "string")
@@ -95,10 +100,10 @@ const query = (options: ListOptions): string => new URLSearchParams([
   ...(options.dir === undefined ? [] : [["dir", options.dir]]),
   ...(options.fields === undefined ? [] : [["fields", options.fields.join(",")]]),
 ]).toString();
-const validEnvelope = (body: unknown, id: string | null): boolean => {
+const validEnvelope = (body: unknown, id: string | null, pageSize: number): boolean => {
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return false;
   if (id !== null) return validResourceId(body.data.id) && body.data.id === id;
-  return Array.isArray(body.data.items) && body.data.items.every((item: unknown) => record(item) && validResourceId(item.id)) &&
+  return Array.isArray(body.data.items) && body.data.items.length <= pageSize && body.data.items.every((item: unknown) => record(item) && validResourceId(item.id)) &&
     Number.isSafeInteger(body.data.total) && typeof body.data.total === "number" && body.data.total >= 0 &&
     (body.meta.next_cursor === null || (typeof body.meta.next_cursor === "string"
       && body.meta.next_cursor.length > 0 && body.meta.next_cursor.length <= 4096));
@@ -124,6 +129,8 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   const read = async (resource: CrmResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
     if (id !== null && !validResourceId(id)) return failure(400, "invalid_request");
+    const pageSize = options.page_size ?? 25;
+    if (id === null && (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100)) return failure(400, "invalid_request");
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/.test(token)) return failure(401, "authorization_required");
@@ -135,7 +142,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       const body = await boundedResponse(response, 1_048_576);
       if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
         ? { status: response.status, body } : failure(502, "invalid_response");
-      return validEnvelope(body, id) ? { status: response.status, body } : failure(502, "invalid_response");
+      return validEnvelope(body, id, pageSize) ? { status: response.status, body } : failure(502, "invalid_response");
     } catch {
       return failure(503, "request_unavailable");
     }
