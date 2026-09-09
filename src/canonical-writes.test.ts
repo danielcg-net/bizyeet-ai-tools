@@ -12,6 +12,28 @@ const preview = { preview_id: id, request_hash: "b".repeat(41) + "-_", expires_a
 const envelope = (data: unknown): Readonly<Record<string, unknown>> => ({ data, meta: { contract_version: "v1", request_id: "req_write_abc" } });
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await Promise.all([
+  { value: undefined, valid: true }, { value: null, valid: true },
+  { value: "2026-09-09T12:00:00.123Z", valid: true },
+  { value: "2026-09-09T12:00:00+00:00", valid: true },
+  ...["not-a-date", "2026-02-30T12:00:00Z", "2026-09-09", "2026-09-09T12:00:00+01:00"].map((value) => ({ value, valid: false })),
+].map(({ value, valid }, index) => test(`validates mutation timestamp in execute and recovered status ${String(index)}`, async () => {
+  const data = { resource: { id: resourceId, ...(value === undefined ? {} : { updated_at: value }) }, audit_reference: id };
+  const request = mock.fn((url: string) => Promise.resolve(Response.json(envelope(url.includes("update-status")
+    ? { preview_id: id, state: "succeeded", retry_mutation: false, reconciliation_required: false, outcome: { status: 200, data } }
+    : data))));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  const execution = await client.executeCustomerUpdate(approval);
+  const status = await client.customerUpdateStatus({ preview_id: id, idempotency_key: approval.idempotency_key });
+  assert.equal(execution.status, valid ? 200 : 502);
+  assert.equal(status.status, valid ? 200 : 502);
+  if (!valid) {
+    assert.deepEqual(execution.body, { error: { code: "execution_ambiguous" } });
+    assert.deepEqual(status.body, { error: { code: "invalid_response" } });
+  }
+  assert.equal(request.mock.callCount(), 2);
+})));
+
 await Promise.all([6, 7, 8].map((version) => test(`write transport preserves UUIDv${String(version)} identifiers`, async () => {
   const uuid = `abcdefab-1234-${String(version)}abc-8def-abcdefabcdef`;
   const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
