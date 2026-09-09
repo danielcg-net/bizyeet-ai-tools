@@ -7,6 +7,9 @@ Thanks for helping improve BizYeet AI Tools.
 1. Obtain a BizYeet YouTrack issue from a maintainer for the proposed change.
 2. Use a branch such as `bizyeet-123/short-title`; the pull-request title must
    begin `BIZYEET-123: ` and every non-merge commit must begin `bizyeet-123: `.
+   Include the matching canonical issue URL in the PR body, for example
+   `[BIZYEET-123](https://bizyeet.youtrack.cloud/issue/BIZYEET-123)`.
+   CI validates the link locally without requiring contributors' YouTrack credentials.
 3. Run `npm run check`.
 4. Do not include tenant data, credentials, copied production configuration, or
    code from BizYeet private repositories.
@@ -25,8 +28,8 @@ security, test, and review checks.
 - Add or update tests for behavior changes.
 - Do not modify release, deployment, or security workflows to broaden token
   permissions, run fork code in privileged contexts, or expose secrets.
-- Use conventional, imperative commit messages. Maintainers add internal
-  delivery references when the work is accepted.
+- Use imperative commit messages with the matching issue prefix before opening
+  the PR; missing identifiers are not deferred until acceptance.
 
 ## Local development
 
