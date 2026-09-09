@@ -4,7 +4,7 @@ import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 
 const previewId = "11111111-1111-4111-8111-111111111111";
 const query = { preview_id: previewId, idempotency_key: "22222222-2222-4222-8222-222222222222" };
-const metadata = { contract_version: "v1", request_id: previewId };
+const metadata = { contract_version: "v1", request_id: "req_status_abc" };
 const makeData = (overrides: Readonly<Record<string, unknown>> = {}): Readonly<Record<string, unknown>> => ({
   preview_id: previewId, state: "pending", retry_mutation: false, reconciliation_required: false, outcome: null, ...overrides,
 });
