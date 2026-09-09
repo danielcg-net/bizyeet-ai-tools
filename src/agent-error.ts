@@ -30,12 +30,17 @@ export const recordedFailureCode = (value: unknown): string | undefined => {
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+/** Preserve bounded printable correlation references without requiring UUID syntax. */
+export const correlationReference = (value: unknown): string =>
+  typeof value === "string" && value.length >= 1 && value.length <= 128
+    && Array.from(value).every((character) => character.charCodeAt(0) > 32 && character.charCodeAt(0) !== 127)
+    ? value : crypto.randomUUID();
+
 /** Retains machine semantics without reflecting server messages, details or credentials. */
 export const agentFailure = (status: number, body: unknown): AgentFailure => {
   const error = record(body) && record(body.error) ? body.error : {};
   const code = canonicalErrorCode(error.code) ?? "internal_error";
-  const requestId = typeof error.request_id === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(error.request_id)
-    ? error.request_id : crypto.randomUUID();
+  const requestId = correlationReference(error.request_id);
   return Object.freeze({ kind: "agent_failure", code, status, requestId,
     retryable: ["execution_ambiguous", "execution_in_progress"].includes(code) ? false
       : typeof error.retryable === "boolean" ? error.retryable : status === 429 || status >= 500 });

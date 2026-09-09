@@ -1,5 +1,5 @@
 import { readBoundedJson as boundedResponse } from "./bounded-json.js";
-import { canonicalErrorCode, recordedFailureCode } from "./agent-error.js";
+import { canonicalErrorCode, correlationReference, recordedFailureCode } from "./agent-error.js";
 
 export type CrmResource = "customers" | "leads";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
@@ -169,7 +169,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       const data = body.data;
       const metadata = record(body.meta) ? body.meta : {};
       return { status: response.status, body: { data: Object.fromEntries(fields.map((key) => [key, data[key]])),
-        meta: { contract_version: "v1", request_id: uuid(metadata.request_id) ? metadata.request_id : crypto.randomUUID() } } };
+        meta: { contract_version: "v1", request_id: correlationReference(metadata.request_id) } } };
     } catch {
       return failure(503, preview ? "request_unavailable" : "execution_ambiguous");
     }
@@ -190,7 +190,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       if (!data) return failure(502, "invalid_response");
       const metadata = record(body) && record(body.meta) ? body.meta : {};
       return { status: response.status, body: { data,
-        meta: { contract_version: "v1", request_id: uuid(metadata.request_id) ? metadata.request_id : crypto.randomUUID() } } };
+        meta: { contract_version: "v1", request_id: correlationReference(metadata.request_id) } } };
     } catch { return failure(503, "request_unavailable"); }
   };
   return Object.freeze({

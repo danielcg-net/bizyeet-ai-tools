@@ -1,5 +1,7 @@
 # Core
 
+- Error/write/status correlation references are opaque printable non-whitespace strings bounded to128 UTF-16 units, not necessarily UUIDs. Preserve valid upstream references with one shared projector; synthesize a local UUID only for invalid/missing references. Audit and preview identifiers retain their separate UUID validation.
+
 - Opaque ID bounds count Unicode code points (512), not UTF-16 units; the preliminary1024-unit cap only bounds allocation. Auth status/logout distinguish profile/configuration input errors (exit2) from credential runtime/corruption failures (internal_error/exit1), retaining fixed safe diagnostics and redaction.
 
 - Exact reads must echo the requested opaque ID, and every returned list/detail ID must satisfy the same input validator. Reject malformed success rather than returning a different/unreadable record.

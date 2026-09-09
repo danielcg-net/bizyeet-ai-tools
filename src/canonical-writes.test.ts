@@ -9,7 +9,7 @@ const approval = { preview_id: id, approval_receipt: "r".repeat(43), idempotency
 const proposal = { resource_id: resourceId, changes: { business: "Proposed name" } };
 const preview = { preview_id: id, request_hash: "b".repeat(41) + "-_", expires_at: "2099-01-01T00:00:00.000Z", confirmation_class: "reversible_write",
   resource_id: resourceId, proposed_changes: proposal.changes, side_effects: ["Update customer"], warnings: [], idempotency_key_format: "uuid", approval_path: `/dashboard/#/agent-approvals/${id}` };
-const envelope = (data: unknown): Readonly<Record<string, unknown>> => ({ data, meta: { contract_version: "v1", request_id: id } });
+const envelope = (data: unknown): Readonly<Record<string, unknown>> => ({ data, meta: { contract_version: "v1", request_id: "req_write_abc" } });
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
 await test("preview uses one canonical POST and projects only documented response fields", async () => {
