@@ -12,3 +12,8 @@ former server-side 120-unit truncation.
 The same fixed CRM_SEARCH_LIMIT_MESSAGE belongs to the CLI safe validation
 allowlist; test through run() and the real agent client so oversized search stays
 invalid_request/exit2 rather than an internal error. Never echo arbitrary errors.
+
+Reject lone UTF-16 surrogates before URLSearchParams can replace them with U+FFFD.
+The Unicode-mode surrogate regex still accepts valid pairs, including emoji at
+the 200-code-point boundary. Exercise both surrogate halves and reversed pairs
+through the real agent client with zero dispatch, and retain safe CLI exit2.

@@ -9,7 +9,7 @@ import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
 void test("oversized Unicode searches return actionable CLI validation errors without network access", async (context): Promise<void> => {
   const forbidden = (): Promise<never> => Promise.reject(new Error("Must not dispatch"));
   const fetcher = context.mock.fn(forbidden);
-  await Promise.all(["a".repeat(201), "😀".repeat(201)].map(async (search): Promise<void> => {
+  await Promise.all(["a".repeat(201), "😀".repeat(201), `${"a".repeat(120)}\uD800`, "\uDC00"].map(async (search): Promise<void> => {
     const outcome = await run(["customers", "list", "--search", search], {
       readCredentials: () => Promise.resolve({ default: { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "secret-access", refreshToken: "secret-refresh", expiresAt: "2099-01-01", scope: "customers.read" } }),
       removeCredentials: forbidden, saveCredentials: forbidden,

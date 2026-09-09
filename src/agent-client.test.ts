@@ -162,7 +162,7 @@ void test("preserves the complete advertised Unicode search without client-side 
 });
 
 void test("rejects oversized raw searches before any request", async () => {
-  await Promise.all(["a".repeat(201), "😀".repeat(201), ` ${"a".repeat(200)}`, " ".repeat(10000)].map(async (search) => {
+  await Promise.all(["a".repeat(201), "😀".repeat(201), ` ${"a".repeat(200)}`, " ".repeat(10000), `${"a".repeat(120)}\uD800`, "\uDC00", "\uD800a", "\uDC00\uD800"].map(async (search) => {
     const fetcher = mock.fn(() => Promise.reject(new Error("Must not request")));
     await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
       options: { search }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
