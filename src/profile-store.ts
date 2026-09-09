@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -16,17 +16,15 @@ export type ProfileCollection = Readonly<Record<string, Profile>>;
 export type CredentialCollection = Readonly<Record<string, StoredCredentials>>;
 
 type FileOperations = Readonly<{
-  chmod: (path: string, mode: number) => Promise<void>;
   mkdir: (path: string, options: Readonly<{ recursive: true; mode: number }>) => Promise<string | undefined>;
   readFile: (path: string, encoding: "utf8") => Promise<string>;
   rename: (oldPath: string, newPath: string) => Promise<void>;
   lstat: typeof lstat;
-  open: typeof open;
+  open: (path: string, flags: string | number, mode?: number) => Promise<Pick<FileHandle, "stat" | "readFile" | "writeFile" | "chmod" | "close">>;
   unlink: typeof unlink;
-  writeFile: (path: string, data: string, options: Readonly<{ encoding: "utf8"; mode: number; flag: "wx" }>) => Promise<void>;
 }>;
 
-const files: FileOperations = { chmod, lstat, mkdir, open, readFile, rename, unlink, writeFile };
+const files: FileOperations = { lstat, mkdir, open, readFile, rename, unlink };
 
 /** POSIX mode bits cannot establish owner-only access on Windows. */
 export const requireFileCredentialSupport = (platform: NodeJS.Platform = process.platform): void => {
@@ -104,10 +102,14 @@ const writePrivateJson = async (path: string, value: unknown, operations: FileOp
   const temporaryPath = join(directory, `.${randomUUID()}.tmp`);
   await operations.mkdir(directory, { recursive: true, mode: 0o700 });
   if (secret) await assertPrivateDirectory(directory, operations);
-  // Exclusive creation cannot follow or overwrite a pre-existing temporary path.
-  await operations.writeFile(temporaryPath, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  // Cleanup starts only after exclusive creation proves this operation owns the
+  // temporary file. A failed open must never unlink a pre-existing path.
+  const handle = await operations.open(temporaryPath, "wx", 0o600);
   try {
-    await operations.chmod(temporaryPath, 0o600);
+    try {
+      await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8");
+      await handle.chmod(0o600);
+    } finally { await handle.close(); }
     await operations.rename(temporaryPath, path);
   } finally {
     await operations.unlink(temporaryPath).catch((error: unknown) => { if (!isMissing(error)) throw error; });

@@ -12,7 +12,12 @@ single hard link, current uid, owner-only mode. Read via that same descriptor
 and always close it. This removes a pathname stat/read race and avoids blocking
 on special files. Ancestor directories must remain trusted; this is not a
 defense against another process already running as the same OS user. Atomic
-temporary writes use exclusive creation and clean up after rename failures.
+temporary writes acquire an exclusive file handle before entering cleanup, then
+write/chmod through it, close before rename, and unlink the owned temporary path
+on partial-write/chmod/close/rename failure. Never unlink after failed exclusive
+open: EEXIST may identify a pre-existing file not owned by this operation.
+Cleanup errors other than ENOENT remain visible. Injected failures must preserve
+existing saved credentials and leave no temporary secret when cleanup succeeds.
 Malformed JSON must produce a fixed error without parser excerpts or causes.
 
 Never classify every error mentioning keyring as an unavailable backend. Only

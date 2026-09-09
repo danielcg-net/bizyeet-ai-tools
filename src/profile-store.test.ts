@@ -115,3 +115,94 @@ void test("rejects non-files and hides parser excerpts from malformed credential
     return true;
   });
 });
+
+void test("cleans a partially written temporary credential file without replacing saved credentials", { skip: process.platform === "win32" }, async (): Promise<void> => {
+  const root = await mkdtemp(join(tmpdir(), "bizyeet-partial-credential-"));
+  const paths = profilePaths({}, root);
+  const original = { accessToken: "synthetic-original", refreshToken: "synthetic-refresh", expiresAt: "2099-01-01", scope: "customers.read" };
+  try {
+    await saveFallbackCredentials("default", original, paths);
+    const operations = {
+      ...fileSystem,
+      open: async (path: string, flags: string | number, mode?: number): Promise<Pick<fileSystem.FileHandle, "stat" | "readFile" | "writeFile" | "chmod" | "close">> => {
+        const handle = await fileSystem.open(path, flags, mode);
+        if (flags !== "wx") return handle;
+        return {
+          stat: handle.stat.bind(handle), readFile: handle.readFile.bind(handle),
+          chmod: handle.chmod.bind(handle), close: handle.close.bind(handle),
+          writeFile: async (): Promise<void> => {
+            await handle.writeFile("synthetic-partial-secret");
+            throw new Error("Synthetic partial write failure");
+          },
+        };
+      },
+    };
+    await assert.rejects(saveFallbackCredentials("default", { ...original, accessToken: "synthetic-new" }, paths, operations), /partial write failure/u);
+    assert.deepEqual(await readFallbackCredentials(paths), { default: original });
+    assert.deepEqual(await fileSystem.readdir(paths.directory), ["credentials.json"]);
+  } finally {
+    await fileSystem.rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("does not unlink a pre-existing temporary file when exclusive creation fails", async (): Promise<void> => {
+  const root = await mkdtemp(join(tmpdir(), "bizyeet-exclusive-profile-"));
+  const paths = profilePaths({}, root);
+  try {
+    const operations = {
+      ...fileSystem,
+      open: async (path: string, flags: string | number, mode?: number): Promise<fileSystem.FileHandle> => {
+        assert.equal(flags, "wx");
+        assert.equal(mode, 0o600);
+        await fileSystem.writeFile(path, "pre-existing synthetic file", { flag: "wx", mode: 0o600 });
+        return fileSystem.open(path, flags, mode);
+      },
+    };
+    await assert.rejects(saveProfile("default", { clientId: "public", issuer: "https://example.test" }, paths, operations), { code: "EEXIST" });
+    const entries = await fileSystem.readdir(paths.directory);
+    assert.equal(entries.length, 1);
+    const temporaryName = entries[0];
+    assert.ok(typeof temporaryName === "string" && temporaryName.endsWith(".tmp"));
+    assert.equal(await fileSystem.readFile(join(paths.directory, temporaryName), "utf8"), "pre-existing synthetic file");
+    await assert.rejects(stat(paths.profiles), { code: "ENOENT" });
+  } finally {
+    await fileSystem.rm(root, { recursive: true, force: true });
+  }
+});
+
+["chmod", "close", "rename"].forEach((failure): void => {
+  void test(`cleans owned temporary profiles after ${failure} failure and preserves the old file`, async (): Promise<void> => {
+    const root = await mkdtemp(join(tmpdir(), "bizyeet-profile-failure-"));
+    const paths = profilePaths({}, root);
+    try {
+      await saveProfile("default", { clientId: "original", issuer: "https://example.test" }, paths);
+      const original = await fileSystem.readFile(paths.profiles, "utf8");
+      const operations = {
+        ...fileSystem,
+        open: async (path: string, flags: string | number, mode?: number): Promise<Pick<fileSystem.FileHandle, "stat" | "readFile" | "writeFile" | "chmod" | "close">> => {
+          const handle = await fileSystem.open(path, flags, mode);
+          return {
+            stat: handle.stat.bind(handle), readFile: handle.readFile.bind(handle), writeFile: handle.writeFile.bind(handle),
+            chmod: async (permissions: number): Promise<void> => {
+              if (failure === "chmod") throw new Error("Synthetic chmod failure");
+              await handle.chmod(permissions);
+            },
+            close: async (): Promise<void> => {
+              await handle.close();
+              if (failure === "close") throw new Error("Synthetic close failure");
+            },
+          };
+        },
+        rename: async (before: string, after: string): Promise<void> => {
+          if (failure === "rename") throw new Error("Synthetic rename failure");
+          await rename(before, after);
+        },
+      };
+      await assert.rejects(saveProfile("default", { clientId: "replacement", issuer: "https://example.test" }, paths, operations), { message: `Synthetic ${failure} failure` });
+      assert.equal(await fileSystem.readFile(paths.profiles, "utf8"), original);
+      assert.deepEqual(await fileSystem.readdir(paths.directory), ["profiles.json"]);
+    } finally {
+      await fileSystem.rm(root, { recursive: true, force: true });
+    }
+  });
+});
