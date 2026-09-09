@@ -13,6 +13,7 @@ export type CustomerListOptions = Readonly<{
 
 export type AgentResult = Readonly<{ credentials: StoredCredentials; response: unknown }>;
 export type PersistCredentials = (credentials: StoredCredentials) => Promise<void>;
+type MetadataSource = OAuthMetadata | (() => Promise<OAuthMetadata>);
 
 const customerIdPattern = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,512}$/u;
 const cursorPattern = /^[A-Za-z0-9_-]{32,128}$/u;
@@ -35,7 +36,7 @@ const boundedOptions = (options: CustomerListOptions): ListOptions => {
 const currentCredentials = async (input: Readonly<{
   credentials: StoredCredentials;
   fetcher: FetchLike;
-  metadata: OAuthMetadata;
+  metadata: MetadataSource;
   now: () => number;
   persistCredentials: PersistCredentials;
   profile: Profile;
@@ -49,7 +50,7 @@ const currentCredentials = async (input: Readonly<{
   const tokens = await refreshAccessToken({
     clientId: input.profile.clientId,
     fetcher: input.fetcher,
-    metadata: input.metadata,
+    metadata: typeof input.metadata === "function" ? await input.metadata() : input.metadata,
     refreshToken: input.credentials.refreshToken,
     resource: new URL(input.profile.issuer),
   });
@@ -70,7 +71,7 @@ const currentCredentials = async (input: Readonly<{
 const invoke = async (input: Readonly<{
   credentials: StoredCredentials;
   fetcher: FetchLike;
-  metadata: OAuthMetadata;
+  metadata: MetadataSource;
   now: () => number;
   operation: (client: CanonicalCrmClient, credentials: StoredCredentials) => ReturnType<CanonicalCrmClient["list"]>;
   retryUnauthorized?: boolean;
@@ -96,7 +97,7 @@ const invoke = async (input: Readonly<{
 export const checkIdentity = (input: Readonly<{
   credentials: StoredCredentials;
   fetcher: FetchLike;
-  metadata: OAuthMetadata;
+  metadata: MetadataSource;
   now: () => number;
   persistCredentials: PersistCredentials;
   profile: Profile;
@@ -122,7 +123,7 @@ export const checkIdentity = (input: Readonly<{
 export const listCustomers = async (input: Readonly<{
   credentials: StoredCredentials;
   fetcher: FetchLike;
-  metadata: OAuthMetadata;
+  metadata: MetadataSource;
   now: () => number;
   options: CustomerListOptions;
   persistCredentials: PersistCredentials;
@@ -136,7 +137,7 @@ export const listCustomers = async (input: Readonly<{
 export const getCustomer = async (input: Readonly<{
   credentials: StoredCredentials;
   fetcher: FetchLike;
-  metadata: OAuthMetadata;
+  metadata: MetadataSource;
   now: () => number;
   persistCredentials: PersistCredentials;
   profile: Profile;
@@ -149,7 +150,7 @@ export const getCustomer = async (input: Readonly<{
 type WriteSession = Readonly<{
   credentials: StoredCredentials;
   fetcher: FetchLike;
-  metadata: OAuthMetadata;
+  metadata: MetadataSource;
   now: () => number;
   persistCredentials: PersistCredentials;
   profile: Profile;

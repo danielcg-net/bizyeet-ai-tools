@@ -46,18 +46,18 @@ const storage: CliStorage = {
 const runtime: CliRuntime = {
   readChanges,
   readApprovalReceipt,
-  previewCustomerUpdate: async (input) => previewCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: await discoverOAuth(new URL(input.profile.issuer), fetch) }),
-  executeCustomerUpdate: async (input) => executeCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: await discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewCustomerUpdate: async (input) => previewCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeCustomerUpdate: async (input) => executeCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
-    const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
+    const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
   },
   getCustomer: async (input) => {
-    const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
+    const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return getAgentCustomer({ ...input, fetcher: fetch, metadata, now: Date.now });
   },
   listCustomers: async (input) => {
-    const metadata = await discoverOAuth(new URL(input.profile.issuer), fetch);
+    const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return listAgentCustomers({ ...input, fetcher: fetch, metadata, now: Date.now });
   },
   loginBrowser: (input) => loginWithBrowser(input, { fetcher: fetch, launchBrowser, now: Date.now, openCallback: openLoopbackCallback }),

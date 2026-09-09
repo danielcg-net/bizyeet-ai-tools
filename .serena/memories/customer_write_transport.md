@@ -30,6 +30,13 @@ Remaining: integrated real server/CLI browser proof, cross-platform new-head CI
 and review/release gates. Draft implementation is not a publication/deployment.
 # Read response bound
 
+Resource commands accept lazy OAuth discovery, evaluated only after protected
+identity validation when refresh is needed. Valid tokens do not depend on
+discovery availability; login and revocation still discover normally. Persist
+rotated credentials before resource access and never replay a mutation on 401.
+Piped changes and receipts use iterative bounded decoding, not recursive copied
+chunk arrays. Preserve byte limits, fatal UTF-8 validation and opaque errors.
+
 Canonical list/detail and error JSON responses share the streamed bounded reader
 with writes: 1 MiB for reads, 32 KiB for writes. Count actual UTF-8 bytes, not a
 Content-Length promise; cancel oversized streams and release the reader lock.

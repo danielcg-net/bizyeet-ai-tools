@@ -135,7 +135,8 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.match(preview, /"confirmation_class":"reversible_write"/u);
       assert.match(execution, /"business":"Proposed"/u);
       assert.doesNotMatch(check + list + detail + preview + execution, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
-      assert.equal(handler.mock.callCount(), 10);
+      assert.equal(handler.mock.callCount(), 5);
+      assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
       assert.equal(new URL(listRequest, "https://localhost").searchParams.get("api_version"), "v1");

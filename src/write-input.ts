@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { Readable } from "node:stream";
 
 const invalid = (): never => { throw new Error("Write input is invalid, oversized, cancelled or expired."); };
 // Node types describe stdin as a TTY even when the actual stream is a pipe.
@@ -39,11 +40,29 @@ const nextInput = (deadline: number): Promise<Buffer | null> => new Promise((res
 });
 
 /** Collect bounded pipe bytes without printing input or reflecting parser diagnostics. */
-export const collectWriteInput = async (next: () => Promise<Uint8Array | null>, limit: number, chunks: readonly Uint8Array[] = [], size = 0): Promise<string> => {
-  const value = await next();
-  if (value === null) return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
-  if (size + value.byteLength > limit) return invalid();
-  return collectWriteInput(next, limit, [...chunks, value], size + value.byteLength);
+export const collectWriteInput = async (next: () => Promise<Uint8Array | null>, limit: number): Promise<string> => {
+  if (!Number.isSafeInteger(limit) || limit <= 0) return invalid();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const input: AsyncIterable<Uint8Array> = {
+    [Symbol.asyncIterator]: () => ({
+      next: async (): Promise<IteratorResult<Uint8Array>> => {
+        const value = await next();
+        return value === null ? { done: true, value: undefined } : { done: false, value };
+      },
+    }),
+  };
+  try {
+    const result = await Readable.from(input, { highWaterMark: 1 }).reduce(
+      (previous: Readonly<{ bytes: number; text: string }>, chunk: unknown) => {
+        if (!(chunk instanceof Uint8Array) || previous.bytes + chunk.byteLength > limit) return invalid();
+        return chunk.byteLength === 0 ? previous : {
+          bytes: previous.bytes + chunk.byteLength,
+          text: previous.text + decoder.decode(chunk, { stream: true }),
+        };
+      }, { bytes: 0, text: "" },
+    );
+    return result.text + decoder.decode();
+  } catch { return invalid(); }
 };
 
 /** Read only a JSON changes object from an explicit pipe; no arbitrary file or argv payload. */

@@ -3,6 +3,18 @@ import { Buffer } from "node:buffer";
 import { mock, test } from "node:test";
 import { collectWriteInput, receiptCharacters } from "./write-input.js";
 
+await test("fragmented pipe consumes the exact byte limit and empty chunks iteratively", async () => {
+  const chunks = Array.from({ length: 16_384 }, () => Buffer.from("a"));
+  const iterator = [...chunks, ...Array.from({ length: 20_000 }, () => Buffer.alloc(0))][Symbol.iterator]();
+  assert.equal(await collectWriteInput(() => Promise.resolve(iterator.next().value ?? null), 16_384), "a".repeat(16_384));
+});
+
+await test("pipe rejects invalid UTF-8 and stream failures without exposing input", async () => {
+  const iterator = [new Uint8Array([0xc3])][Symbol.iterator]();
+  await assert.rejects(collectWriteInput(() => Promise.resolve(iterator.next().value ?? null), 2), /^Error: Write input is invalid, oversized, cancelled or expired\.$/u);
+  await assert.rejects(collectWriteInput(() => Promise.reject(new Error("secret-payload")), 2), /^Error: Write input is invalid, oversized, cancelled or expired\.$/u);
+});
+
 await test("raw receipt supports paste, backspace and Enter without mutating previous state", () => {
   const initial = { text: "", done: false };
   const edited = receiptCharacters(initial, `x\u007f${"r".repeat(43)}\r\n`);

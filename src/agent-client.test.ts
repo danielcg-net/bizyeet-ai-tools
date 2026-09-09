@@ -9,6 +9,31 @@ const metadata = { authorization_endpoint: "https://example.test/authorize", tok
 const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
 
+void test("valid credentials reach the resource without OAuth discovery", async () => {
+  const discovery = mock.fn(() => Promise.reject(new Error("Discovery unavailable")));
+  const result = await getCustomer({ credentials: validCredentials, metadata: discovery, now: () => 1000, profile,
+    resourceId: "customer-1", persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    fetcher: () => Promise.resolve(Response.json({ data: { id: "customer-1" }, meta: { contract_version: "v1" } })),
+  });
+  assert.equal(discovery.mock.callCount(), 0);
+  assert.deepEqual(result.credentials, validCredentials);
+});
+
+void test("expired credentials discover once and persist rotation before resource access", async () => {
+  const discovery = mock.fn(() => Promise.resolve(metadata));
+  const persist = mock.fn(() => Promise.resolve());
+  await getCustomer({ credentials: { ...validCredentials, expiresAt: new Date(0).toISOString() }, metadata: discovery,
+    now: () => 1000, profile, resourceId: "customer-1", persistCredentials: persist,
+    fetcher: (url) => {
+      assert.equal(discovery.mock.callCount(), 1);
+      if (url.endsWith("/token")) return Promise.resolve(Response.json({ access_token: "rotated", refresh_token: "rotated-refresh", token_type: "Bearer", expires_in: 300 }));
+      assert.equal(persist.mock.callCount(), 1);
+      return Promise.resolve(Response.json({ data: { id: "customer-1" }, meta: { contract_version: "v1" } }));
+    },
+  });
+  assert.equal(discovery.mock.callCount(), 1);
+});
+
 void test("identity rejects oversized success and denial bodies without exposing their contents", async () => {
   await Promise.all([200, 403].map(async (status) => {
     const response = Response.json({ tenant_id: "synthetic-tenant", client_id: profile.clientId, scope: ["customers.read"],
