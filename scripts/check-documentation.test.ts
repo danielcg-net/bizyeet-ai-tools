@@ -73,6 +73,19 @@ void test("redirections cannot hide the later script operand", (): void => {
   assert.deepEqual(inspectDocumentation("README.md", '`npm run "2">output`\n\n`npm run 2 >output`\n\n`npm run \\2>output`', files, new Set(["2"])), []);
 });
 
+void test("recognizes Bash combined redirects without rewriting literal ampersands or background commands", (): void => {
+  const fence = (source: string): string => `\`\`\`bash\n${source}\n\`\`\``;
+  ["npm run &>output missing", "npm run &>>output missing", "&>output npm run missing", "&>>output npm run missing", "npm run &>", "npm run &>>", "npm run &\\\n>output missing"].forEach((source): void => {
+    assert.equal(inspect(fence(source)).length, 1, source);
+  });
+  ["npm run &>output check", "npm run &>>output release:verify", "npm run &>output", "npm run &>>output", "&>npm run missing", "npm run & >output missing", "npm run &&>output missing"].forEach((source): void => {
+    assert.deepEqual(inspect(fence(source)), [], source);
+  });
+  ["npm run '&'>output", 'npm run "&">output', "npm run \\&>output"].forEach((source): void => {
+    assert.deepEqual(inspectDocumentation("README.md", fence(source), files, new Set(["&"])), [], source);
+  });
+});
+
 void test("preserves unquoted line boundaries, comments, quoting and escaped continuations", (): void => {
   const fence = (source: string): string => `\`\`\`sh\n${source}\n\`\`\``;
   ["npm run\nnpm run check", "npm run # list scripts\nnpm run check", "npm run\r\nnpm run check", "npm run \\\ncheck", 'npm run "che\\\nck"', "npm run >output\nnpm run check"].forEach((source): void => {

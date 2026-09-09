@@ -56,10 +56,15 @@ const shellLines = (source: string): readonly string[] => {
     // Drop only an unquoted all-digit word immediately adjacent to a redirect:
     // 2>out is a descriptor, while "2">out and 2 >out have a script operand 2.
     const redirectDescriptor = state.descriptorDigits > 0 && (character === ">" || character === "<");
+    // shell-quote splits Bash &> / &>> into a background boundary and redirect.
+    // Normalize only adjacent unquoted/unescaped syntax, never a literal '&' or &&.
+    const combinedOutput = character === ">" && state.boundary && state.text.endsWith("&") && !state.text.endsWith("&&");
+    const prefix = combinedOutput ? state.text.slice(0, -1)
+      : redirectDescriptor ? state.text.slice(0, -state.descriptorDigits) : state.text;
     const literal = character === "#" && !state.boundary ? "\\#" : character;
     return { ...state, comment: character === "#" && state.boundary,
       descriptorDigits: /[0-9]/u.test(character) && (state.boundary || state.descriptorDigits > 0) ? state.descriptorDigits + 1 : 0,
-      boundary: /[\s;|&()<>]/u.test(character), text: (redirectDescriptor ? state.text.slice(0, -state.descriptorDigits) : state.text) + literal };
+      boundary: /[\s;|&()<>]/u.test(character), text: prefix + literal };
   }, initial);
   if (completed.quote !== "none" || completed.escaped) throw new Error("Incomplete shell example.");
   return completed.text.split("\0");

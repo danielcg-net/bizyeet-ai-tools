@@ -29,6 +29,11 @@ coverage includes poisoned scripts behind redirects, multiline bare commands,
 comments, quoting, continuation, and malformed/missing redirect targets. This is
 still an offline static subset, not an execution engine or full shell grammar.
 
+Bash combined output redirects &> and &>> are normalized before shell-quote,
+which otherwise splits their ampersand into a command boundary. Only adjacent
+unquoted/unescaped syntax is normalized; quoted/escaped ampersands, whitespace
+separation and && retain their original meaning for command-position detection.
+
 Match npm run only at shell command positions (start or after command operators),
 not as arguments to echo/printf/other scripts or ordinary Usage output. Prefix
 redirection targets do not consume the command position. Console fences support
