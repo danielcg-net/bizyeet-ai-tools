@@ -134,6 +134,32 @@ void test("uses only bounded customer-list query parameters", async (): Promise<
   assert.deepEqual(result.response, { data: { items: [], total: 0 }, meta: { contract_version: "v1", request_id: "req", next_cursor: null } });
 });
 
+void test("round-trips opaque server cursors without imposing a token grammar", async (): Promise<void> => {
+  await Promise.all(["opaque", "v2:page/2?filter=a+b&x=1#next", "c".repeat(4096)].map(async (cursor): Promise<void> => {
+    const fetcher = mock.fn((url: string): Promise<Response> => {
+      const target = new URL(url);
+      assert.equal(target.searchParams.get("cursor"), cursor);
+      assert.equal(target.searchParams.get("x"), null);
+      assert.equal(target.hash, "");
+      return Promise.resolve(Response.json({ data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: cursor } }));
+    });
+    const result = await listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      options: { cursor }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    });
+    assert.deepEqual(result.response, { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: cursor } });
+    assert.equal(fetcher.mock.callCount(), 1);
+  }));
+});
+
+void test("rejects oversized cursors before network or credential refresh", async (): Promise<void> => {
+  const fetcher = mock.fn((): Promise<Response> => Promise.reject(new Error("Unexpected request")));
+  await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+    options: { cursor: "c".repeat(4097) }, fetcher,
+    persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+  }), /Cursor is invalid\./u);
+  assert.equal(fetcher.mock.callCount(), 0);
+});
+
 void test("refreshes once after an expired access token and preserves no generic retry loop", async (): Promise<void> => {
   const responses = (function* (): Generator<Promise<Response>, undefined, undefined> {
     yield Promise.resolve(new Response(JSON.stringify({ access_token: "fresh-access", expires_in: 300, refresh_token: "fresh-refresh", scope: "customers.read", token_type: "Bearer" })));

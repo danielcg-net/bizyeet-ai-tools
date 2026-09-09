@@ -16,13 +16,12 @@ export type PersistCredentials = (credentials: StoredCredentials) => Promise<voi
 type MetadataSource = OAuthMetadata | (() => Promise<OAuthMetadata>);
 
 const customerIdPattern = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,512}$/u;
-const cursorPattern = /^[A-Za-z0-9_-]{32,128}$/u;
 const fieldPattern = /^[a-z][a-z0-9_]{0,63}$/u;
 
 const boundedOptions = (options: CustomerListOptions): ListOptions => {
   const limit = options.limit ?? 25;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("--limit must be an integer from 1 to 100.");
-  if (options.cursor && !cursorPattern.test(options.cursor)) throw new Error("Cursor is invalid.");
+  if (options.cursor && options.cursor.length > 4096) throw new Error("Cursor is invalid.");
   if (options.search && options.search.length > 120) throw new Error("Search is limited to 120 characters.");
   if (options.fields && (options.fields.length > 20 || !options.fields.every((field) => fieldPattern.test(field)))) throw new Error("Requested fields are invalid.");
   return {
