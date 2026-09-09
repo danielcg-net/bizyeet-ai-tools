@@ -3,6 +3,7 @@ import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
+import { CRM_SEARCH_MAX_LENGTH, validCrmSearch } from "./search-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -21,7 +22,7 @@ const boundedOptions = (options: CustomerListOptions): ListOptions => {
   const limit = options.limit ?? 25;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("--limit must be an integer from 1 to 100.");
   if (options.cursor && options.cursor.length > 4096) throw new Error("Cursor is invalid.");
-  if (options.search && options.search.length > 120) throw new Error("Search is limited to 120 characters.");
+  if (options.search && !validCrmSearch(options.search)) throw new Error(`Search is limited to ${String(CRM_SEARCH_MAX_LENGTH)} Unicode characters.`);
   if (options.fields && (options.fields.length > 20 || !options.fields.every((field) => fieldPattern.test(field)))) throw new Error("Requested fields are invalid.");
   return {
     ...(options.cursor ? { cursor: options.cursor } : {}),

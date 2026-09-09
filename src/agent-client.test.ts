@@ -148,6 +148,29 @@ void test("uses only bounded customer-list query parameters", async (): Promise<
   assert.deepEqual(result.response, { data: { items: [], total: 0 }, meta: { contract_version: "v1", request_id: "req", next_cursor: null } });
 });
 
+void test("preserves the complete advertised Unicode search without client-side truncation", async () => {
+  await Promise.all(["a".repeat(200), "😀".repeat(200), `${"a".repeat(120)}suffix`, " acme_% "].map(async (search) => {
+    const fetcher = mock.fn((url: string) => {
+      assert.equal(new URL(url).searchParams.get("search"), search);
+      return Promise.resolve(Response.json({ data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } }));
+    });
+    await listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      options: { search }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    });
+    assert.equal(fetcher.mock.callCount(), 1);
+  }));
+});
+
+void test("rejects oversized raw searches before any request", async () => {
+  await Promise.all(["a".repeat(201), "😀".repeat(201), ` ${"a".repeat(200)}`, " ".repeat(10000)].map(async (search) => {
+    const fetcher = mock.fn(() => Promise.reject(new Error("Must not request")));
+    await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      options: { search }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    }), /200 Unicode characters/u);
+    assert.equal(fetcher.mock.callCount(), 0);
+  }));
+});
+
 void test("round-trips opaque server cursors without imposing a token grammar", async (): Promise<void> => {
   await Promise.all(["opaque", "v2:page/2?filter=a+b&x=1#next", "c".repeat(4096)].map(async (cursor): Promise<void> => {
     const fetcher = mock.fn((url: string): Promise<Response> => {

@@ -26,6 +26,13 @@ owns validation, tenant identity, live permission checks, field redaction and
 provider routing. `get(resource, id, options)` sends the opaque ID unchanged
 apart from URL encoding. Never extract provider IDs or construct replacement IDs.
 
+Customer and lead searches accept at most 200 Unicode code points (an emoji counts
+as one code point, not two UTF-16 units). The raw input bound applies before the
+server trims surrounding whitespace. Oversized searches are rejected, never
+silently truncated. CLI validation and MCP `maxLength` advertise the same bound;
+the canonical server remains authoritative. Pagination cursors bind the complete
+normalized search, including text beyond the former 120-unit limit.
+
 A successful list returns `data.items`, a nonnegative integer `data.total`, and
 `meta.contract_version: "v1"` with `meta.next_cursor`. Total describes the filtered
 collection; it is not a count of new records in a period. Resource responses return
