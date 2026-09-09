@@ -16,3 +16,15 @@ skip checks. Pinned shell-quote1.10.0 tokenizes complete literal npm script oper
 (including quotes/punctuation); variable expansion gets a rejected sentinel, never
 process.env. Nonliteral names or options before the name fail this static gate;
 use a directly named package script in checked examples. No shell is launched.
+
+The pinned shell-quote parser discards newlines and comments consume its remaining
+input, so a quote/escape-aware preprocessing pass splits unquoted physical lines
+before parsing. Preserve quoted newlines and join escaped continuations; comments
+end at the physical line. Redirection operators consume a target, not the script
+operand; continue to the next operand before accepting bare npm run. Unquoted
+numeric descriptor prefixes immediately adjacent to a redirect are removed before
+tokenization, but quoted/escaped numbers and whitespace-separated numeric script
+names remain operands. Never infer descriptors from dequoted words. Regression
+coverage includes poisoned scripts behind redirects, multiline bare commands,
+comments, quoting, continuation, and malformed/missing redirect targets. This is
+still an offline static subset, not an execution engine or full shell grammar.

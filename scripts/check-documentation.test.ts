@@ -60,6 +60,34 @@ void test("recognizes shell boundaries after bare npm run without accepting glob
   assert.equal(inspect("`npm run && npm run missing`").length, 1);
 });
 
+void test("redirections cannot hide the later script operand", (): void => {
+  [">output missing", ">output <input missing", ">>output missing", "<&input missing", ">&output missing", "<<<input missing", ">output missing && echo done", ">output", ">"].forEach((suffix): void => {
+    const expected = suffix === ">output" ? 0 : 1;
+    assert.equal(inspect(`\`npm run ${suffix}\``).length, expected, suffix);
+  });
+  [">output check", ">output <input release:verify", ">output && npm run check", "2>output check", "2>&1 check", "10>>output 0<input check", "2>output"].forEach((suffix): void => {
+    assert.deepEqual(inspect(`\`npm run ${suffix}\``), [], suffix);
+  });
+  assert.equal(inspect("`npm run 2>output missing`").length, 1);
+  assert.equal(inspect('`npm run "2">output missing`').length, 1);
+  assert.deepEqual(inspectDocumentation("README.md", '`npm run "2">output`\n\n`npm run 2 >output`\n\n`npm run \\2>output`', files, new Set(["2"])), []);
+});
+
+void test("preserves unquoted line boundaries, comments, quoting and escaped continuations", (): void => {
+  const fence = (source: string): string => `\`\`\`sh\n${source}\n\`\`\``;
+  ["npm run\nnpm run check", "npm run # list scripts\nnpm run check", "npm run\r\nnpm run check", "npm run \\\ncheck", 'npm run "che\\\nck"', "npm run >output\nnpm run check"].forEach((source): void => {
+    assert.deepEqual(inspect(fence(source)), [], source);
+  });
+  ["npm run\nnpm run missing", "npm run # comment\nnpm run missing", "npm run \\\nmissing", 'npm run "check\nmissing"', "npm run 'check\nmissing'", 'npm run "check#missing"\nnpm run check'].forEach((source): void => {
+    assert.equal(inspect(fence(source)).length, 1, source);
+  });
+  assert.deepEqual(inspectDocumentation("README.md", fence('npm run "line\nbreak"'), files, new Set(["line\nbreak"])), []);
+  assert.deepEqual(inspect(fence("npm \\\nrun check")), []);
+  assert.equal(inspect(fence("npm \\\nrun missing")).length, 1);
+  assert.equal(inspect(fence("npm run check#missing\nnpm run check")).length, 1);
+  assert.deepEqual(inspectDocumentation("README.md", fence("npm run check#literal"), files, new Set(["check#literal"])), []);
+});
+
 const withRepository = (verify: (root: string) => void): void => {
   const root = mkdtempSync(join(tmpdir(), "documentation check "));
   try {
