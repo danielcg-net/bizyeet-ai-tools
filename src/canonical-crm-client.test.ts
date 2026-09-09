@@ -5,6 +5,32 @@ import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await test("caps actual streamed list, detail and error response bytes before parsing", async () => {
+  await Promise.all(["list", "detail", "error"].map(async (kind) => {
+    const cancel = mock.fn(() => undefined);
+    const stream = new ReadableStream<Uint8Array>({ start(controller): void {
+      controller.enqueue(new TextEncoder().encode("é".repeat(524_289)));
+    }, cancel });
+    const request = mock.fn((): Promise<Response> => Promise.resolve(new Response(stream, { status: kind === "error" ? 400 : 200,
+      headers: { "Content-Type": "application/json", "Content-Length": "1" } })));
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+    const result = kind === "detail" ? await client.get("customers", "customer") : await client.list("customers");
+    assert.equal(result.status, 503);
+    assert.deepEqual(result.body, { error: { code: "request_unavailable" } });
+    assert.equal(cancel.mock.callCount(), 1);
+    assert.equal(request.mock.callCount(), 1);
+    assert.equal(stream.locked, false);
+  }));
+});
+
+await test("accepts a complete read response exactly at the byte limit", async () => {
+  const serialized = JSON.stringify(emptyPage);
+  const body = serialized + " ".repeat(1_048_576 - new TextEncoder().encode(serialized).byteLength);
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
+    request: (): Promise<Response> => Promise.resolve(new Response(body)) });
+  assert.deepEqual(await client.list("customers"), { status: 200, body: emptyPage });
+});
+
 await test("uses canonical OAuth endpoints and preserves empty results and totals", async () => {
   const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
     assert.ok(url.startsWith("https://tenant.example/api/agent/"));

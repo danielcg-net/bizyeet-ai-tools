@@ -79,7 +79,9 @@ owner-owned mode-0700 configuration directory and an owner-owned mode-0600
 regular credential file; symbolic links and multiply linked files are rejected.
 Permissions and ownership are checked on the same open file that is read.
 Do not place the configuration directory inside an untrusted/shared writable
-parent. Windows requires its native credential
+parent. An explicitly configured `XDG_CONFIG_HOME` must be nonempty and absolute;
+empty or relative paths fail instead of writing credentials into the workspace.
+Windows requires its native credential
 manager: POSIX mode bits do not prove owner-only Windows access, so plaintext
 fallback is refused. A locked credential service fails closed rather than
 copying a token to a fallback file.
@@ -99,6 +101,11 @@ credential migration; logout only revokes/removes the selected store's grant
 in file mode, so manage any separate native profile independently.
 
 ## Bounded read commands
+
+Canonical list/detail response bodies are streamed with a 1 MiB byte limit,
+including error responses. Oversized responses fail explicitly without parsing
+or retrying them; they are never reported as an empty result. Write responses
+retain their separate 32 KiB limit.
 
 The V1 client intentionally exposes explicit business commands only. It has no
 raw HTTP, SQL, tenant-selection, bulk-export, or file-path command.

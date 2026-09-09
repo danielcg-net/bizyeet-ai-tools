@@ -47,13 +47,13 @@ const validWrite = (body: unknown, preview: boolean): boolean => {
     && Array.isArray(data.warnings) && data.warnings.every((value: unknown) => typeof value === "string")
     && data.idempotency_key_format === "uuid";
 };
-const boundedWriteResponse = async (response: Response): Promise<unknown> => {
+const boundedResponse = async (response: Response, maximumBytes: number): Promise<unknown> => {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Missing response");
   const collect = async (chunks: readonly Uint8Array[], size: number): Promise<unknown> => {
     const next = await reader.read();
     if (next.done) return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))) as unknown;
-    if (size + next.value.byteLength > 32_768) {
+    if (size + next.value.byteLength > maximumBytes) {
       await reader.cancel();
       throw new Error("Oversized response");
     }
@@ -115,7 +115,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         redirect: "error", signal: AbortSignal.timeout(15_000),
       });
-      const body: unknown = await response.json();
+      const body = await boundedResponse(response, 1_048_576);
       if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
         ? { status: response.status, body } : failure(502, "invalid_response");
       return validEnvelope(body, id === null) ? { status: response.status, body } : failure(502, "invalid_response");
@@ -142,7 +142,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
         body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
       });
-      const body = await boundedWriteResponse(response);
+      const body = await boundedResponse(response, 32_768);
       if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
       if (!validWrite(body, preview) || !record(body) || !record(body.data)) return failure(502, preview ? "invalid_response" : "execution_ambiguous");
       // Only documented fields cross the agent boundary. Never reflect a receipt,

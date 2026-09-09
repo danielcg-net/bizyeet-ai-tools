@@ -1,11 +1,25 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
-import type { LoopbackCallback } from "./loopback.js";
+import { openLoopbackCallback, type LoopbackCallback } from "./loopback.js";
 
 const response = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
+
+await Promise.all(["transport", "malformed"].map((scenario) => test(`closes the real callback listener after ${scenario} registration failure`, async () => {
+  const openCallback = mock.fn(openLoopbackCallback);
+  const launchBrowser = mock.fn((): Promise<void> => Promise.reject(new Error("Must not launch")));
+  const fetcher = mock.fn((url: string): Promise<Response> => url.endsWith("oauth-authorization-server")
+    ? response({ issuer: "https://example.test", authorization_endpoint: "https://example.test/authorize", code_challenge_methods_supported: ["S256"], registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" })
+    : scenario === "transport" ? Promise.reject(new Error("Registration unavailable")) : response({ client_id: 42 }));
+  await assert.rejects(loginWithBrowser({ issuer: "https://example.test", scope: "customers.read" }, { fetcher, launchBrowser, now: Date.now, openCallback }));
+  assert.equal(openCallback.mock.callCount(), 1);
+  assert.equal(launchBrowser.mock.callCount(), 0);
+  const callback = await openCallback.mock.calls[0]?.result;
+  assert.ok(callback);
+  await assert.rejects(fetch(callback.redirectUri, { signal: AbortSignal.timeout(1000) }));
+})));
 
 void test("stores the device-flow result without exposing tokens through the verification callback", async (): Promise<void> => {
   const responseStream = (function* (): Generator<Promise<Response>, undefined, undefined> {

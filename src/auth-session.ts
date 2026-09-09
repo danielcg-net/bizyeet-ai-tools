@@ -69,14 +69,18 @@ export const loginWithBrowser = async (input: Readonly<{
   const metadata = await discoverOAuth(issuer, dependencies.fetcher);
   const state = crypto.randomUUID();
   const callback = await dependencies.openCallback(state, issuer.origin);
-  const clientId = (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: callback.redirectUri })).clientId;
-  const pkce = createPkce();
-  try {
-    await dependencies.launchBrowser(authorizationUrl({ clientId, metadata, pkce, redirectUri: callback.redirectUri, resource: issuer, scope: input.scope, state }));
-  } catch (error) {
-    await callback.close();
-    throw error;
-  }
+  const prepared = await (async (): Promise<Readonly<{ clientId: string; pkce: ReturnType<typeof createPkce> }>> => {
+    try {
+      const clientId = (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: callback.redirectUri })).clientId;
+      const pkce = createPkce();
+      await dependencies.launchBrowser(authorizationUrl({ clientId, metadata, pkce, redirectUri: callback.redirectUri, resource: issuer, scope: input.scope, state }));
+      return { clientId, pkce };
+    } catch (error) {
+      await callback.close();
+      throw error;
+    }
+  })();
+  const { clientId, pkce } = prepared;
   const code = await callback.awaitCode();
   const tokens = await exchangeAuthorizationCode({ clientId, code, fetcher: dependencies.fetcher, metadata, redirectUri: callback.redirectUri, resource: issuer, verifier: pkce.verifier });
   return {

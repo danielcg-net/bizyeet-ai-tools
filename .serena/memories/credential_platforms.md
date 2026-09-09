@@ -1,5 +1,11 @@
 # Credential platform boundaries
 
+Reject an explicitly configured empty or relative XDG_CONFIG_HOME before fallback
+I/O; never place plaintext credentials beneath the process workspace by accident.
+Browser login cleanup covers dynamic registration, PKCE generation and launching;
+once awaitCode starts it owns callback shutdown. Registration-failure tests open
+the real loopback listener and verify it no longer accepts connections.
+
 Issuer/client identity is authoritative only inside the protected StoredCredentials
 record alongside access/refresh tokens. Login performs one saveCredentials call,
 not separate public profile and secret writes. All CLI status/check/read/write/

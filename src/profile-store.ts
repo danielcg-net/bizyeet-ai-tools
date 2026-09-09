@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 export type StoredCredentials = Readonly<{
@@ -66,8 +66,11 @@ const parseCollection = <T>(value: string, predicate: (item: unknown) => item is
   return Object.freeze(Object.fromEntries(entries));
 };
 
-const configDirectory = (environment: NodeJS.ProcessEnv, homeDirectory: string): string =>
-  join(environment.XDG_CONFIG_HOME ?? join(homeDirectory, ".config"), "bizyeet");
+const configDirectory = (environment: NodeJS.ProcessEnv, homeDirectory: string): string => {
+  const configured = environment.XDG_CONFIG_HOME;
+  if (configured !== undefined && (!configured || !isAbsolute(configured))) throw new Error("XDG_CONFIG_HOME must be a nonempty absolute directory.");
+  return join(configured ?? join(homeDirectory, ".config"), "bizyeet");
+};
 
 export const profilePaths = (environment: NodeJS.ProcessEnv = process.env, homeDirectory: string = homedir()): Readonly<{
   credentials: string;

@@ -28,3 +28,11 @@ Installed package tests exercise piped preview/execute over trusted local HTTPS.
 Real terminal manual checks verify no echo and mode restoration on success/cancel.
 Remaining: integrated real server/CLI browser proof, cross-platform new-head CI
 and review/release gates. Draft implementation is not a publication/deployment.
+# Read response bound
+
+Canonical list/detail and error JSON responses share the streamed bounded reader
+with writes: 1 MiB for reads, 32 KiB for writes. Count actual UTF-8 bytes, not a
+Content-Length promise; cancel oversized streams and release the reader lock.
+Oversized/malformed body failures are explicit and do not retry HTTP responses
+or become empty results. Tests include exact-limit success and oversized list,
+detail and error streams with a deceptive length header.

@@ -114,6 +114,7 @@ const invalidInput = (message: string): CliResult => result(2, errorEnvelope("in
 const authenticationRequired = (): CliResult => result(3, errorEnvelope("authentication_required", "Run auth login before using this profile."), "stderr");
 
 const safeValidationMessages = new Set([
+  "XDG_CONFIG_HOME must be a nonempty absolute directory.",
   "BIZYEET_CREDENTIAL_STORE must be auto or file.",
   "Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.",
   "Write input is invalid, oversized, cancelled or expired.",

@@ -10,6 +10,15 @@ import { profileName, profilePaths, readFallbackCredentials, removeFallbackCrede
 const temporaryPaths = async (): Promise<ReturnType<typeof profilePaths>> =>
   profilePaths({}, await mkdtemp(join(tmpdir(), "bizyeet-cli-")));
 
+void test("rejects empty and relative XDG roots instead of storing tokens beneath the workspace", (): void => {
+  ["", ".", "./config", "relative/config", "../config"].forEach((value): void => {
+    assert.throws(() => profilePaths({ XDG_CONFIG_HOME: value }), /nonempty absolute directory/u);
+  });
+  const absolute = join(tmpdir(), "trusted-config");
+  assert.equal(profilePaths({ XDG_CONFIG_HOME: absolute }).directory, join(absolute, "bizyeet"));
+  assert.equal(profilePaths({}, absolute).directory, join(absolute, ".config", "bizyeet"));
+});
+
 void test("keeps profile metadata separate from owner-only fallback credentials", async (): Promise<void> => {
   const paths = await temporaryPaths();
   await saveProfile("default", { clientId: "public-client", issuer: "https://example.test" }, paths);
