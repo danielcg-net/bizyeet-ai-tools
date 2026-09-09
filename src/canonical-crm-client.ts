@@ -1,4 +1,4 @@
-import { Buffer } from "node:buffer";
+import { readBoundedJson as boundedResponse } from "./bounded-json.js";
 
 export type CrmResource = "customers" | "leads";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
@@ -46,20 +46,6 @@ const validWrite = (body: unknown, preview: boolean): boolean => {
     && Array.isArray(data.side_effects) && data.side_effects.every((value: unknown) => typeof value === "string")
     && Array.isArray(data.warnings) && data.warnings.every((value: unknown) => typeof value === "string")
     && data.idempotency_key_format === "uuid";
-};
-const boundedResponse = async (response: Response, maximumBytes: number): Promise<unknown> => {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Missing response");
-  const collect = async (chunks: readonly Uint8Array[], size: number): Promise<unknown> => {
-    const next = await reader.read();
-    if (next.done) return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))) as unknown;
-    if (size + next.value.byteLength > maximumBytes) {
-      await reader.cancel();
-      throw new Error("Oversized response");
-    }
-    return collect([...chunks, next.value], size + next.value.byteLength);
-  };
-  try { return await collect([], 0); } finally { reader.releaseLock(); }
 };
 const resourceOrigin = (input: string): string => {
   const url = new URL(input);

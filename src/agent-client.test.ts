@@ -9,6 +9,19 @@ const metadata = { authorization_endpoint: "https://example.test/authorize", tok
 const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
 
+void test("identity rejects oversized success and denial bodies without exposing their contents", async () => {
+  await Promise.all([200, 403].map(async (status) => {
+    const response = Response.json({ tenant_id: "synthetic-tenant", client_id: profile.clientId, scope: ["customers.read"],
+      padding: "credential-excerpt".repeat(5000), error: { code: "forbidden" } }, { status });
+    const fetcher = mock.fn(() => Promise.resolve(response));
+    await assert.rejects(checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,
+      persistCredentials: () => Promise.reject(new Error("Must not refresh")),
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && !JSON.stringify(error.cause).includes("credential-excerpt"));
+    assert.equal(fetcher.mock.callCount(), 1);
+    assert.equal(response.body?.locked, false);
+  }));
+});
+
 void test("execution does not refresh and replay after an HTTP denial", async () => {
   const fetcher = mock.fn(() => Promise.resolve(Response.json({ error: { code: "authorization_required" } }, { status: 401 })));
   await assert.rejects(executeCustomerUpdate({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,

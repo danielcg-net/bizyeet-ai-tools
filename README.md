@@ -105,7 +105,10 @@ in file mode, so manage any separate native profile independently.
 Canonical list/detail response bodies are streamed with a 1 MiB byte limit,
 including error responses. Oversized responses fail explicitly without parsing
 or retrying them; they are never reported as an empty result. Write responses
-retain their separate 32 KiB limit.
+retain their separate 32 KiB limit. OAuth discovery, registration, token/device
+responses and the identity probe have a 64 KiB limit, including error bodies.
+The reader consumes chunks iteratively and cancels/releases its reader on failure;
+response content is never included in parser errors.
 
 The V1 client intentionally exposes explicit business commands only. It has no
 raw HTTP, SQL, tenant-selection, bulk-export, or file-path command.

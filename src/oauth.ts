@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 
 export type OAuthMetadata = Readonly<{
   authorization_endpoint: string;
@@ -134,7 +135,7 @@ export const createPkce = (): PkcePair => {
 /** Retrieves only same-origin OAuth metadata and rejects a server that does not advertise PKCE S256. */
 export const discoverOAuth = async (issuer: URL, fetcher: FetchLike): Promise<OAuthMetadata> => {
   const response = await fetcher(new URL(oauthMetadataPath, issuer).toString(), { headers: { Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(15000) });
-  const metadata: unknown = await response.json().catch(() => null);
+  const metadata: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok || !isOAuthMetadata(metadata, issuer) || !metadata.code_challenge_methods_supported?.includes("S256")) {
     throw new Error("The authorization server does not provide compatible OAuth PKCE metadata.");
   }
@@ -190,7 +191,7 @@ export const exchangeAuthorizationCode = async (input: Readonly<{
     redirect_uri: input.redirectUri,
     resource: input.resource.origin,
   }));
-  const tokens: unknown = await response.json().catch(() => null);
+  const tokens: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok || !isTokenSet(tokens)) throw new Error("OAuth authorization-code exchange failed.");
   return tokens;
 };
@@ -209,7 +210,7 @@ export const refreshAccessToken = async (input: Readonly<{
     refresh_token: input.refreshToken,
     resource: input.resource.origin,
   }));
-  const tokens: unknown = await response.json().catch(() => null);
+  const tokens: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok || !isTokenSet(tokens)) throw new Error("OAuth refresh failed; run auth login again.");
   return tokens;
 };
@@ -244,7 +245,7 @@ export const requestDeviceAuthorization = async (input: Readonly<{
     resource: input.resource.origin,
     scope: input.scope,
   }));
-  const body: unknown = await response.json().catch(() => null);
+  const body: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok || !isDeviceAuthorization(body)) throw new Error("OAuth device authorization could not be started.");
   return {
     deviceCode: body.device_code,
@@ -276,7 +277,7 @@ const pollDeviceToken = async (input: Readonly<{
     grant_type: "urn:ietf:params:oauth:grant-type:device_code",
     resource: input.resource.origin,
   }));
-  const body: unknown = await response.json().catch(() => null);
+  const body: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (response.ok && isTokenSet(body)) return body;
   const error = typeof body === "object" && body !== null ? (body as Record<string, unknown>).error : undefined;
   if (error !== "authorization_pending" && error !== "slow_down") throw new Error("OAuth device authorization was denied or is no longer valid.");
@@ -322,7 +323,7 @@ export const registerPublicClient = async (input: Readonly<{
     redirect: "error",
     signal: AbortSignal.timeout(15000),
   });
-  const body: unknown = await response.json().catch(() => null);
+  const body: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok || !isRegisteredPublicClient(body)) throw new Error("Public OAuth client registration failed.");
   return { clientId: body.client_id };
 };

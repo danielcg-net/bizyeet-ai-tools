@@ -7,6 +7,32 @@ const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+void test("bounds every OAuth JSON boundary including successful and failed responses without retrying", async () => {
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token",
+    registration_endpoint: "https://example.test/register", device_authorization_endpoint: "https://example.test/device" };
+  const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [
+    (fetcher): Promise<unknown> => discoverOAuth(issuer, fetcher),
+    (fetcher): Promise<unknown> => exchangeAuthorizationCode({ fetcher, metadata, clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:1234/callback", resource: issuer }),
+    (fetcher): Promise<unknown> => refreshAccessToken({ fetcher, metadata, clientId: "client", refreshToken: "refresh", resource: issuer }),
+    (fetcher): Promise<unknown> => requestDeviceAuthorization({ fetcher, metadata, clientId: "client", resource: issuer, scope: "customers.read" }),
+    (fetcher): Promise<unknown> => registerPublicClient({ fetcher, metadata, redirectUri: "http://127.0.0.1:1234/callback" }),
+    (fetcher): Promise<unknown> => exchangeDeviceCode({ fetcher, metadata, clientId: "client", resource: issuer,
+      device: { deviceCode: "device", expiresIn: 900, interval: 5, userCode: "CODE", verificationUri: "https://example.test/verify" },
+      dependencies: { now: () => 1000, sleep: () => Promise.reject(new Error("Must not poll again")) },
+    }),
+  ];
+  await Promise.all(operations.flatMap((operation) => [200, 400].map(async (status) => {
+    const response = Response.json({ ...metadata, issuer: issuer.origin, code_challenge_methods_supported: ["S256"],
+      access_token: "access", expires_in: 900, token_type: "Bearer", client_id: "client", device_code: "device", user_code: "CODE",
+      verification_uri: "https://example.test/verify", error: "authorization_pending", padding: "credential-excerpt".repeat(5000),
+    }, { status });
+    const fetcher = mock.fn(() => Promise.resolve(response));
+    await assert.rejects(operation(fetcher), (error: unknown) => error instanceof Error && !error.message.includes("credential-excerpt"));
+    assert.equal(fetcher.mock.callCount(), 1);
+    assert.equal(response.body?.locked, false);
+  })));
+});
+
 void test("credential-bearing OAuth POSTs have deadlines, reject redirects and never retry transport errors", async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token",
     registration_endpoint: "https://example.test/register", revocation_endpoint: "https://example.test/revoke",

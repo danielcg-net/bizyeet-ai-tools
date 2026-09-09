@@ -2,6 +2,7 @@ import { refreshAccessToken, type FetchLike, type OAuthMetadata } from "./oauth.
 import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
+import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -105,7 +106,7 @@ export const checkIdentity = (input: Readonly<{
     redirect: "error", signal: AbortSignal.timeout(10000),
   }).catch(() => null);
   if (!response) return { status: 503, body: { error: { code: "request_unavailable" } } };
-  const body: unknown = await response.json().catch(() => null);
+  const body: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok) return { status: response.status, body };
   if (typeof body !== "object" || body === null || !("tenant_id" in body) || typeof body.tenant_id !== "string"
       || !("client_id" in body) || body.client_id !== input.profile.clientId
