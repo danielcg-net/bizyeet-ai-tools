@@ -62,6 +62,11 @@ tenant and granted scopes without reading customer data. Individual commands
 still enforce current permissions. Use `--profile <name>` to select a stored
 connection; profiles never override the server's tenant decision.
 
+`auth logout` revokes a bound profile's grant before deleting local credentials.
+If discovery or revocation fails, it exits unsuccessfully and retains credentials
+so you can retry. `revocation: "local_only"` applies only when the stored record
+has no usable server binding, such as an unbound legacy record.
+
 Issuer, public client ID and tokens are saved together in one protected credential
 record. Legacy `profiles.json` metadata is not used to route authenticated requests
 or reuse a client registration. If you have credentials created by an earlier CLI

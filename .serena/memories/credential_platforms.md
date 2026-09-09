@@ -1,5 +1,10 @@
 # Credential platform boundaries
 
+Bound-profile logout must retain credentials and return a safe nonzero error if
+discovery or revocation fails. Delete only after confirmed server revocation;
+local_only is for records without a usable issuer/client binding, not a swallowed
+network failure. Tests verify no deletion on failure and a later successful retry.
+
 Load @napi-rs/keyring only when a native operation is selected, never during CLI
 module startup. Missing optional platform bindings must not break version,
 diagnostics or explicit POSIX file mode. Loader errors remain errors for native

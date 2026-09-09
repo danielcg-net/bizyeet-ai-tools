@@ -192,9 +192,14 @@ const logout = async (args: readonly string[], dependencies: CliStorage, executi
     const credentials = await dependencies.readCredentials(name);
     const current = credentials[name];
     const profile = current?.profile;
-    const remoteRevoked = profile && current.refreshToken
-      ? await execution.revoke({ credentials: current, profile }).then(() => true).catch(() => false)
-      : false;
+    const remoteRevoked = Boolean(profile && current.refreshToken);
+    if (profile && current.refreshToken) {
+      try {
+        await execution.revoke({ credentials: current, profile });
+      } catch {
+        return result(1, errorEnvelope("request_unavailable", "Could not confirm server revocation. Credentials were retained; retry auth logout when the service is available."), "stderr");
+      }
+    }
     await dependencies.removeCredentials(name);
     return output({ logged_out: true, profile: name, revocation: remoteRevoked ? "confirmed" : "local_only" });
   } catch (error) {

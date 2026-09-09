@@ -199,6 +199,44 @@ void test("auth logout attempts refresh-token revocation before clearing the loc
   assert.doesNotMatch(result.message, /refresh-secret/u);
 });
 
+void test("failed logout revocation retains the bound credential for a later successful retry", async (context): Promise<void> => {
+  const credentials = { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "access-secret", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-secret", scope: "customers.read" };
+  const removeCredentials = context.mock.fn(() => Promise.resolve());
+  const storage: NonNullable<Parameters<typeof run>[1]> = { readCredentials: () => Promise.resolve({ automation: credentials }), removeCredentials, saveCredentials: () => Promise.resolve() };
+  const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected operation"));
+  const revoke = context.mock.fn(() => Promise.reject(new Error("Discovery or revocation failed: refresh-secret")));
+  const runtime = { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden, loginDevice: forbidden, revoke };
+  const args = ["auth", "logout", "--profile", "automation"];
+  const failed = await run(args, storage, runtime);
+  assert.equal(failed.exitCode, 1);
+  assert.equal(failed.stream, "stderr");
+  assert.match(failed.message, /"code":"request_unavailable"/u);
+  assert.match(failed.message, /Credentials were retained/u);
+  assert.doesNotMatch(failed.message, /access-secret|refresh-secret|"logged_out":true/u);
+  assert.equal(removeCredentials.mock.callCount(), 0);
+  assert.equal(revoke.mock.callCount(), 1);
+  const retried = await run(args, storage, { ...runtime, revoke: (input) => {
+    assert.deepEqual(input.credentials, credentials);
+    assert.equal(removeCredentials.mock.callCount(), 0);
+    return Promise.resolve();
+  } });
+  assert.equal(retried.exitCode, 0);
+  assert.match(retried.message, /"revocation":"confirmed"/u);
+  assert.equal(removeCredentials.mock.callCount(), 1);
+  assert.deepEqual(removeCredentials.mock.calls[0]?.arguments, ["automation"]);
+});
+
+void test("unbound legacy logout is explicitly local-only without attempting network revocation", async (context): Promise<void> => {
+  const forbidden = context.mock.fn((): Promise<never> => Promise.reject(new Error("Cannot revoke an unbound record")));
+  const result = await run(["auth", "logout"], {
+    readCredentials: () => Promise.resolve({ default: { accessToken: "access-secret", refreshToken: "refresh-secret", expiresAt: "2099-01-01T00:00:00.000Z", scope: "customers.read" } }),
+    removeCredentials: () => Promise.resolve(), saveCredentials: forbidden,
+  }, { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden, loginDevice: forbidden, revoke: forbidden });
+  assert.equal(result.exitCode, 0);
+  assert.match(result.message, /"revocation":"local_only"/u);
+  assert.equal(forbidden.mock.callCount(), 0);
+});
+
 void test("other commands fail closed until explicitly implemented", async (): Promise<void> => {
   const result = await run(["quotes", "list"]);
 
