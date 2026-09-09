@@ -20,6 +20,35 @@ await Promise.all([false, true].map((device) => test(`registration assignment di
   assert.match(result.message, /"code":"authentication_required"/u);
 })));
 
+await Promise.all(["status", "logout"].map((command) => test(`auth ${command} distinguishes configuration from storage failures`, async () => {
+  await Promise.all([
+    { message: "keychain denied secret-access", exit: 1 },
+    { message: "Stored BizYeet credentials are invalid.", exit: 1 },
+    { message: "XDG_CONFIG_HOME must be a nonempty absolute directory.", exit: 2 },
+    { message: "BIZYEET_CREDENTIAL_STORE must be auto or file.", exit: 2 },
+  ].map(async ({ message, exit }) => {
+    const result = await run(["auth", command], {
+      readCredentials: () => Promise.reject(new Error(message)),
+      removeCredentials: () => Promise.resolve(), saveCredentials: () => Promise.resolve(),
+    });
+    assert.equal(result.exitCode, exit);
+    assert.match(result.message, exit === 1 ? /"code":"internal_error"/u : /"code":"invalid_request"/u);
+    assert.doesNotMatch(result.message, /secret-access/u);
+  }));
+  const result = await run(["auth", command, "--profile", "../invalid"]);
+  assert.equal(result.exitCode, 2);
+})));
+
+void test("logout reports credential deletion failure as internal error without leaking details", async () => {
+  const result = await run(["auth", "logout"], {
+    readCredentials: () => Promise.resolve({}), removeCredentials: () => Promise.reject(new Error("secret-refresh denied")),
+    saveCredentials: () => Promise.resolve(),
+  });
+  assert.equal(result.exitCode, 1);
+  assert.match(result.message, /"code":"internal_error"/u);
+  assert.doesNotMatch(result.message, /secret-refresh/u);
+});
+
 void test("never reflects credential parser failures in auth or business command output", async () => {
   const storage: Parameters<typeof run>[1] = {
     readCredentials: () => Promise.reject(new SyntaxError('Unexpected token: {"accessToken":"secret-access","refreshToken":"secret-refresh"} is invalid JSON')),

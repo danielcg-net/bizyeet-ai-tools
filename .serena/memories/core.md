@@ -1,6 +1,8 @@
 # Core
 
 - Keep the fixed credential-free registration-assignment diagnostic in the CLI safe-message allowlist. Cover both browser/device command paths so administrator guidance is not replaced by a generic login failure; arbitrary remote error text must remain filtered.
+- Opaque ID bounds count Unicode code points (512), not UTF-16 units; the preliminary1024-unit cap only bounds allocation. Auth status/logout distinguish profile/configuration input errors (exit2) from credential runtime/corruption failures (internal_error/exit1), retaining fixed safe diagnostics and redaction.
+
 - Exact reads must echo the requested opaque ID, and every returned list/detail ID must satisfy the same input validator. Reject malformed success rather than returning a different/unreadable record.
 - Token responses require nonempty whitespace-free access tokens. Device lifetimes are capped at900 seconds at issuance parsing and direct polling entry. Unsupported commands use invalid_request with exit2, not internal-failure exit1.
 

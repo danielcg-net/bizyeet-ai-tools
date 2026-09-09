@@ -117,17 +117,20 @@ const output = (data: Readonly<Record<string, unknown>>): CliResult => result(0,
 const invalidInput = (message: string): CliResult => result(2, errorEnvelope("invalid_request", message), "stderr");
 const authenticationRequired = (): CliResult => result(3, errorEnvelope("authentication_required", "Run auth login before using this profile."), "stderr");
 
-const safeValidationMessages = new Set([
-  "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.",
+const profileInputMessages = new Set([
   "XDG_CONFIG_HOME must be a nonempty absolute directory.",
   "BIZYEET_CREDENTIAL_STORE must be auto or file.",
+  "Use --profile once with a valid profile name.", "Profile names use lowercase letters, digits, and hyphens only.",
+]);
+const safeValidationMessages = new Set([
+  ...profileInputMessages,
+  "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.",
   "Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.",
   "Write input is invalid, oversized, cancelled or expired.",
   "Preview changes require piped JSON with --input-stdin.",
   "Use hidden terminal entry, or --receipt-stdin with a pipe.",
   "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.",
   "Search is limited to 120 characters.", "Requested fields are invalid.",
-  "Use --profile once with a valid profile name.", "Profile names use lowercase letters, digits, and hyphens only.",
   "Stored BizYeet credentials are invalid.", "Credential fallback file permissions are unsafe; expected mode 0600.",
   "Credential fallback file permissions are unsafe; expected an owner-only regular file with mode 0600.",
   "Credential fallback directory is unsafe; expected an owner-only directory with mode 0700.",
@@ -138,6 +141,10 @@ const safeValidationMessages = new Set([
 ]);
 const safeLocalMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && safeValidationMessages.has(error.message) ? error.message : fallback;
+
+const profileFailure = (error: unknown, fallback: string): CliResult =>
+  error instanceof Error && profileInputMessages.has(error.message) ? invalidInput(error.message)
+    : result(1, errorEnvelope("internal_error", safeLocalMessage(error, fallback)), "stderr");
 
 const valuesFor = (args: readonly string[], option: string): readonly string[] =>
   args.flatMap((argument, index) => argument === option ? [args[index + 1] ?? ""]
@@ -173,7 +180,7 @@ const status = async (args: readonly string[], dependencies: CliStorage): Promis
       scope: current.scope,
     });
   } catch (error) {
-    return invalidInput(safeLocalMessage(error, "Could not read this profile. Check credential storage and configuration."));
+    return profileFailure(error, "Could not read this profile. Check credential storage and configuration.");
   }
 };
 
@@ -190,7 +197,7 @@ const logout = async (args: readonly string[], dependencies: CliStorage, executi
     await dependencies.removeCredentials(name);
     return output({ logged_out: true, profile: name, revocation: remoteRevoked ? "confirmed" : "local_only" });
   } catch (error) {
-    return invalidInput(safeLocalMessage(error, "Could not clear this profile. Check credential storage and configuration."));
+    return profileFailure(error, "Could not clear this profile. Check credential storage and configuration.");
   }
 };
 

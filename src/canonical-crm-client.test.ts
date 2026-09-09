@@ -5,6 +5,16 @@ import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await Promise.all([300, 512, 513].map((length) => test(`opaque IDs count Unicode code points at ${String(length)}`, async () => {
+  const id = "😀".repeat(length);
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
+    request: (url): Promise<Response> => Promise.resolve(Response.json(url.includes("/customers?")
+      ? { ...emptyPage, data: { items: [{ id }], total: 1 } }
+      : { data: { id }, meta: { contract_version: "v1" } })) });
+  assert.equal((await client.list("customers")).status, length <= 512 ? 200 : 502);
+  assert.equal((await client.get("customers", id)).status, length <= 512 ? 200 : 400);
+})));
+
 await test("rejects a structurally valid exact read for a different record", async () => {
   const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
     request: () => Promise.resolve(Response.json({ data: { id: "other-customer" }, meta: { contract_version: "v1" } })) });
