@@ -1,10 +1,17 @@
 # Credential platform boundaries
 
 Browser awaitCode has a five-minute timeout, cancels its delay on every completion,
-and closes the real listener. On expiration it force-closes active connections
-after initiating server shutdown. Device intervals must be at least one second
+and closes the real listener. Every shutdown grants active connections one second
+then force-closes them, with delay cancellation on earlier close. Device intervals must be at least one second
 and fit the timer; missing intervals still default to five seconds. Wire and
 direct-exchange inputs share this bound; accepted fractional milliseconds round up.
+
+Fallback credential read/modify/replace and removal transactions hold an exclusive
+owner-only .credentials.lock directory, with at most50 contention retries100ms
+apart. Only the acquiring operation removes its empty lock in finally; never
+automatically remove a pre-existing/stale lock. Operator recovery requires stopping
+all owners first. Cross-process tests preserve independently saved profiles and
+removals; this does not serialize the network refresh operation for one profile.
 
 Token exchange validation rejects positive finite expires_in values whose absolute
 expiration cannot fit a JavaScript Date, before login/refresh consumers serialize

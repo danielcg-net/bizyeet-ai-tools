@@ -8,13 +8,21 @@ export type LoopbackCallback = Readonly<{
   redirectUri: string;
 }>;
 
-const closeServer = (server: Server, force = false): Promise<void> => new Promise((resolve, reject) => {
-  server.close((error) => {
-    if (error) reject(error);
-    else resolve();
+const closeServer = async (server: Server): Promise<void> => {
+  const cancellation = new AbortController();
+  const closed = new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
   });
-  if (force) server.closeAllConnections();
-});
+  const forced = timers.setTimeout(1000, undefined, { signal: cancellation.signal }).then(async (): Promise<void> => {
+    server.closeAllConnections();
+    await closed;
+  });
+  try { await Promise.race([closed, forced]); }
+  finally { cancellation.abort(); }
+};
 
 const callbackResponse = (status: number, body: string): Readonly<{ body: string; headers: Readonly<Record<string, string>>; status: number }> => ({
   body,
@@ -59,16 +67,14 @@ export const openLoopbackCallback = async (state: string, issuer: string): Promi
   return {
     awaitCode: async (): Promise<string> => {
       const cancellation = new AbortController();
-      const expired = new AbortController();
       const timeout = timers.setTimeout(300_000, undefined, { signal: cancellation.signal }).then((): never => {
-        expired.abort();
         throw new Error("OAuth browser authorization timed out; run auth login again.");
       });
       try {
         return await Promise.race([result.code, timeout]);
       } finally {
         cancellation.abort();
-        await closeServer(result.server, expired.signal.aborted);
+        await closeServer(result.server);
       }
     },
     close: (): Promise<void> => closeServer(result.server),

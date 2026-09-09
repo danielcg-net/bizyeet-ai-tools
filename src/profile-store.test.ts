@@ -4,11 +4,33 @@ import { mkdtemp, chmod as changeMode, link, mkdir, rename, stat, symlink, write
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { profileName, profilePaths, readFallbackCredentials, removeFallbackCredentials, requireFileCredentialSupport, saveFallbackCredentials, saveProfile } from "./profile-store.js";
 
 const temporaryPaths = async (): Promise<ReturnType<typeof profilePaths>> =>
   profilePaths({}, await mkdtemp(join(tmpdir(), "bizyeet-cli-")));
+
+void test("concurrent processes preserve independent credential saves and removals", { skip: process.platform === "win32", timeout: 15000 }, async (): Promise<void> => {
+  const root = await mkdtemp(join(tmpdir(), "bizyeet-lock-processes-"));
+  const paths = profilePaths({}, root);
+  const credentials = { accessToken: "synthetic-access", refreshToken: "synthetic-refresh", expiresAt: "2099-01-01", scope: "customers.read" };
+  const run = promisify(execFile);
+  const moduleUrl = new URL("./profile-store.js", import.meta.url).href;
+  const script = `const store = await import(process.argv[1]);
+    const paths = store.profilePaths({}, process.argv[2]);
+    const credentials = {accessToken:"synthetic-access",refreshToken:"synthetic-refresh",expiresAt:"2099-01-01",scope:"customers.read"};
+    await (process.argv[3] === "remove" ? store.removeFallbackCredentials(process.argv[4],paths) : store.saveFallbackCredentials(process.argv[4],credentials,paths));`;
+  try {
+    await saveFallbackCredentials("remove-me", credentials, paths);
+    await Promise.all(["one", "two", "three", "four"].map(async (name): Promise<void> => {
+      await run(process.execPath, ["--input-type=module", "-e", script, moduleUrl, root, "save", name], { timeout: 10000 });
+    }).concat(run(process.execPath, ["--input-type=module", "-e", script, moduleUrl, root, "remove", "remove-me"], { timeout: 10000 }).then((): void => undefined)));
+    assert.deepEqual(Object.keys(await readFallbackCredentials(paths)).sort(), ["four", "one", "three", "two"]);
+    assert.deepEqual(await fileSystem.readdir(paths.directory), ["credentials.json"]);
+  } finally { await fileSystem.rm(root, { recursive: true, force: true }); }
+});
 
 void test("rejects empty and relative XDG roots instead of storing tokens beneath the workspace", (): void => {
   ["", ".", "./config", "relative/config", "../config"].forEach((value): void => {
@@ -17,6 +39,20 @@ void test("rejects empty and relative XDG roots instead of storing tokens beneat
   const absolute = join(tmpdir(), "trusted-config");
   assert.equal(profilePaths({ XDG_CONFIG_HOME: absolute }).directory, join(absolute, "bizyeet"));
   assert.equal(profilePaths({}, absolute).directory, join(absolute, ".config", "bizyeet"));
+});
+
+void test("does not remove an existing lock or overwrite credentials after bounded contention", { skip: process.platform === "win32", timeout: 10000 }, async (): Promise<void> => {
+  const root = await mkdtemp(join(tmpdir(), "bizyeet-existing-lock-"));
+  const paths = profilePaths({}, root);
+  const credentials = { accessToken: "synthetic-original", refreshToken: "synthetic-refresh", expiresAt: "2099-01-01", scope: "customers.read" };
+  const lock = join(paths.directory, ".credentials.lock");
+  try {
+    await saveFallbackCredentials("default", credentials, paths);
+    await mkdir(lock, { mode: 0o700 });
+    await assert.rejects(saveFallbackCredentials("replacement", credentials, paths), /Credential store is busy/u);
+    assert.ok((await stat(lock)).isDirectory());
+    assert.deepEqual(await readFallbackCredentials(paths), { default: credentials });
+  } finally { await fileSystem.rm(root, { recursive: true, force: true }); }
 });
 
 void test("keeps profile metadata separate from owner-only fallback credentials", async (): Promise<void> => {

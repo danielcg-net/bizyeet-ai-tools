@@ -85,6 +85,14 @@ Permissions and ownership are checked on the same open file that is read.
 Do not place the configuration directory inside an untrusted/shared writable
 parent. An explicitly configured `XDG_CONFIG_HOME` must be nonempty and absolute;
 empty or relative paths fail instead of writing credentials into the workspace.
+Fallback saves/removals hold an exclusive `.credentials.lock` directory across
+the collection read and atomic replacement so other profiles are not overwritten.
+Contention retries at most 50 times with a 100 ms delay, then fails without
+removing another process's lock. A killed owner can leave an abandoned lock:
+stop all BizYeet commands and verify there is no live owner before an operator
+removes only that empty lock directory. Never delete credential files to recover
+the lock. This serializes local file updates, not overlapping OAuth refresh
+requests for the same profile; do not run those refreshes concurrently.
 Windows requires its native credential
 manager: POSIX mode bits do not prove owner-only Windows access, so plaintext
 fallback is refused. A locked credential service fails closed rather than

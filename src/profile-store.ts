@@ -1,5 +1,6 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rmdir, unlink, type FileHandle } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -18,15 +19,16 @@ export type ProfileCollection = Readonly<Record<string, Profile>>;
 export type CredentialCollection = Readonly<Record<string, StoredCredentials>>;
 
 type FileOperations = Readonly<{
-  mkdir: (path: string, options: Readonly<{ recursive: true; mode: number }>) => Promise<string | undefined>;
+  mkdir: (path: string, options: Readonly<{ recursive: boolean; mode: number }>) => Promise<string | undefined>;
   readFile: (path: string, encoding: "utf8") => Promise<string>;
   rename: (oldPath: string, newPath: string) => Promise<void>;
   lstat: typeof lstat;
   open: (path: string, flags: string | number, mode?: number) => Promise<Pick<FileHandle, "stat" | "readFile" | "writeFile" | "chmod" | "close">>;
   unlink: typeof unlink;
+  rmdir: typeof rmdir;
 }>;
 
-const files: FileOperations = { lstat, mkdir, open, readFile, rename, unlink };
+const files: FileOperations = { lstat, mkdir, open, readFile, rename, rmdir, unlink };
 
 /** POSIX mode bits cannot establish owner-only access on Windows. */
 export const requireFileCredentialSupport = (platform: NodeJS.Platform = process.platform): void => {
@@ -104,6 +106,25 @@ const assertPrivateDirectory = async (directory: string, operations: FileOperati
   }
 };
 
+const acquireCredentialLock = async (path: string, operations: FileOperations, remaining = 50): Promise<void> => {
+  try { await operations.mkdir(path, { recursive: false, mode: 0o700 }); }
+  catch (error) {
+    if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST")) throw error;
+    if (remaining === 0) throw new Error("Credential store is busy; stop concurrent commands and retry. An abandoned .credentials.lock requires operator recovery.", { cause: error });
+    await delay(100);
+    return acquireCredentialLock(path, operations, remaining - 1);
+  }
+};
+
+const withCredentialLock = async (paths: ReturnType<typeof profilePaths>, operations: FileOperations, update: () => Promise<void>): Promise<void> => {
+  await operations.mkdir(paths.directory, { recursive: true, mode: 0o700 });
+  await assertPrivateDirectory(paths.directory, operations);
+  const lock = join(paths.directory, ".credentials.lock");
+  await acquireCredentialLock(lock, operations);
+  try { await update(); }
+  finally { await operations.rmdir(lock); }
+};
+
 const writePrivateJson = async (path: string, value: unknown, operations: FileOperations, secret = false): Promise<void> => {
   const directory = dirname(path);
   const temporaryPath = join(directory, `.${randomUUID()}.tmp`);
@@ -160,15 +181,22 @@ export const readFallbackCredentials = async (paths: ReturnType<typeof profilePa
 /** Writes headless credentials atomically with owner-only permissions. */
 export const saveFallbackCredentials = async (name: string, credentials: StoredCredentials, paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<void> => {
   requireFileCredentialSupport();
-  const existing = await readFallbackCredentials(paths, operations);
-  await writePrivateJson(paths.credentials, { ...existing, [profileName(name)]: credentials }, operations, true);
+  await withCredentialLock(paths, operations, async (): Promise<void> => {
+    const existing = await readFallbackCredentials(paths, operations);
+    await writePrivateJson(paths.credentials, { ...existing, [profileName(name)]: credentials }, operations, true);
+  });
 };
 
 /** Removes one profile's fallback credentials without changing any other profile. */
 export const removeFallbackCredentials = async (name: string, paths: ReturnType<typeof profilePaths> = profilePaths(), operations: FileOperations = files): Promise<void> => {
   const normalized = profileName(name);
-  const existing = await readFallbackCredentials(paths, operations);
-  if (!Object.hasOwn(existing, normalized)) return;
-  const retained = Object.fromEntries(Object.entries(existing).filter(([key]) => key !== normalized));
-  await writePrivateJson(paths.credentials, retained, operations, true);
+  try { await operations.lstat(paths.credentials); }
+  catch (error) { if (isMissing(error)) return; throw error; }
+  requireFileCredentialSupport();
+  await withCredentialLock(paths, operations, async (): Promise<void> => {
+    const existing = await readFallbackCredentials(paths, operations);
+    if (!Object.hasOwn(existing, normalized)) return;
+    const retained = Object.fromEntries(Object.entries(existing).filter(([key]) => key !== normalized));
+    await writePrivateJson(paths.credentials, retained, operations, true);
+  });
 };
