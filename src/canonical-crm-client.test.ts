@@ -5,6 +5,18 @@ import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await Promise.all(["bad\uD800id", "bad\uDC00id", "\uD800\uD800", "\uDC00\uD800", "paired😀id"].map((id, index) => test(`opaque ID scalar validation case ${String(index)}`, async () => {
+  const request = mock.fn((url: string) => Promise.resolve(Response.json(url.includes("/customers?")
+    ? { ...emptyPage, data: { items: [{ id }], total: 1 } }
+    : { data: { id }, meta: { contract_version: "v1" } })));
+  const getAccessToken = mock.fn(token);
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken, request });
+  assert.equal((await client.list("customers")).status, index === 4 ? 200 : 502);
+  assert.equal((await client.get("customers", id)).status, index === 4 ? 200 : 400);
+  assert.equal(request.mock.callCount(), index === 4 ? 2 : 1);
+  assert.equal(getAccessToken.mock.callCount(), index === 4 ? 2 : 1);
+})));
+
 await Promise.all(["customers", "leads"].map((resource) => test(`${resource} rejects a total smaller than the returned page`, async () => {
   await Promise.all([0, 1, 2, 3].map(async (total) => {
     const page = { ...emptyPage, data: { items: [{ id: "first" }, { id: "second" }], total } };
