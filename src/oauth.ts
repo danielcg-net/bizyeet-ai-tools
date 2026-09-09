@@ -43,6 +43,9 @@ export type RegisteredPublicClient = Readonly<{ clientId: string }>;
 
 const oauthMetadataPath = "/.well-known/oauth-authorization-server";
 const requiredMetadataKeys = ["authorization_endpoint", "token_endpoint"] as const;
+const maximumTimerMilliseconds = 2_147_483_647;
+const isDeviceInterval = (value: unknown): value is number => typeof value === "number"
+  && Number.isFinite(value) && value > 0 && Math.ceil(value * 1000) <= maximumTimerMilliseconds;
 
 const base64Url = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
 
@@ -110,9 +113,7 @@ const isDeviceAuthorization = (value: unknown): value is DeviceAuthorizationResp
     && typeof candidate.expires_in === "number"
     && Number.isFinite(candidate.expires_in)
     && candidate.expires_in > 0
-    && (candidate.interval === undefined || (typeof candidate.interval === "number"
-      && Number.isFinite(candidate.interval)
-      && candidate.interval > 0))
+    && (candidate.interval === undefined || isDeviceInterval(candidate.interval))
     && (candidate.verification_uri_complete === undefined || typeof candidate.verification_uri_complete === "string");
 };
 
@@ -282,7 +283,11 @@ const pollDeviceToken = async (input: Readonly<{
   const error = typeof body === "object" && body !== null ? (body as Record<string, unknown>).error : undefined;
   if (error !== "authorization_pending" && error !== "slow_down") throw new Error("OAuth device authorization was denied or is no longer valid.");
   const nextInterval = error === "slow_down" ? input.intervalMilliseconds + 5000 : input.intervalMilliseconds;
-  await input.dependencies.sleep(nextInterval);
+  if (nextInterval > maximumTimerMilliseconds) throw new Error("OAuth device polling interval exceeds supported timer limits; run auth login again.");
+  const remaining = input.deadline - input.dependencies.now();
+  if (remaining <= 0) throw new Error("OAuth device authorization expired; run auth login again.");
+  await input.dependencies.sleep(Math.ceil(Math.min(nextInterval, remaining)));
+  if (nextInterval >= remaining) throw new Error("OAuth device authorization expired; run auth login again.");
   return pollDeviceToken({ ...input, intervalMilliseconds: nextInterval });
 };
 
@@ -296,6 +301,9 @@ export const exchangeDeviceCode = async (input: Readonly<{
   dependencies?: DevicePollingDependencies;
 }>): Promise<OAuthTokenSet> => {
   const dependencies = input.dependencies ?? defaultPollingDependencies;
+  if (!isDeviceInterval(input.device.interval) || !Number.isFinite(input.device.expiresIn * 1000) || input.device.expiresIn <= 0) {
+    throw new Error("OAuth device authorization has unsupported timing; run auth login again.");
+  }
   return pollDeviceToken({
     clientId: input.clientId,
     deadline: dependencies.now() + input.device.expiresIn * 1000,

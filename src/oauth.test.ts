@@ -138,7 +138,7 @@ void test("binds device authorization to the OAuth resource", async (): Promise<
 });
 
 void test("defaults an omitted device interval to five seconds and preserves explicit positive intervals", async () => {
-  await Promise.all([undefined, 1, 10].map(async (interval) => {
+  await Promise.all([undefined, 1, 10, 2_147_483.647].map(async (interval) => {
     const device = await requestDeviceAuthorization({
       clientId: "public-client",
       fetcher: () => jsonResponse({ device_code: "device-code", expires_in: 900, interval, user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" }),
@@ -151,7 +151,7 @@ void test("defaults an omitted device interval to five seconds and preserves exp
 });
 
 void test("rejects invalid explicit device intervals instead of applying the absent-value default", async () => {
-  await Promise.all([null, 0, -1, "5", true, Number.NaN, Number.POSITIVE_INFINITY].map(async (interval) => {
+  await Promise.all([null, 0, -1, "5", true, Number.NaN, Number.POSITIVE_INFINITY, 3_000_000, 2_147_483.648].map(async (interval) => {
     await assert.rejects(requestDeviceAuthorization({
       clientId: "public-client",
       fetcher: () => jsonResponse({ device_code: "device-code", expires_in: 900, interval, user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" }),
@@ -160,6 +160,56 @@ void test("rejects invalid explicit device intervals instead of applying the abs
       scope: "customers.read",
     }), /OAuth device authorization could not be started/u);
   }));
+});
+
+void test("rejects timer-overflow inputs before polling and slow_down overflow before sleeping", async () => {
+  const device = { deviceCode: "device", expiresIn: 9_000_000, interval: 2_147_483.647, userCode: "CODE", verificationUri: "https://example.test/verify" };
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
+  const fetcher = mock.fn(() => jsonResponse({ error: "slow_down" }));
+  const sleep = mock.fn(() => Promise.reject(new Error("Unsafe timer must not be scheduled")));
+  await Promise.all([3_000_000, Number.POSITIVE_INFINITY, Number.NaN, 0].map(async (interval) => {
+    await assert.rejects(exchangeDeviceCode({ clientId: "client", device: { ...device, interval }, metadata, resource: issuer, fetcher,
+      dependencies: { now: () => 1000, sleep },
+    }), /unsupported timing/u);
+  }));
+  assert.equal(fetcher.mock.callCount(), 0);
+  await assert.rejects(exchangeDeviceCode({ clientId: "client", device, metadata, resource: issuer, fetcher,
+    dependencies: { now: () => 1000, sleep },
+  }), /exceeds supported timer limits/u);
+  assert.equal(fetcher.mock.callCount(), 1);
+  assert.equal(sleep.mock.callCount(), 0);
+});
+
+void test("waits only until expiry when the next poll would be too late", async () => {
+  const fetcher = mock.fn(() => jsonResponse({ error: "authorization_pending" }));
+  const sleep = mock.fn((milliseconds: number) => {
+    assert.equal(milliseconds, 2000);
+    return Promise.resolve();
+  });
+  await assert.rejects(exchangeDeviceCode({ clientId: "client",
+    device: { deviceCode: "device", expiresIn: 2, interval: 5, userCode: "CODE", verificationUri: "https://example.test/verify" },
+    metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" }, resource: issuer, fetcher,
+    dependencies: { now: () => 1000, sleep },
+  }), /authorization expired/u);
+  assert.equal(fetcher.mock.callCount(), 1);
+  assert.equal(sleep.mock.callCount(), 1);
+});
+
+void test("rounds fractional millisecond intervals up rather than polling early", async () => {
+  const responses = [
+    { error: "authorization_pending" },
+    { access_token: "access", expires_in: 300, token_type: "Bearer" },
+  ].values();
+  const sleep = mock.fn((milliseconds: number) => {
+    assert.equal(milliseconds, 2);
+    return Promise.resolve();
+  });
+  await exchangeDeviceCode({ clientId: "client",
+    device: { deviceCode: "device", expiresIn: 2, interval: 0.0015, userCode: "CODE", verificationUri: "https://example.test/verify" },
+    metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" }, resource: issuer,
+    fetcher: () => jsonResponse(responses.next().value ?? {}), dependencies: { now: () => 1000, sleep },
+  });
+  assert.equal(sleep.mock.callCount(), 1);
 });
 
 void test("honors slow_down before retrying a device token exchange", async (): Promise<void> => {
