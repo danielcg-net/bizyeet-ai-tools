@@ -50,8 +50,13 @@ secret-exfiltration payload or production configuration.
    first-contributor run, including executable source/scripts, package metadata,
    lockfile/dependency changes and workflows. Do not trust a stated documentation-only
    scope: installation and checks execute checked-out PR code. Unexpected executable
-   or dependency changes require their own review; new commits invalidate the prior
-   inspection and must be reviewed before approving another run.
+   or dependency changes require their own review. Do not assume another approval
+   prompt will prevent a later push from executing. Use a maintainer-controlled
+   external fork with no other writers or automation, and freeze the canary head
+   throughout the exercise. A head change invalidates the inspection and evidence:
+   stop the exercise, cancel its runs and review a new controlled head. Run approval
+   is not the security boundary for untrusted commits; secret isolation, hosted
+   runners and least privilege must hold independently.
    Confirm PR jobs use GitHub-hosted runners, no deployment environment, no
    repository/environment/organization secret references, and no persisted checkout
    credentials. Do not grant a write token or expose secrets to make a test pass.

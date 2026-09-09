@@ -7,7 +7,8 @@ before any mutation. Real external-fork validation needs explicit maintainer
 approval and sanitized current-head run/permission evidence before promotion.
 Review the complete exact-head diff, including executable/dependency changes, before
 approving a fork run; workflow-only inspection and contributor scope claims do not
-establish safety. New commits require renewed inspection.
+establish safety. Use a controlled frozen canary head; never rely on another approval
+prompt to block a later push. Head changes invalidate the exercise and evidence.
 Keep the existing checks and security protections; never weaken fork permissions
 or treat a same-repository green run as external-fork proof. Publication is separate.
 
