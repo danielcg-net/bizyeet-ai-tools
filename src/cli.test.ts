@@ -273,6 +273,10 @@ await Promise.all([
   { issuer: "https://example.test", deviceGrantVerified: false },
   { issuer: "https://example.test", deviceGrantVerified: true },
   { issuer: "https://other.test", deviceGrantVerified: true },
+  { issuer: "https://example.test", deviceGrantVerified: true, deviceRegistrationVersion: 1 },
+  { issuer: "https://other.test", deviceGrantVerified: true, deviceRegistrationVersion: 1 },
+  { issuer: "https://example.test", deviceGrantVerified: false, deviceRegistrationVersion: 1 },
+  { issuer: "https://example.test", deviceGrantVerified: true, deviceRegistrationVersion: 2 },
 ].map((previous) => test(`device login reuses only a proven same-issuer client: ${JSON.stringify(previous)}`, async () => {
   const stored = { profile: { clientId: "previous-client", ...previous }, accessToken: "old-access",
     expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "old-refresh", scope: "customers.read" };
@@ -283,7 +287,9 @@ await Promise.all([
     saveCredentials: (_name, credentials) => { assert.deepEqual(credentials.profile, profile); return Promise.resolve(); },
   }, { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden, revoke: forbidden,
     loginDevice: (input) => {
-      assert.equal(input.clientId, previous.issuer === profile.issuer && previous.deviceGrantVerified === true ? "previous-client" : undefined);
+      const reusable = previous.issuer === profile.issuer && previous.deviceGrantVerified === true && previous.deviceRegistrationVersion === 1;
+      assert.equal(input.clientId, reusable ? "previous-client" : undefined);
+      assert.equal(input.deviceRegistrationVersion, reusable ? 1 : undefined);
       return Promise.resolve({ credentials: { ...stored, profile }, profile });
     },
   });

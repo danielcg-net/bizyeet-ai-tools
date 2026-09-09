@@ -45,16 +45,18 @@ const credentialsFrom = (tokens: OAuthTokenSet, now: () => number, profile: Prof
 /** Completes an OAuth-only device login and returns secret-bearing credentials only to the local storage boundary. */
 export const loginWithDevice = async (input: Readonly<{
   clientId?: string;
+  deviceRegistrationVersion?: 1;
   issuer: string;
   scope: string;
 }>, dependencies: DeviceLoginDependencies): Promise<DeviceLoginResult> => {
   const issuer = issuerOrigin(input.issuer);
   const metadata = await discoverOAuth(issuer, dependencies.fetcher);
-  const clientId = input.clientId ?? (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: deviceRedirectUri, deviceGrant: true })).clientId;
+  const verifiedClientId = input.deviceRegistrationVersion === 1 ? input.clientId : undefined;
+  const clientId = verifiedClientId ?? (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: deviceRedirectUri, deviceGrant: true })).clientId;
   const device = await requestDeviceAuthorization({ clientId, fetcher: dependencies.fetcher, metadata, resource: issuer, scope: input.scope });
   dependencies.onVerification(device);
   const tokens = await exchangeDeviceCode({ clientId, device, fetcher: dependencies.fetcher, metadata, resource: issuer });
-  const profile: Profile = { clientId, issuer: issuer.origin, deviceGrantVerified: true };
+  const profile: Profile = { clientId, issuer: issuer.origin, deviceGrantVerified: true, deviceRegistrationVersion: 1 };
   return {
     credentials: credentialsFrom(tokens, dependencies.now, profile),
     profile,

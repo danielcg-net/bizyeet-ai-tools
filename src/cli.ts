@@ -35,7 +35,7 @@ type CliRuntime = Readonly<{
   getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
   listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
-  loginDevice: (input: Readonly<{ clientId?: string; issuer: string; scope: string }>, onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
+  loginDevice: (input: Parameters<typeof loginWithDevice>[0], onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
   revoke: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; profile: import("./profile-store.js").Profile }>) => Promise<void>;
 }>;
 
@@ -228,9 +228,10 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
     const credentials = await dependencies.readCredentials(profileNameValue);
     const previousProfile = credentials[profileNameValue]?.profile;
     const existingClientId = previousProfile?.issuer === issuer && previousProfile.deviceGrantVerified === true
+      && previousProfile.deviceRegistrationVersion === 1
       ? previousProfile.clientId : undefined;
     const completed = args.includes("--device")
-      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification)
+      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 1 as const } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });
     await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });
     return output({ authenticated: true, expires_at: completed.credentials.expiresAt, issuer: completed.profile.issuer, profile: profileNameValue, scope: completed.credentials.scope });

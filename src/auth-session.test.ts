@@ -7,6 +7,32 @@ import { openLoopbackCallback, type LoopbackCallback } from "./loopback.js";
 const response = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+await Promise.all([false, true].map((verified) => test(`saved device registration requires current assignment proof: ${String(verified)}`, async () => {
+  const fetcher = mock.fn((url: string): Promise<Response> => {
+    if (url.endsWith("oauth-authorization-server")) return response({ issuer: "https://example.test", authorization_endpoint: "https://example.test/authorize",
+      code_challenge_methods_supported: ["S256"], device_authorization_endpoint: "https://example.test/device",
+      registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" });
+    if (url.endsWith("/register")) return response({ client_id: "device-only", token_endpoint_auth_method: "none", grant_types: ["urn:ietf:params:oauth:grant-type:device_code"] });
+    if (url.endsWith("/device")) return response({ device_code: "synthetic", expires_in: 900, interval: 5, user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" });
+    if (url.endsWith("/token")) return response({ access_token: "synthetic-access", refresh_token: "synthetic-refresh", expires_in: 300, token_type: "Bearer" });
+    return Promise.reject(new Error("Unexpected request"));
+  });
+  const onVerification = mock.fn((): void => undefined);
+  const login = loginWithDevice({ clientId: "saved-client", issuer: "https://example.test", scope: "customers.read",
+    ...(verified ? { deviceRegistrationVersion: 1 as const } : {}) }, { fetcher, now: Date.now, onVerification });
+  if (verified) {
+    const completed = await login;
+    assert.equal(completed.profile.clientId, "saved-client");
+    assert.equal(completed.profile.deviceRegistrationVersion, 1);
+    assert.equal(onVerification.mock.callCount(), 1);
+    assert.deepEqual(fetcher.mock.calls.map(({ arguments: [url] }) => new URL(url).pathname), ["/.well-known/oauth-authorization-server", "/device", "/token"]);
+  } else {
+    await assert.rejects(login, /Contact your tenant administrator/u);
+    assert.equal(onVerification.mock.callCount(), 0);
+    assert.deepEqual(fetcher.mock.calls.map(({ arguments: [url] }) => new URL(url).pathname), ["/.well-known/oauth-authorization-server", "/register"]);
+  }
+})));
+
 await Promise.all(["transport", "malformed"].map((scenario) => test(`closes the real callback listener after ${scenario} registration failure`, async () => {
   const openCallback = mock.fn(openLoopbackCallback);
   const launchBrowser = mock.fn((): Promise<void> => Promise.reject(new Error("Must not launch")));
@@ -51,6 +77,7 @@ void test("stores the device-flow result without exposing tokens through the ver
 
   assert.equal(result.profile.clientId, "public-client");
   assert.equal(result.profile.deviceGrantVerified, true);
+  assert.equal(result.profile.deviceRegistrationVersion, 1);
   assert.equal(result.credentials.expiresAt, "1970-01-01T00:05:01.000Z");
   assert.equal(result.credentials.accessToken, "access-secret");
   assert.deepEqual(result.credentials.profile, result.profile);
