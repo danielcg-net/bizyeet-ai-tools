@@ -3,6 +3,8 @@
 - Separate registration response shape/HTTP failures from assigned-auth policy validation. Successful responses assigning non-public methods must still fail closed, but use the fixed administrator-facing assignment diagnostic rather than the generic registration failure.
 
 - Keep the fixed credential-free registration-assignment diagnostic in the CLI safe-message allowlist. Cover both browser/device command paths so administrator guidance is not replaced by a generic login failure; arbitrary remote error text must remain filtered.
+- Opaque resource IDs must contain well-formed Unicode scalar values. Reject unpaired UTF-16 surrogates consistently in inputs and response envelopes before URL encoding, while preserving valid supplementary characters and the existing code-point bound.
+
 - A successful list total must be a safe integer at least as large as the returned page. Reject contradictory untrusted count/item envelopes rather than silently dropping records or fabricating a count.
 
 - OAuth token_type is case-insensitive; accept only Bearer variants without trimming and normalize successful code/refresh/device results to Bearer. List response counts must not exceed the requested page size (default25,max100), independently of byte caps. Preview expirations require a valid UTC date-time representation, not merely a finite Date.parse result.
