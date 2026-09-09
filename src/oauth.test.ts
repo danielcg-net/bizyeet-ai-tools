@@ -120,6 +120,25 @@ void test("binds authorization requests to state, resource, and PKCE S256", (): 
   assert.equal(target.searchParams.get("state"), "state-value");
 });
 
+void test("preserves advertised authorization query parameters without overriding generated OAuth fields", (): void => {
+  const endpoint = "https://example.test/authorize?tenant=acme&hint=a%2Bb+team&empty=&state=stale&%73tate=duplicate&client_id=wrong&code_challenge_method=plain&resource=https%3A%2F%2Fother.test";
+  const metadata = { authorization_endpoint: endpoint, token_endpoint: "https://example.test/token" };
+  const target = new URL(authorizationUrl({ clientId: "public-client", metadata,
+    pkce: { challenge: "proof", verifier: "verifier" }, redirectUri: "http://127.0.0.1:40000/callback",
+    resource: issuer, scope: "customers.read", state: "generated-state",
+  }));
+  assert.equal(target.origin, issuer.origin);
+  assert.equal(target.pathname, "/authorize");
+  assert.equal(target.searchParams.get("tenant"), "acme");
+  assert.equal(target.searchParams.get("hint"), "a+b team");
+  assert.equal(target.searchParams.get("empty"), "");
+  assert.deepEqual(target.searchParams.getAll("state"), ["generated-state"]);
+  assert.deepEqual(target.searchParams.getAll("client_id"), ["public-client"]);
+  assert.deepEqual(target.searchParams.getAll("code_challenge_method"), ["S256"]);
+  assert.deepEqual(target.searchParams.getAll("resource"), [issuer.origin]);
+  assert.equal(metadata.authorization_endpoint, endpoint);
+});
+
 void test("binds device authorization to the OAuth resource", async (): Promise<void> => {
   const device = await requestDeviceAuthorization({
     clientId: "public-client",

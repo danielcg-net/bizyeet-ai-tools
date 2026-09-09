@@ -30,6 +30,11 @@ Remaining: integrated real server/CLI browser proof, cross-platform new-head CI
 and review/release gates. Draft implementation is not a publication/deployment.
 # Read response bound
 
+Authorization URL construction retains discovery-provided query parameters
+(RFC6749 section3.1), but generated state/client/PKCE/resource fields replace
+all same-name endpoint values so duplicates cannot override their binding.
+The merge uses new URLSearchParams values without mutating metadata.
+
 Resource commands accept lazy OAuth discovery, evaluated only after protected
 identity validation when refresh is needed. Valid tokens do not depend on
 discovery availability; login and revocation still discover normally. Persist

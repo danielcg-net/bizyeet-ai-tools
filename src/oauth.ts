@@ -163,7 +163,12 @@ export const authorizationUrl = (input: Readonly<{
     scope: input.scope,
     state: input.state,
   });
-  return new URL(`?${parameters.toString()}`, input.metadata.authorization_endpoint).toString();
+  const endpoint = new URL(input.metadata.authorization_endpoint);
+  const merged = new URLSearchParams([
+    ...Array.from(endpoint.searchParams).filter(([name]) => !parameters.has(name)),
+    ...Array.from(parameters),
+  ]);
+  return new URL(`?${merged.toString()}`, endpoint).toString();
 };
 
 const formRequest = (parameters: Readonly<Record<string, string>>): RequestInit => ({
