@@ -33,7 +33,7 @@ const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
 /** Preserve bounded printable correlation references without requiring UUID syntax. */
 export const correlationReference = (value: unknown): string =>
   typeof value === "string" && value.length >= 1 && value.length <= 128
-    && Array.from(value).every((character) => character.charCodeAt(0) > 32 && character.charCodeAt(0) !== 127)
+    && !/[\p{Cc}\p{Cf}\p{Cs}\p{Z}]/u.test(value)
     ? value : crypto.randomUUID();
 
 /** Retains machine semantics without reflecting server messages, details or credentials. */
