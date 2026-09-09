@@ -4,6 +4,22 @@ import test from "node:test";
 import { isCliEntrypoint, run } from "./cli.js";
 import { agentFailure } from "./agent-error.js";
 
+await Promise.all([false, true].map((device) => test(`registration assignment diagnostics survive CLI filtering (device: ${String(device)})`, async () => {
+  const message = "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.";
+  const forbidden = (): never => { throw new Error("Unexpected storage or business operation"); };
+  const rejectLogin = (): Promise<never> => Promise.reject(new Error(message));
+  const result = await run(["auth", "login", "--issuer", "https://example.test", ...(device ? ["--device"] : [])], {
+    readCredentials: () => Promise.resolve({}), removeCredentials: forbidden, saveCredentials: forbidden,
+  }, {
+    getCustomer: forbidden, listCustomers: forbidden, revoke: forbidden,
+    loginBrowser: device ? forbidden : rejectLogin, loginDevice: device ? rejectLogin : forbidden,
+  });
+  assert.equal(result.exitCode, 3);
+  assert.equal(result.stream, "stderr");
+  assert.ok(result.message.includes(JSON.stringify(message)));
+  assert.match(result.message, /"code":"authentication_required"/u);
+})));
+
 void test("never reflects credential parser failures in auth or business command output", async () => {
   const storage: Parameters<typeof run>[1] = {
     readCredentials: () => Promise.reject(new SyntaxError('Unexpected token: {"accessToken":"secret-access","refreshToken":"secret-refresh"} is invalid JSON')),
