@@ -71,7 +71,11 @@ unbound legacy record locally but cannot safely revoke it remotely; revoke that
 old connection from the dashboard if needed. Refresh preserves the binding.
 
 The browser flow uses an ephemeral `127.0.0.1` callback with a fresh PKCE
-challenge and state. The device flow prints its verification URI and user code
+challenge and state. Waiting for the browser callback expires after five minutes
+and closes the listener; start a new login if authorization was abandoned.
+Device polling rejects advertised intervals below one second or beyond supported
+timer bounds, defaults an omitted interval to five seconds, and honors slowdown.
+The device flow prints its verification URI and user code
 to stderr. Successful token values are never printed. Where the platform has a
 native credential service, the CLI stores credentials there. On POSIX systems,
 an unavailable service permits the owner-only file fallback. It requires an

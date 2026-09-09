@@ -1,5 +1,11 @@
 # Credential platform boundaries
 
+Browser awaitCode has a five-minute timeout, cancels its delay on every completion,
+and closes the real listener. On expiration it force-closes active connections
+after initiating server shutdown. Device intervals must be at least one second
+and fit the timer; missing intervals still default to five seconds. Wire and
+direct-exchange inputs share this bound; accepted fractional milliseconds round up.
+
 Token exchange validation rejects positive finite expires_in values whose absolute
 expiration cannot fit a JavaScript Date, before login/refresh consumers serialize
 the timestamp. The same predicate protects authorization-code, refresh and device

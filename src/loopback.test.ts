@@ -4,6 +4,20 @@ import test from "node:test";
 import { openLoopbackCallback } from "./loopback.js";
 
 const expectedIssuer = "https://example.test";
+
+void test("abandoned browser authorization expires and closes its real listener", async (context): Promise<void> => {
+  const callback = await openLoopbackCallback("matching-state", expectedIssuer);
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const code = callback.awaitCode();
+    const failure = assert.rejects(code, /timed out; run auth login again/u);
+    context.mock.timers.tick(300_000);
+    await failure;
+  } finally {
+    context.mock.timers.reset();
+  }
+  await assert.rejects(fetch(callback.redirectUri), /fetch failed/u);
+});
 [
   ["missing issuer", "code=code&state=matching-state"],
   ["wrong issuer", "code=code&state=matching-state&iss=https://other.test"],

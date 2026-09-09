@@ -45,7 +45,7 @@ const oauthMetadataPath = "/.well-known/oauth-authorization-server";
 const requiredMetadataKeys = ["authorization_endpoint", "token_endpoint"] as const;
 const maximumTimerMilliseconds = 2_147_483_647;
 const isDeviceInterval = (value: unknown): value is number => typeof value === "number"
-  && Number.isFinite(value) && value > 0 && Math.ceil(value * 1000) <= maximumTimerMilliseconds;
+  && Number.isFinite(value) && value >= 1 && Math.ceil(value * 1000) <= maximumTimerMilliseconds;
 
 const base64Url = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
 

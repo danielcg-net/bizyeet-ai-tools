@@ -192,7 +192,7 @@ void test("defaults an omitted device interval to five seconds and preserves exp
 });
 
 void test("rejects invalid explicit device intervals instead of applying the absent-value default", async () => {
-  await Promise.all([null, 0, -1, "5", true, Number.NaN, Number.POSITIVE_INFINITY, 3_000_000, 2_147_483.648].map(async (interval) => {
+  await Promise.all([null, 0, -1, 0.001, 0.5, 0.999, "5", true, Number.NaN, Number.POSITIVE_INFINITY, 3_000_000, 2_147_483.648].map(async (interval) => {
     await assert.rejects(requestDeviceAuthorization({
       clientId: "public-client",
       fetcher: () => jsonResponse({ device_code: "device-code", expires_in: 900, interval, user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" }),
@@ -208,7 +208,7 @@ void test("rejects timer-overflow inputs before polling and slow_down overflow b
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
   const fetcher = mock.fn(() => jsonResponse({ error: "slow_down" }));
   const sleep = mock.fn(() => Promise.reject(new Error("Unsafe timer must not be scheduled")));
-  await Promise.all([3_000_000, Number.POSITIVE_INFINITY, Number.NaN, 0].map(async (interval) => {
+  await Promise.all([3_000_000, Number.POSITIVE_INFINITY, Number.NaN, 0, 0.001, 0.5, 0.999].map(async (interval) => {
     await assert.rejects(exchangeDeviceCode({ clientId: "client", device: { ...device, interval }, metadata, resource: issuer, fetcher,
       dependencies: { now: () => 1000, sleep },
     }), /unsupported timing/u);
@@ -242,11 +242,11 @@ void test("rounds fractional millisecond intervals up rather than polling early"
     { access_token: "access", expires_in: 300, token_type: "Bearer" },
   ].values();
   const sleep = mock.fn((milliseconds: number) => {
-    assert.equal(milliseconds, 2);
+    assert.equal(milliseconds, 1001);
     return Promise.resolve();
   });
   await exchangeDeviceCode({ clientId: "client",
-    device: { deviceCode: "device", expiresIn: 2, interval: 0.0015, userCode: "CODE", verificationUri: "https://example.test/verify" },
+    device: { deviceCode: "device", expiresIn: 2, interval: 1.0005, userCode: "CODE", verificationUri: "https://example.test/verify" },
     metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" }, resource: issuer,
     fetcher: () => jsonResponse(responses.next().value ?? {}), dependencies: { now: () => 1000, sleep },
   });
