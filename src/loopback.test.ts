@@ -7,6 +7,18 @@ import { openLoopbackCallback } from "./loopback.js";
 
 const expectedIssuer = "https://example.test";
 
+["code=code&state=wrong", "error=access_denied&state=matching-state"].forEach((query): void => {
+  void test(`handles early callback rejection before awaiting the code: ${query}`, async (): Promise<void> => {
+    const callback = await openLoopbackCallback("matching-state", expectedIssuer);
+    const response = await fetch(`${callback.redirectUri}?${query}&iss=https://example.test`);
+    assert.equal(response.status, 400);
+    await response.text();
+    // The HTTP round trip gives Node an opportunity to report an unhandled rejection.
+    await assert.rejects(callback.awaitCode(), /denied|did not match/u);
+    await assert.rejects(fetch(callback.redirectUri), /fetch failed/u);
+  });
+});
+
 ["code=authorization-code", "error=access_denied", "code=code&state=wrong"].forEach((query): void => {
   void test(`bounds shutdown with incomplete extra headers after ${query}`, { timeout: 5000 }, async (): Promise<void> => {
     const callback = await openLoopbackCallback("matching-state", expectedIssuer);

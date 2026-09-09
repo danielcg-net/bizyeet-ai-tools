@@ -76,6 +76,9 @@ and closes the listener; start a new login if authorization was abandoned.
 Device polling rejects advertised intervals below one second or beyond supported
 timer bounds, defaults an omitted interval to five seconds, and honors slowdown.
 Device registration explicitly requests the device-code and refresh grants.
+Switching from a browser or legacy profile registers a device-capable client;
+later device logins reuse it only after a successful device exchange has been
+recorded in that same issuer's protected profile.
 Verification links must use HTTPS on the selected issuer origin, without
 credentials or fragments; unsafe links are rejected before being displayed.
 The device flow prints its verification URI and user code

@@ -58,6 +58,9 @@ export const openLoopbackCallback = async (state: string, issuer: string): Promi
         resolve({ code, server });
       });
     });
+    // Registration/browser startup may still be pending when the callback fails.
+    // Mark rejection as observed now; awaitCode still receives the original error.
+    void code.catch(() => undefined);
   });
   const address = result.server.address();
   if (!address || typeof address === "string") {

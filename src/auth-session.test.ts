@@ -50,6 +50,7 @@ void test("stores the device-flow result without exposing tokens through the ver
   });
 
   assert.equal(result.profile.clientId, "public-client");
+  assert.equal(result.profile.deviceGrantVerified, true);
   assert.equal(result.credentials.expiresAt, "1970-01-01T00:05:01.000Z");
   assert.equal(result.credentials.accessToken, "access-secret");
   assert.deepEqual(result.credentials.profile, result.profile);

@@ -1,5 +1,5 @@
 import { readBoundedJson as boundedResponse } from "./bounded-json.js";
-import { canonicalErrorCode } from "./agent-error.js";
+import { canonicalErrorCode, recordedFailureCode } from "./agent-error.js";
 
 export type CrmResource = "customers" | "leads";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
@@ -81,7 +81,7 @@ const statusData = (body: unknown, previewId: string): Readonly<Record<string, u
   }
   if (!record(outcome.error) || typeof outcome.status !== "number" || !Number.isInteger(outcome.status)
     || outcome.status < 400 || outcome.status > 599) return undefined;
-  const code = canonicalErrorCode(outcome.error.code);
+  const code = data.state === "ambiguous" ? canonicalErrorCode(outcome.error.code) : recordedFailureCode(outcome.error.code);
   if (data.state === "ambiguous" ? code !== "execution_ambiguous" || outcome.status !== 503
     : code === undefined || ["execution_ambiguous", "execution_in_progress"].includes(code)) return undefined;
   return projected({ status: outcome.status, error: { code } });

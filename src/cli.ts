@@ -219,7 +219,8 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
   try {
     const credentials = await dependencies.readCredentials(profileNameValue);
     const previousProfile = credentials[profileNameValue]?.profile;
-    const existingClientId = previousProfile?.issuer === issuer ? previousProfile.clientId : undefined;
+    const existingClientId = previousProfile?.issuer === issuer && previousProfile.deviceGrantVerified === true
+      ? previousProfile.clientId : undefined;
     const completed = args.includes("--device")
       ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });

@@ -75,6 +75,13 @@ await test("preserves an opaque audit UUID distinct from the preview", async () 
   assert.deepEqual(await client.customerUpdateStatus(query), { status: 200, body: { data, meta: metadata } });
 });
 
+await Promise.all(["request_unavailable", "invalid_response", "authorization_required", "execution_in_progress", "execution_ambiguous", "provider_unavailable"].map((code) =>
+  test(`rejects nonterminal or client-only code in a recorded failed outcome: ${code}`, async () => {
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken,
+      request: () => Promise.resolve(Response.json({ data: makeData({ state: "failed", outcome: { status: 503, error: { code } } }), meta: metadata })) });
+    assert.deepEqual(await client.customerUpdateStatus(query), { status: 502, body: { error: { code: "invalid_response" } } });
+  })));
+
 await Promise.all(["unsupported_operation", "idempotency_conflict", "preview_expired", "approval_required", "crm_operation_unsupported"].map((code) =>
   test(`preserves a canonical recorded failure ${code}`, async () => {
     const data = makeData({ state: "failed", outcome: { status: 409, error: { code } } });

@@ -1,5 +1,9 @@
 # Core
 
+- Reuse a saved client for device login only after a successful device exchange has set deviceGrantVerified=true in its protected same-issuer profile. Browser/legacy profiles need a new device-capable registration; this is evidence of a completed flow, not a substitute for server authorization.
+- Attach a rejection observer to the callback promise immediately when opening the listener, before registration/browser launch. Preserve the original rejected promise for awaitCode to report; do not turn denial into success.
+- Recorded failed outcomes use only server outcome codes, never local request_unavailable/invalid_response or pending/ambiguous codes. Preserve the separate ambiguous status contract and shared legacy-code normalization.
+
 - DCR sends explicit grant_types and response_types; device login includes the device-code grant. Validate both device verification URLs against the selected HTTPS issuer before displaying either.
 - Write previews must echo the requested resource ID. Status audit references are independently validated opaque UUIDs, not assumed equal to the preview ID. Share the safe error-code projection with direct requests, including the legacy unsupported-operation alias.
 

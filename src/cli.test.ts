@@ -217,6 +217,28 @@ void test("device login stores its result without printing any token", async ():
   assert.doesNotMatch(result.message, /access-secret|refresh-secret/u);
 });
 
+await Promise.all([
+  { issuer: "https://example.test" },
+  { issuer: "https://example.test", deviceGrantVerified: false },
+  { issuer: "https://example.test", deviceGrantVerified: true },
+  { issuer: "https://other.test", deviceGrantVerified: true },
+].map((previous) => test(`device login reuses only a proven same-issuer client: ${JSON.stringify(previous)}`, async () => {
+  const stored = { profile: { clientId: "previous-client", ...previous }, accessToken: "old-access",
+    expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "old-refresh", scope: "customers.read" };
+  const profile = { clientId: "device-client", issuer: "https://example.test", deviceGrantVerified: true };
+  const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected command"));
+  const result = await run(["auth", "login", "--device", "--issuer", "https://example.test"], {
+    readCredentials: () => Promise.resolve({ default: stored }), removeCredentials: forbidden,
+    saveCredentials: (_name, credentials) => { assert.deepEqual(credentials.profile, profile); return Promise.resolve(); },
+  }, { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden, revoke: forbidden,
+    loginDevice: (input) => {
+      assert.equal(input.clientId, previous.issuer === profile.issuer && previous.deviceGrantVerified === true ? "previous-client" : undefined);
+      return Promise.resolve({ credentials: { ...stored, profile }, profile });
+    },
+  });
+  assert.equal(result.exitCode, 0);
+})));
+
 void test("customer list preserves the agent response envelope and stores a rotated credential", async (): Promise<void> => {
   const result = await run(["customers", "list", "--limit", "10"], {
     readCredentials: () => Promise.resolve({ default: { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "old-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "old-refresh", scope: "customers.read" } }),

@@ -14,7 +14,7 @@ export type StoredCredentials = Readonly<{
   profile?: Profile;
 }>;
 
-export type Profile = Readonly<{ clientId: string; issuer: string }>;
+export type Profile = Readonly<{ clientId: string; issuer: string; deviceGrantVerified?: boolean }>;
 export type ProfileCollection = Readonly<Record<string, Profile>>;
 export type CredentialCollection = Readonly<Record<string, StoredCredentials>>;
 
@@ -44,7 +44,8 @@ const isMissing = (error: unknown): boolean =>
 const isProfile = (value: unknown): value is Profile =>
   typeof value === "object" && value !== null
   && typeof (value as Record<string, unknown>).clientId === "string"
-  && typeof (value as Record<string, unknown>).issuer === "string";
+  && typeof (value as Record<string, unknown>).issuer === "string"
+  && (!("deviceGrantVerified" in value) || typeof value.deviceGrantVerified === "boolean");
 
 /** Parses protected records, retaining legacy unbound entries only for replacement or local removal. */
 export const isCredentials = (value: unknown): value is StoredCredentials =>

@@ -16,6 +16,17 @@ const codes = new Set([
 export const canonicalErrorCode = (value: unknown): string | undefined =>
   value === "crm_operation_unsupported" ? "unsupported_operation"
     : typeof value === "string" && codes.has(value) ? value : undefined;
+
+const recordedFailureCodes = new Set([
+  "authentication_required", "authorization_denied", "invalid_request", "not_found", "conflict",
+  "idempotency_conflict", "preview_expired", "approval_required", "invalid_cursor", "rate_limited",
+  "internal_error", "unsupported_operation",
+]);
+/** Recorded server outcomes exclude client transport and response-validation failures. */
+export const recordedFailureCode = (value: unknown): string | undefined => {
+  const code = canonicalErrorCode(value);
+  return code !== undefined && recordedFailureCodes.has(code) ? code : undefined;
+};
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 

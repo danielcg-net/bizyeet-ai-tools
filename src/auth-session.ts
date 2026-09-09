@@ -54,9 +54,10 @@ export const loginWithDevice = async (input: Readonly<{
   const device = await requestDeviceAuthorization({ clientId, fetcher: dependencies.fetcher, metadata, resource: issuer, scope: input.scope });
   dependencies.onVerification(device);
   const tokens = await exchangeDeviceCode({ clientId, device, fetcher: dependencies.fetcher, metadata, resource: issuer });
+  const profile: Profile = { clientId, issuer: issuer.origin, deviceGrantVerified: true };
   return {
-    credentials: credentialsFrom(tokens, dependencies.now, { clientId, issuer: issuer.origin }),
-    profile: { clientId, issuer: issuer.origin },
+    credentials: credentialsFrom(tokens, dependencies.now, profile),
+    profile,
   };
 };
 
