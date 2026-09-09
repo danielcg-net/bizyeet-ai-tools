@@ -97,8 +97,13 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
   }
   const metadata = url.pathname === "/.well-known/oauth-authorization-server";
   const authorized = request.headers.authorization === "Bearer synthetic-access";
+  const statusQuery = url.pathname === "/api/agent/customers/update-status"
+    && request.method === "GET" && url.searchParams.size === 2
+    && url.searchParams.get("preview_id") === previewId && url.searchParams.get("idempotency_key") === executionKey;
   const body = metadata ? { issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, code_challenge_methods_supported: ["S256"] }
     : !authorized ? { error: { code: "authorization_required" } }
+    : statusQuery ? { data: { preview_id: previewId, state: "succeeded", retry_mutation: false, reconciliation_required: false,
+      outcome: { status: 200, data: { resource: { id: opaqueId, business: "Proposed" }, audit_reference: previewId } } }, meta: { contract_version: "v1" } }
     : url.pathname === "/api/agent/me" ? { tenant_id: "synthetic-tenant", client_id: "public-client", scope: ["customers.read"] }
     : url.pathname === "/api/agent/customers" ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
     : url.pathname === `/api/agent/customers/${encodeURIComponent(opaqueId)}` ? { data: { id: opaqueId }, meta: { contract_version: "v1" } }
@@ -132,14 +137,18 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const detail = await runInstalled(["customers", "get", "--profile", testProfile(directory), "--", opaqueId], directory, environment);
       const preview = await runInstalled(["customers", "update", "preview", "--input-stdin", "--profile", testProfile(directory), "--", opaqueId], directory, environment, JSON.stringify({ business: "Proposed" }));
       const execution = await runInstalled(["customers", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
+      const status = await runInstalled(["customers", "update", "status", previewId, "--idempotency-key", executionKey, "--profile", testProfile(directory)], directory, environment);
+      assert.match(status, /"state":"succeeded"/u);
+      assert.match(status, /"retry_mutation":false/u);
+      assert.match(status, /"business":"Proposed"/u);
       assert.match(check, /"verification":"server"/u);
       assert.match(check, /synthetic-tenant/u);
       assert.deepEqual(JSON.parse(nextPage), { data: { items: [], total: 1 }, meta: { contract_version: "v1", next_cursor: null } });
       assert.deepEqual(JSON.parse(detail), { data: { id: opaqueId }, meta: { contract_version: "v1" } });
       assert.match(preview, /"confirmation_class":"reversible_write"/u);
       assert.match(execution, /"business":"Proposed"/u);
-      assert.doesNotMatch(check + list + nextPage + detail + preview + execution, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
-      assert.equal(handler.mock.callCount(), 6);
+      assert.doesNotMatch(check + list + nextPage + detail + preview + execution + status, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
+      assert.equal(handler.mock.callCount(), 7);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);

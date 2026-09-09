@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { launchBrowser } from "./browser.js";
-import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore } from "./credential-store.js";
 import { validResourceId } from "./canonical-crm-client.js";
@@ -28,6 +28,7 @@ type CliStorage = Readonly<{
 type CliRuntime = Readonly<{
   previewCustomerUpdate?: (input: Omit<Parameters<typeof previewCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeCustomerUpdate?: (input: Omit<Parameters<typeof executeCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  customerUpdateStatus?: (input: Omit<Parameters<typeof customerUpdateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readChanges?: typeof readChanges;
   readApprovalReceipt?: typeof readApprovalReceipt;
   checkIdentity?: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
@@ -49,6 +50,7 @@ const runtime: CliRuntime = {
   readApprovalReceipt,
   previewCustomerUpdate: async (input) => previewCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeCustomerUpdate: async (input) => executeCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  customerUpdateStatus: async (input) => customerUpdateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
     const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -76,6 +78,7 @@ const helpMessage = [
   "       bizyeet customers get <opaque-id> [--profile <name>]",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
   "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet customers update status <preview-id> --idempotency-key <uuid> [--profile <name>]",
   "Preview reads a bounded JSON changes object from stdin; review its approval_path in your signed-in dashboard.",
   "Execution prompts for a hidden approval receipt. Harnesses use a private pipe with --receipt-stdin; never put receipts in commands, shell history or chat.",
   "Generate and retain one UUID idempotency key for this execution. Never replace it to recover an uncertain outcome.",
@@ -316,16 +319,16 @@ const customers = async (args: readonly string[], dependencies: CliStorage, exec
 
 const customerUpdate = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [mode, ...targetArgs] = args;
-  if (mode !== "preview" && mode !== "execute") return invalidInput("Use customers update preview or execute.");
-  const target = resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"], mode === "preview" ? ["--input-stdin"] : ["--receipt-stdin"]);
+  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput("Use customers update preview, execute, or status.");
+  const target = resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"], mode === "preview" ? ["--input-stdin"] : mode === "execute" ? ["--receipt-stdin"] : []);
   if (!target) return invalidInput("Unsupported update target or option. Receipts and changes must never be passed as argument values.");
   const { id, options } = target;
   if (options.filter((value) => value === "--input-stdin" || value === "--receipt-stdin").length > 1) return invalidInput("Use each input flag only once.");
   if (mode === "preview" && !options.includes("--input-stdin")) return invalidInput("Preview changes require piped JSON with --input-stdin.");
   try {
-    const key = mode === "execute" ? oneOption(options, "--idempotency-key") : "";
+    const key = mode !== "preview" ? oneOption(options, "--idempotency-key", "") : "";
     const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu;
-    if (mode === "execute" && (!uuid.test(id) || !uuid.test(key))) return invalidInput("Execution requires a preview UUID and --idempotency-key UUID.");
+    if (mode !== "preview" && (!uuid.test(id) || !uuid.test(key))) return invalidInput("Execution and status require a preview UUID and --idempotency-key UUID.");
     const selected = await authenticatedProfile(options, dependencies);
     if ("exitCode" in selected) return selected;
     const session = { credentials: selected.credentials, profile: selected.profile,
@@ -333,6 +336,10 @@ const customerUpdate = async (args: readonly string[], dependencies: CliStorage,
     if (mode === "preview") {
       if (!execution.readChanges || !execution.previewCustomerUpdate) throw new Error("Write runtime unavailable");
       return resourceOutput(await execution.previewCustomerUpdate({ ...session, proposal: { resource_id: id, changes: await execution.readChanges() } }));
+    }
+    if (mode === "status") {
+      if (!execution.customerUpdateStatus) throw new Error("Status runtime unavailable");
+      return resourceOutput(await execution.customerUpdateStatus({ ...session, query: { preview_id: id, idempotency_key: key } }));
     }
     if (!execution.readApprovalReceipt || !execution.executeCustomerUpdate) throw new Error("Write runtime unavailable");
     return resourceOutput(await execution.executeCustomerUpdate({ ...session, approval: { preview_id: id, idempotency_key: key,

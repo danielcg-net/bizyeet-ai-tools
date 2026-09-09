@@ -5,6 +5,16 @@ import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await Promise.all([0, 4096, 4097].map((length) => test(`validates returned cursor input compatibility at length ${String(length)}`, async () => {
+  const cursor = "x".repeat(length);
+  const page = { ...emptyPage, meta: { ...emptyPage.meta, next_cursor: cursor } };
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
+    request: () => Promise.resolve(Response.json(page)) });
+  const result = await client.list("customers");
+  assert.equal(result.status, length === 4096 ? 200 : 502);
+  if (length === 4096) assert.deepEqual(result.body, page);
+})));
+
 await test("caps actual streamed list, detail and error response bytes before parsing", async () => {
   await Promise.all(["list", "detail", "error"].map(async (kind) => {
     const cancel = mock.fn(() => undefined);

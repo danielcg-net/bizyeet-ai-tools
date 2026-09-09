@@ -164,6 +164,7 @@ Generate and retain one UUID execution key. Then run:
 
 ```sh
 bizyeet customers update execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet customers update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
 ```
 
 Paste the dashboard receipt into the hidden terminal prompt. It is not echoed,
@@ -178,6 +179,13 @@ expired credentials happens before dispatch. If the result is uncertain, verify
 the existing execution; do not create a new preview or idempotency key to repeat
 the change. An exact same-key request can only replay the server's recorded
 outcome or report an in-progress/uncertain state.
+
+`customers update status` is a read-only lookup using that original preview ID
+and execution key. It requires no receipt. A successful command means the lookup
+succeeded, not that the mutation did: inspect `data.state` and `data.outcome`.
+`pending` becomes `unknown` after five minutes without a recorded outcome;
+elapsed time is not proof of failure. Unknown or ambiguous outcomes require
+operator reconciliation. Status never releases a claim or retries a mutation.
 
 ## Planned surfaces
 

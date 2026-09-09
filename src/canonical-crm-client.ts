@@ -12,6 +12,7 @@ export type ListOptions = ReadOptions & Readonly<{
 export type CanonicalResult = Readonly<{ status: number; body: unknown }>;
 export type CustomerUpdatePreview = Readonly<{ resource_id: string; changes: Readonly<Record<string, string>> }>;
 export type CustomerUpdateExecution = Readonly<{ preview_id: string; approval_receipt: string; idempotency_key: string }>;
+export type CustomerUpdateStatusQuery = Readonly<{ preview_id: string; idempotency_key: string }>;
 export type ClientDependencies = Readonly<{
   origin: string;
   /** Obtain an OAuth access token bound to this resource origin; never an API key. */
@@ -24,6 +25,7 @@ export type CanonicalCrmClient = Readonly<{
   get: (resource: CrmResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
   previewCustomerUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
   executeCustomerUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  customerUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
 }>;
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -60,6 +62,29 @@ const resourceOrigin = (input: string): string => {
   }
   return url.origin;
 };
+const statusData = (body: unknown, previewId: string): Readonly<Record<string, unknown>> | undefined => {
+  if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return undefined;
+  const data = body.data;
+  if (data.preview_id !== previewId || data.retry_mutation !== false
+    || !["pending", "unknown", "succeeded", "failed", "ambiguous"].includes(String(data.state))
+    || data.reconciliation_required !== (data.state === "unknown" || data.state === "ambiguous")) return undefined;
+  const outcome = data.outcome;
+  const projected = (value: unknown): Readonly<Record<string, unknown>> => ({ preview_id: previewId,
+    state: data.state, retry_mutation: false, reconciliation_required: data.reconciliation_required, outcome: value });
+  if (data.state === "pending" || data.state === "unknown") return outcome === null ? projected(null) : undefined;
+  if (!record(outcome)) return undefined;
+  if (data.state === "succeeded") {
+    if (outcome.status !== 200 || !validWrite({ data: outcome.data, meta: body.meta }, false)
+      || !record(outcome.data) || outcome.data.audit_reference !== previewId) return undefined;
+    return projected({ status: 200, data: { resource: outcome.data.resource, audit_reference: previewId } });
+  }
+  if (!record(outcome.error) || typeof outcome.status !== "number" || !Number.isInteger(outcome.status)
+    || outcome.status < 400 || outcome.status > 599) return undefined;
+  const code = outcome.error.code;
+  if (data.state === "ambiguous" ? code !== "execution_ambiguous" || outcome.status !== 503
+    : !["authorization_denied", "conflict", "invalid_request", "not_found", "crm_operation_unsupported"].includes(String(code))) return undefined;
+  return projected({ status: outcome.status, error: { code } });
+};
 const query = (options: ListOptions): string => new URLSearchParams([
   ["api_version", "v1"],
   ...(options.page_size === undefined ? [] : [["limit", String(options.page_size)]]),
@@ -74,7 +99,8 @@ const validEnvelope = (body: unknown, list: boolean): boolean => {
   if (!list) return typeof body.data.id === "string";
   return Array.isArray(body.data.items) && body.data.items.every((item: unknown) => record(item) && typeof item.id === "string") &&
     Number.isSafeInteger(body.data.total) && typeof body.data.total === "number" && body.data.total >= 0 &&
-    (body.meta.next_cursor === null || typeof body.meta.next_cursor === "string");
+    (body.meta.next_cursor === null || (typeof body.meta.next_cursor === "string"
+      && body.meta.next_cursor.length > 0 && body.meta.next_cursor.length <= 4096));
 };
 
 /** Provider-neutral transport with a closed capability set; mutations are never automatically retried. */
@@ -146,10 +172,30 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return failure(503, preview ? "request_unavailable" : "execution_ambiguous");
     }
   };
+  const customerUpdateStatus = async (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => {
+    if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const queryString = new URLSearchParams({ preview_id: input.preview_id, idempotency_key: input.idempotency_key }).toString();
+      const response = await requestRead(`${origin}/api/agent/customers/update-status?${queryString}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return { status: response.status, body };
+      const data = statusData(body, input.preview_id);
+      if (!data) return failure(502, "invalid_response");
+      const metadata = record(body) && record(body.meta) ? body.meta : {};
+      return { status: response.status, body: { data,
+        meta: { contract_version: "v1", request_id: uuid(metadata.request_id) ? metadata.request_id : crypto.randomUUID() } } };
+    } catch { return failure(503, "request_unavailable"); }
+  };
   return Object.freeze({
     list: (resource: CrmResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
     get: (resource: CrmResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
     previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true),
     executeCustomerUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => write(input, false),
+    customerUpdateStatus,
   });
 };

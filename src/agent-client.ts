@@ -1,6 +1,6 @@
 import { refreshAccessToken, type FetchLike, type OAuthMetadata } from "./oauth.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 
@@ -161,3 +161,7 @@ export const previewCustomerUpdate = (input: WriteSession & Readonly<{ proposal:
 /** Preserve caller-owned idempotency identity and never automatically replay a mutation POST. */
 export const executeCustomerUpdate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
   invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeCustomerUpdate(input.approval) });
+
+/** Read the original execution outcome; no receipt, mutation or claim recovery is performed. */
+export const customerUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.customerUpdateStatus(input.query) });

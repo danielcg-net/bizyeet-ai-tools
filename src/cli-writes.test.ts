@@ -15,6 +15,29 @@ const runtime: NonNullable<Parameters<typeof run>[2]> = {
   getCustomer: unexpected, listCustomers: unexpected, loginBrowser: unexpected, loginDevice: unexpected, revoke: unexpected,
 };
 
+await test("status reads the original execution without receipt input or mutation", async () => {
+  const status = mock.fn((input: Parameters<NonNullable<typeof runtime.customerUpdateStatus>>[0]) => {
+    assert.deepEqual(input.query, { preview_id: id, idempotency_key: key });
+    return Promise.resolve({ credentials, response: { data: { state: "unknown", retry_mutation: false }, meta: { contract_version: "v1" } } });
+  });
+  const result = await run(["--json", "customers", "update", "status", id, "--idempotency-key", key], storage,
+    { ...runtime, customerUpdateStatus: status, readChanges: unexpected, readApprovalReceipt: unexpected,
+      previewCustomerUpdate: unexpected, executeCustomerUpdate: unexpected });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stream, "stdout");
+  assert.equal(status.mock.callCount(), 1);
+  assert.equal(JSON.stringify(result).includes("access-secret"), false);
+});
+
+await Promise.all([
+  [id], ["invalid", "--idempotency-key", key], [id, "--idempotency-key", "invalid"],
+  [id, "--idempotency-key", key, "--receipt-stdin"], [id, "--idempotency-key", key, "--input-stdin"],
+  [id, "--idempotency-key", key, "--idempotency-key", key],
+].map((args, index) => test(`status rejects malformed arguments before storage ${String(index)}`, async () => {
+  const result = await run(["customers", "update", "status", ...args], { ...storage, readCredentials: unexpected }, runtime);
+  assert.equal(result.exitCode, 2);
+})));
+
 await Promise.all(["--next-page", "--help", "--json", "--profile=other", "--next=a=b"].map((cursor) =>
   test(`list preserves an explicit literal cursor value ${cursor}`, async () => {
     const list = mock.fn((input: Parameters<typeof runtime.listCustomers>[0]) => {

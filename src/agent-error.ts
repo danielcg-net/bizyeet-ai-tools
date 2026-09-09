@@ -43,7 +43,7 @@ export const agentFailureExitCode = (failure: AgentFailure): number => {
 
 /** Emits local safe recovery copy; never repeats an upstream error payload. */
 export const agentFailureMessage = (failure: AgentFailure): string => {
-  if (["execution_ambiguous", "execution_in_progress"].includes(failure.code)) return "The write outcome requires verification. Do not retry with a new idempotency key or create a replacement write.";
+  if (["execution_ambiguous", "execution_in_progress"].includes(failure.code)) return "Read the outcome with customers update status using the original preview ID and idempotency key. Do not retry with a new idempotency key or create a replacement write.";
   if (agentFailureExitCode(failure) === 3) return "Run auth login to reconnect this profile.";
   if (failure.code === "invalid_cursor") return "Start a fresh list request without the expired or incompatible cursor.";
   if (failure.code === "authorization_denied") return "You do not have permission for this operation.";

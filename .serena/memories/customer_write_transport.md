@@ -5,7 +5,7 @@ not a 64-character hex digest. Keep fixture encoding aligned with this contract.
 The private cross-repository test uses real CLI processes, local OAuth and human
 browser approval over ephemeral HTTPS; fake HTTP responses alone missed this gap.
 
-The canonical client exposes only customer update preview and execute methods,
+The canonical client exposes customer update preview, execute and read-only status methods,
 using explicit OAuth agent endpoints. Provider policy and business field
 validation remain server-owned; never import private provider code here.
 
@@ -26,6 +26,12 @@ No receipt argv/environment/file-path flag. Restore terminal mode on completion
 and Ctrl+C, bound pipe bytes and timeout, and never reflect parser diagnostics.
 Installed package tests exercise piped preview/execute over trusted local HTTPS.
 Real terminal manual checks verify no echo and mode restoration on success/cancel.
+`customers update status` takes the original preview UUID and --idempotency-key,
+never a receipt or changes. It calls only GET /api/agent/customers/update-status.
+Pending/unknown reads have null outcome; terminal reads contain the projected
+original outcome. HTTP/CLI success means the lookup succeeded, not the mutation.
+Unknown and ambiguous require reconciliation; retry_mutation is always false.
+The five-minute pending presentation is not a reclaimable execution lease.
 Remaining: integrated real server/CLI browser proof, cross-platform new-head CI
 and review/release gates. Draft implementation is not a publication/deployment.
 # Read response bound
