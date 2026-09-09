@@ -35,6 +35,24 @@ security, test, and review checks.
 
 Use Node.js 24 or newer and run the commands in the README.
 
+`npm run check:docs` verifies tracked public Markdown's local file/image targets,
+JSON code fences and documented `npm run` script names. It is part of the full
+PR and release checks. Links are not fetched and documentation commands are never
+executed. External availability, fragment anchors, full JSON-schema validation
+and arbitrary CLI example behavior require separate review/contract tests.
+Checked shell examples must use literal package script names (quoted names are
+supported), without options before the name or environment-dependent names.
+Option-prefixed npm invocations are explicitly unsupported by the static checker,
+except standalone version/help flags; use direct commands in checked examples.
+Fence metadata after the language does not opt out of example validation.
+Only direct command positions are checked, not echoed examples or output.
+Console fences support a `$ ` prompt; wrappers, environment-prefix assignments,
+and other prompt formats need separate review rather than this static check.
+When a console fence uses that prompt, unprompted output is ignored. Literal
+heredoc delimiters are tracked so payload lines are not treated as commands;
+command checking resumes after the terminator. This does not evaluate shell
+expansions or command substitutions.
+
 ## Canonical business routing
 
 Tenant data consumers must use OAuth-authorized canonical agent endpoints or the
