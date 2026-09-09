@@ -281,7 +281,7 @@ void test("registers only a secretless public client with an exact loopback call
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
       });
-      return jsonResponse({ client_id: "registered-client", token_endpoint_auth_method: "none" });
+      return jsonResponse({ client_id: "registered-client", token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"] });
     },
     metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
     redirectUri: "http://127.0.0.1:43123/callback",
@@ -302,9 +302,42 @@ void test("requests the device grant explicitly during public registration", asy
       if (typeof request?.body !== "string") throw new Error("Expected registration JSON");
       assert.deepEqual(JSON.parse(request.body), { redirect_uris: ["http://127.0.0.1:43123/callback"],
         token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"], response_types: ["code"] });
-      return jsonResponse({ client_id: "device-client", token_endpoint_auth_method: "none" });
+      return jsonResponse({ client_id: "device-client", token_endpoint_auth_method: "none", grant_types: ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"], response_types: [] });
     } });
   assert.equal(registered.clientId, "device-client");
+});
+
+await Promise.all([false, true].flatMap((deviceGrant) => [
+  { grant_types: undefined }, { grant_types: null }, { grant_types: "refresh_token" },
+  { grant_types: [] }, { grant_types: [42, "refresh_token"] },
+  { grant_types: ["authorization_code"] },
+  { grant_types: ["refresh_token"] },
+  { grant_types: [deviceGrant ? "authorization_code" : "urn:ietf:params:oauth:grant-type:device_code", "refresh_token"] },
+  { token_endpoint_auth_method: undefined },
+  { client_secret: "must-not-appear-in-error" },
+  { response_types: null }, { response_types: "code" },
+].map((override, index) => test(`rejects insufficient registration metadata ${String(deviceGrant)}/${String(index)}`, async () => {
+  await assert.rejects(registerPublicClient({ deviceGrant, redirectUri: "http://127.0.0.1:43123/callback",
+    metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
+    fetcher: () => jsonResponse({ client_id: "client", token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"], ...override }),
+  }), { message: "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying." });
+}))));
+
+await Promise.all([false, true].map((deviceGrant) => test(`accepts a server-assigned grant superset for ${String(deviceGrant)}`, async () => {
+  assert.deepEqual(await registerPublicClient({ deviceGrant, redirectUri: "http://127.0.0.1:43123/callback",
+    metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
+    fetcher: () => jsonResponse({ client_id: "client", token_endpoint_auth_method: "none", response_types: ["code"],
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"] }),
+  }), { clientId: "client" });
+})));
+
+void test("rejects browser registration without a code response", async () => {
+  await assert.rejects(registerPublicClient({ redirectUri: "http://127.0.0.1:43123/callback",
+    metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
+    fetcher: () => jsonResponse({ client_id: "client", token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"], response_types: [] }),
+  }), /does not permit secretless login/u);
 });
 
 await Promise.all(["verification_uri", "verification_uri_complete"].flatMap((field) => [

@@ -4,7 +4,7 @@
 - Attach a rejection observer to the callback promise immediately when opening the listener, before registration/browser launch. Preserve the original rejected promise for awaitCode to report; do not turn denial into success.
 - Recorded failed outcomes use only server outcome codes, never local request_unavailable/invalid_response or pending/ambiguous codes. Preserve the separate ambiguous status contract and shared legacy-code normalization.
 
-- DCR sends explicit grant_types and response_types; device login includes the device-code grant. Validate both device verification URLs against the selected HTTPS issuer before displaying either.
+- DCR sends explicit grant_types and response_types; device login includes the device-code grant. Validate the returned selected-flow plus refresh grant and explicit secretless auth assignment before login. Browser requires code response (omission defaults to code); do not accept null metadata or returned client secrets. Deploy compatible BIZYEET-848 server metadata before releasing this strict check. Validate both device verification URLs against the selected HTTPS issuer before displaying either.
 - Write previews must echo the requested resource ID. Status audit references are independently validated opaque UUIDs, not assumed equal to the preview ID. Share the safe error-code projection with direct requests, including the legacy unsupported-operation alias.
 
 - Public repository for the OAuth-only BizYeet CLI and MCP integration.

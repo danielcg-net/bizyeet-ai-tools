@@ -76,6 +76,11 @@ and closes the listener; start a new login if authorization was abandoned.
 Device polling rejects advertised intervals below one second or beyond supported
 timer bounds, defaults an omitted interval to five seconds, and honors slowdown.
 Device registration explicitly requests the device-code and refresh grants.
+Registration must explicitly assign the selected login flow and refresh-token
+grant with secretless authentication. A missing or insufficient assignment stops
+login with an administrator-facing diagnostic; requested grants are not assumed
+to have been granted. Browser login also requires the code response type (the
+default when omitted).
 Switching from a browser or legacy profile registers a device-capable client;
 later device logins reuse it only after a successful device exchange has been
 recorded in that same issuer's protected profile.

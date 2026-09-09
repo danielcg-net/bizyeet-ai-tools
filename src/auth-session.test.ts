@@ -31,7 +31,7 @@ void test("stores the device-flow result without exposing tokens through the ver
       registration_endpoint: "https://example.test/register",
       token_endpoint: "https://example.test/token",
     });
-    yield response({ client_id: "public-client", token_endpoint_auth_method: "none" });
+    yield response({ client_id: "public-client", token_endpoint_auth_method: "none", grant_types: ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"] });
     yield response({ device_code: "device-secret", expires_in: 900, interval: 5, user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" });
     yield response({ access_token: "access-secret", expires_in: 300, refresh_token: "refresh-secret", scope: "customers.read", token_type: "Bearer" });
   })();
@@ -59,7 +59,7 @@ void test("stores the device-flow result without exposing tokens through the ver
 void test("uses a fresh PKCE browser authorization and exact callback code exchange", async (): Promise<void> => {
   const responseStream = (function* (): Generator<Promise<Response>, undefined, undefined> {
     yield response({ issuer: "https://example.test", authorization_endpoint: "https://example.test/authorize", code_challenge_methods_supported: ["S256"], registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" });
-    yield response({ client_id: "public-client", token_endpoint_auth_method: "none" });
+    yield response({ client_id: "public-client", token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"] });
     yield response({ access_token: "access-secret", expires_in: 300, refresh_token: "refresh-secret", scope: "customers.read", token_type: "Bearer" });
   })();
   const callback: LoopbackCallback = { awaitCode: (): Promise<string> => Promise.resolve("one-time-code"), close: (): Promise<void> => Promise.resolve(), redirectUri: "http://127.0.0.1:43123/callback" };
