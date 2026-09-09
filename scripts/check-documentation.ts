@@ -38,7 +38,7 @@ type ShellLineState = Readonly<{ quote: "single" | "double" | "none"; escaped: b
 // shell-quote ignores newlines and treats a comment as the rest of its input.
 // Separate physical command lines, but retain quoted newlines and join escaped
 // continuations. NUL is reserved for our boundaries and dynamic-value sentinel.
-const shellLines = (source: string): readonly string[] => {
+const shellLines = (source: string, bashExample: boolean): readonly string[] => {
   if (source.includes("\0")) throw new Error("NUL is not supported in shell examples.");
   const initial: ShellLineState = { quote: "none", escaped: false, comment: false, boundary: true, descriptorDigits: 0, text: "" };
   const completed = Array.from(source.replace(/\r\n/gu, "\n")).reduce<ShellLineState>((state, character) => {
@@ -58,7 +58,7 @@ const shellLines = (source: string): readonly string[] => {
     const redirectDescriptor = state.descriptorDigits > 0 && (character === ">" || character === "<");
     // shell-quote splits Bash &> / &>> into a background boundary and redirect.
     // Normalize only adjacent unquoted/unescaped syntax, never a literal '&' or &&.
-    const combinedOutput = character === ">" && state.boundary && state.text.endsWith("&") && !state.text.endsWith("&&");
+    const combinedOutput = bashExample && character === ">" && state.boundary && state.text.endsWith("&") && !state.text.endsWith("&&");
     const prefix = combinedOutput ? state.text.slice(0, -1)
       : redirectDescriptor ? state.text.slice(0, -state.descriptorDigits) : state.text;
     const literal = character === "#" && !state.boundary ? "\\#" : character;
@@ -99,12 +99,12 @@ const commandPosition = (words: readonly ShellWord[]): boolean => {
   return position.command && !position.target;
 };
 
-const scriptFindings = (file: string, source: string, scripts: ReadonlySet<string>, consoleExample: boolean): readonly DocumentationFinding[] => {
+const scriptFindings = (file: string, source: string, scripts: ReadonlySet<string>, consoleExample: boolean, bashExample: boolean): readonly DocumentationFinding[] => {
   if (!/\bnpm\b/u.test(source)) return [];
   try {
     // Preserve expansions as an impossible literal operand, never read the
     // process environment or allow an unset suffix to become a valid prefix.
-    return shellLines(source).flatMap((line): readonly DocumentationFinding[] => {
+    return shellLines(source, bashExample).flatMap((line): readonly DocumentationFinding[] => {
       const words = parseShell(consoleExample ? line.replace(/^\s*\$\s+/u, "") : line, () => "\0dynamic\0");
       return words.flatMap((word, index): readonly DocumentationFinding[] => {
         if (word !== "npm" || words[index + 1] !== "run" || !commandPosition(words.slice(0, index))) return [];
@@ -136,7 +136,7 @@ export const inspectDocumentation = (
     catch { return [{ file, reason: "JSON example is not valid JSON." }]; }
   }
   if (token.type === "code" && language !== undefined && !["sh", "bash", "shell", "console"].includes(language)) return [];
-  return scriptFindings(file, token.text, scripts, language === "console");
+  return scriptFindings(file, token.text, scripts, language === "console", language === "bash");
 });
 
 const publicMarkdown = (file: string): boolean => /^(?:[^/]+\.md|docs\/.*\.md)$/u.test(file);

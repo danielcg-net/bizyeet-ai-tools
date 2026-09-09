@@ -86,6 +86,18 @@ void test("recognizes Bash combined redirects without rewriting literal ampersan
   });
 });
 
+void test("limits combined-output redirect semantics to explicitly marked Bash fences", (): void => {
+  ["&>", "&>>"].forEach((operator): void => {
+    ["sh", "shell", "console", ""].forEach((language): void => {
+      assert.deepEqual(inspect(`\`\`\`${language}\nnpm run ${operator}output missing\n\`\`\``), [], `${language}: ${operator}`);
+    });
+    assert.deepEqual(inspect(`\`npm run ${operator}output missing\``), []);
+    ["bash", "BASH session"].forEach((language): void => {
+      assert.equal(inspect(`\`\`\`${language}\nnpm run ${operator}output missing\n\`\`\``).length, 1, language);
+    });
+  });
+});
+
 void test("preserves unquoted line boundaries, comments, quoting and escaped continuations", (): void => {
   const fence = (source: string): string => `\`\`\`sh\n${source}\n\`\`\``;
   ["npm run\nnpm run check", "npm run # list scripts\nnpm run check", "npm run\r\nnpm run check", "npm run \\\ncheck", 'npm run "che\\\nck"', "npm run >output\nnpm run check"].forEach((source): void => {
