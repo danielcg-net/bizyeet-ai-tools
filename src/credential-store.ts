@@ -48,7 +48,10 @@ const keychainOrFallback = async <T>(keychainOperation: () => Promise<T>, fallba
 export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallbackStore: FallbackStore = fallback, options: StoreOptions = {}): CredentialStore => ({
   read: async (profile = "default"): Promise<CredentialCollection> => {
     if (explicitlyUsesFile(options)) return fallbackStore.read();
-    const stored = await keychainOrFallback(() => keychain.read(profile), () => Promise.resolve(undefined));
+    const stored = await keychainOrFallback(() => keychain.read(profile), () => {
+      requireFileCredentialSupport(options.platform);
+      return Promise.resolve(undefined);
+    });
     return stored === undefined ? fallbackStore.read() : { [profile]: stored };
   },
   remove: async (profile): Promise<void> => {

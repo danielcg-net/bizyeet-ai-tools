@@ -61,7 +61,7 @@ await test("passes opaque customer and lead IDs without choosing a provider", as
   assert.equal(request.mock.calls[0]?.arguments[0], `https://tenant.example/api/agent/leads/${id}?api_version=v1&fields=business`);
 });
 
-await Promise.all(["", ".", "..", "../me", "customer/other", "customer\\other", "%2e%2e", "https://tenant.example", "customer?tenant_id=other", "customer#fragment", "a".repeat(513)].map((id) =>
+await Promise.all(["", ".", "..", ".%2E", "%2e", "id\n", "id\u007f", "../me", "customer/other", "customer\\other", "%2e%2e", "https://tenant.example", "customer?tenant_id=other", "customer#fragment", "a".repeat(513)].map((id) =>
   test(`rejects route-like or oversized resource ID ${id.slice(0, 40)} before reading credentials`, async () => {
     const request = mock.fn((): Promise<Response> => Promise.resolve(Response.json(emptyPage)));
     const getAccessToken = mock.fn(token);

@@ -29,7 +29,11 @@ export type CanonicalCrmClient = Readonly<{
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const validResource = (value: unknown): value is CrmResource => value === "customers" || value === "leads";
-const validResourceId = (value: unknown): value is string => typeof value === "string" && /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,512}$/u.test(value);
+/** Preserve opaque IDs while rejecting route substitutions and unbounded input. */
+export const validResourceId = (value: unknown): value is string => typeof value === "string"
+  && value.length >= 1 && value.length <= 512 && !/^(?:\.|%2e){1,2}$/iu.test(value)
+  && !/[/\\?#]/u.test(value)
+  && Array.from(value).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127);
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const uuid = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(value);
 const validWrite = (body: unknown, preview: boolean): boolean => {

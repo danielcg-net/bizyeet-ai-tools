@@ -99,6 +99,20 @@ void test("passes long opaque identifiers unchanged through the canonical transp
   assert.deepEqual(outcome.response, response);
 });
 
+void test("exact reads preserve opaque identifiers outside a token grammar", async (): Promise<void> => {
+  await Promise.all(["customer:123", "opaque~id", "name with space", "opaque%2Fid", "customer&name=one"].map(async (id): Promise<void> => {
+    const response = { data: { id }, meta: { contract_version: "v1" } };
+    const result = await getCustomer({ credentials: validCredentials, metadata, now: () => 1000, profile, resourceId: id,
+      persistCredentials: () => Promise.reject(new Error("Unexpected persistence")), fetcher: (url) => {
+        assert.equal(new URL(url).pathname, `/api/agent/customers/${encodeURIComponent(id)}`);
+        assert.equal(new URL(url).search, "?api_version=v1");
+        return Promise.resolve(Response.json(response));
+      },
+    });
+    assert.deepEqual(result.response, response);
+  }));
+});
+
 void test("does not turn provider failures, stale cursors or invalid envelopes into empty success", async (): Promise<void> => {
   await Promise.all([
     { status: 503, body: { error: { code: "provider_unavailable" } }, expected: { code: "provider_unavailable" } },

@@ -194,16 +194,27 @@ const oneOption = (args: readonly string[], option: string, fallback?: string): 
   return values[0] ?? fallback ?? "";
 };
 
-const login = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime, onVerification: (device: DeviceAuthorization) => void): Promise<CliResult> => {
-  if (!hasOnlyOptions(args, ["--issuer", "--profile", "--scope"], ["--device"])) return invalidInput("auth login accepts --device, --issuer, --profile, and --scope only.");
+const loginOptions = (args: readonly string[]): Readonly<{ name: string; issuer: string; scope: string }> | CliResult => {
   try {
-    const profileNameValue = profileFrom(args);
+    const name = profileFrom(args);
     const issuer = oneOption(args, "--issuer");
     const scope = oneOption(args, "--scope", "customers.read");
     if (!issuer) return invalidInput("auth login requires --issuer.");
+    return { name, issuer: issuerOrigin(issuer).origin, scope };
+  } catch (error) {
+    return invalidInput(safeLocalMessage(error, "Use a valid HTTPS issuer origin and login options."));
+  }
+};
+
+const login = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime, onVerification: (device: DeviceAuthorization) => void): Promise<CliResult> => {
+  if (!hasOnlyOptions(args, ["--issuer", "--profile", "--scope"], ["--device"])) return invalidInput("auth login accepts --device, --issuer, --profile, and --scope only.");
+  const parsed = loginOptions(args);
+  if ("exitCode" in parsed) return parsed;
+  const { name: profileNameValue, issuer, scope } = parsed;
+  try {
     const credentials = await dependencies.readCredentials(profileNameValue);
     const previousProfile = credentials[profileNameValue]?.profile;
-    const existingClientId = previousProfile?.issuer === issuerOrigin(issuer).origin ? previousProfile.clientId : undefined;
+    const existingClientId = previousProfile?.issuer === issuer ? previousProfile.clientId : undefined;
     const completed = args.includes("--device")
       ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });

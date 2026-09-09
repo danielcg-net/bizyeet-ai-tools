@@ -162,6 +162,27 @@ void test("rejects option flags used as OAuth option values before starting a lo
   assert.match(result.message, /invalid_request/u);
 });
 
+void test("malformed login options are invalid input before storage or OAuth", async (context): Promise<void> => {
+  const forbidden = context.mock.fn((): Promise<never> => Promise.reject(new Error("No side effects expected")));
+  await Promise.all([
+    ["--issuer", "not-a-url"],
+    ["--issuer", "https://secret@example.test"],
+    ["--issuer", "https://example.test/path"],
+    ["--issuer", "https://example.test", "--profile", "../secret"],
+    ["--issuer", "https://example.test", "--issuer", "https://other.test"],
+    ["--issuer", "https://example.test", "--scope", "a", "--scope", "b"],
+  ].flatMap((options) => [options, [...options, "--device"]]).map(async (options): Promise<void> => {
+    const result = await run(["auth", "login", ...options],
+      { readCredentials: forbidden, saveCredentials: forbidden, removeCredentials: forbidden },
+      { loginBrowser: forbidden, loginDevice: forbidden, getCustomer: forbidden, listCustomers: forbidden, revoke: forbidden });
+    assert.equal(result.exitCode, 2);
+    assert.equal(result.stream, "stderr");
+    assert.match(result.message, /invalid_request/u);
+    assert.doesNotMatch(result.message, /secret/u);
+  }));
+  assert.equal(forbidden.mock.callCount(), 0);
+});
+
 void test("rejects customer-list option flags used as option values before making a request", async (): Promise<void> => {
   const result = await run(["customers", "list", "--limit", "--profile"]);
 

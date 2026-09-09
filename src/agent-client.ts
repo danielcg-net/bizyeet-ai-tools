@@ -1,6 +1,6 @@
 import { refreshAccessToken, type FetchLike, type OAuthMetadata } from "./oauth.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 
@@ -15,7 +15,6 @@ export type AgentResult = Readonly<{ credentials: StoredCredentials; response: u
 export type PersistCredentials = (credentials: StoredCredentials) => Promise<void>;
 type MetadataSource = OAuthMetadata | (() => Promise<OAuthMetadata>);
 
-const customerIdPattern = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,512}$/u;
 const fieldPattern = /^[a-z][a-z0-9_]{0,63}$/u;
 
 const boundedOptions = (options: CustomerListOptions): ListOptions => {
@@ -142,7 +141,7 @@ export const getCustomer = async (input: Readonly<{
   profile: Profile;
   resourceId: string;
 }>): Promise<AgentResult> => {
-  if (!customerIdPattern.test(input.resourceId)) throw new Error("Customer ID is invalid.");
+  if (!validResourceId(input.resourceId)) throw new Error("Customer ID is invalid.");
   return invoke({ ...input, operation: (client) => client.get("customers", input.resourceId) });
 };
 
