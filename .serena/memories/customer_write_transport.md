@@ -8,6 +8,9 @@ browser approval over ephemeral HTTPS; fake HTTP responses alone missed this gap
 The canonical client exposes customer update preview, execute and read-only status methods,
 using explicit OAuth agent endpoints. Provider policy and business field
 validation remain server-owned; never import private provider code here.
+List/detail and preview/execute/status all explicitly send api_version=v1 in
+the URL query. The server rejects unsupported versions before business dispatch;
+do not confuse a response schema version with request version negotiation.
 
 Input JSON is bounded to 16 KiB and successful/error write responses to 32 KiB.
 Execution retains the supplied preview, receipt and idempotency key. No mutation

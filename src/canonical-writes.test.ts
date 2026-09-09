@@ -14,7 +14,7 @@ const token = (): Promise<string> => Promise.resolve("oauth-access");
 
 await test("preview uses one canonical POST and projects only documented response fields", async () => {
   const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
-    assert.equal(url, "https://tenant.example/api/agent/customers/update-preview");
+    assert.equal(url, "https://tenant.example/api/agent/customers/update-preview?api_version=v1");
     assert.equal(init.method, "POST");
     assert.equal(init.redirect, "error");
     assert.equal(init.body, JSON.stringify(proposal));
@@ -29,7 +29,7 @@ await test("preview uses one canonical POST and projects only documented respons
 await test("execution preserves exact receipt and idempotency key without reflecting receipt", async () => {
   const data = { resource: { id: resourceId, business: "Updated" }, audit_reference: id };
   const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
-    assert.equal(url, "https://tenant.example/api/agent/customers/update-execute");
+    assert.equal(url, "https://tenant.example/api/agent/customers/update-execute?api_version=v1");
     assert.equal(init.body, JSON.stringify(approval));
     return Promise.resolve(Response.json(envelope({ ...data, approval_receipt: approval.approval_receipt })));
   });

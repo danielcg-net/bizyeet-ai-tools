@@ -154,7 +154,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/.test(token)) return failure(401, "authorization_required");
-      const response = await request(`${origin}/api/agent/customers/${preview ? "update-preview" : "update-execute"}`, {
+      const response = await request(`${origin}/api/agent/customers/${preview ? "update-preview" : "update-execute"}?api_version=v1`, {
         method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
         body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
       });
@@ -177,7 +177,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
-      const queryString = new URLSearchParams({ preview_id: input.preview_id, idempotency_key: input.idempotency_key }).toString();
+      const queryString = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key }).toString();
       const response = await requestRead(`${origin}/api/agent/customers/update-status?${queryString}`, {
         method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         redirect: "error", signal: AbortSignal.timeout(15_000),

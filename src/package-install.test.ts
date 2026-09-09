@@ -75,6 +75,7 @@ const executionKey = "22222222-2222-4222-8222-222222222222";
 const receipt = "r".repeat(43);
 const serveSyntheticWrite = async (request: IncomingMessage, response: ServerResponse, preview: boolean): Promise<void> => {
   assert.equal(request.method, "POST");
+  assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
   assert.equal(request.headers.authorization, "Bearer synthetic-access");
   const input: unknown = JSON.parse(await text(request));
   assert.deepEqual(input, preview ? { resource_id: opaqueId, changes: { business: "Proposed" } }
@@ -98,7 +99,7 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
   const metadata = url.pathname === "/.well-known/oauth-authorization-server";
   const authorized = request.headers.authorization === "Bearer synthetic-access";
   const statusQuery = url.pathname === "/api/agent/customers/update-status"
-    && request.method === "GET" && url.searchParams.size === 2
+    && request.method === "GET" && url.searchParams.size === 3 && url.searchParams.get("api_version") === "v1"
     && url.searchParams.get("preview_id") === previewId && url.searchParams.get("idempotency_key") === executionKey;
   const body = metadata ? { issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, code_challenge_methods_supported: ["S256"] }
     : !authorized ? { error: { code: "authorization_required" } }

@@ -20,7 +20,7 @@ await Promise.all([
     const target = new URL(url);
     assert.equal(target.origin, "https://tenant.example");
     assert.equal(target.pathname, "/api/agent/customers/update-status");
-    assert.deepEqual(Object.fromEntries(target.searchParams), query);
+    assert.deepEqual(Object.fromEntries(target.searchParams), { api_version: "v1", ...query });
     assert.equal(init.method, "GET");
     assert.equal(init.body, undefined);
     assert.equal(init.redirect, "error");
