@@ -139,6 +139,9 @@ For an ID beginning with an option-like prefix, put options before `--` and the
 single literal ID after it: `bizyeet customers get --profile default -- --opaque-id`.
 The same separator works for update previews; put `--input-stdin` before `--`.
 Anything after the separator is an ID, not a help, JSON, or profile option.
+For an opaque cursor beginning with `--`, use `--cursor=<value>`, for example
+`bizyeet customers list --cursor=--next-page`. The equals form preserves the
+entire value, including additional equals signs, without treating it as a flag.
 
 ## Preview and approve a customer update
 

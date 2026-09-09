@@ -15,6 +15,29 @@ const runtime: NonNullable<Parameters<typeof run>[2]> = {
   getCustomer: unexpected, listCustomers: unexpected, loginBrowser: unexpected, loginDevice: unexpected, revoke: unexpected,
 };
 
+await Promise.all(["--next-page", "--help", "--json", "--profile=other", "--next=a=b"].map((cursor) =>
+  test(`list preserves an explicit literal cursor value ${cursor}`, async () => {
+    const list = mock.fn((input: Parameters<typeof runtime.listCustomers>[0]) => {
+      assert.equal(input.options.cursor, cursor);
+      assert.equal(input.profile.clientId, "client");
+      assert.equal(input.options.limit, 10);
+      return Promise.resolve({ credentials, response: { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } } });
+    });
+    const result = await run(["--json", "customers", "list", "--profile=default", "--limit=10", `--cursor=${cursor}`], storage,
+      { ...runtime, listCustomers: list });
+    assert.equal(result.exitCode, 0);
+    assert.equal(list.mock.callCount(), 1);
+  })));
+
+await Promise.all([
+  ["--cursor="], ["--cursor=one", "--cursor", "two"], ["--cursor", "one", "--cursor=two"],
+  ["--cursor=one", "--cursor=two"], ["--cursor", "--limit", "1"],
+  ["--profile=default", "--profile", "default"], ["--unknown=value"],
+].map((options, index) => test(`rejects malformed literal value options ${String(index)} before storage`, async () => {
+  const result = await run(["customers", "list", ...options], { ...storage, readCredentials: unexpected }, runtime);
+  assert.equal(result.exitCode, 2);
+})));
+
 await Promise.all(["customer:123", "opaque~id", "--customer", "--profile", "--help", "-h", "--json", "--"].map((target) =>
   test(`get and preview preserve separated opaque target ${target}`, async () => {
     const readCredentials = mock.fn((profile?: string) => {

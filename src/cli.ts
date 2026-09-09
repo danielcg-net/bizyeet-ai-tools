@@ -136,7 +136,8 @@ const safeLocalMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && safeValidationMessages.has(error.message) ? error.message : fallback;
 
 const valuesFor = (args: readonly string[], option: string): readonly string[] =>
-  args.flatMap((argument, index) => argument === option ? [args[index + 1] ?? ""] : []);
+  args.flatMap((argument, index) => argument === option ? [args[index + 1] ?? ""]
+    : argument.startsWith(`${option}=`) ? [argument.slice(option.length + 1)] : []);
 
 const profileFrom = (args: readonly string[]): string => {
   const profiles = valuesFor(args, "--profile");
@@ -148,7 +149,7 @@ const hasOnlyOptions = (args: readonly string[], valueOptions: readonly string[]
   args.every((argument, index) =>
     valueOptions.includes(args[index - 1] ?? "")
       ? !argument.startsWith("--")
-      : valueOptions.includes(argument) || flagOptions.includes(argument),
+      : valueOptions.includes(argument) || valueOptions.some((option) => argument.startsWith(`${option}=`)) || flagOptions.includes(argument),
   );
 
 const status = async (args: readonly string[], dependencies: CliStorage): Promise<CliResult> => {

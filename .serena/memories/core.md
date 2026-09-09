@@ -3,6 +3,7 @@
 - Public repository for the OAuth-only BizYeet CLI and MCP integration.
 - No tenant records, credentials, operational URLs, private implementation, or customer context may enter Git history.
 - The public CLI is fail-closed until an explicitly scoped operation is implemented.
+- Value options accept --option=value for literal option-shaped values (especially --cursor=--next-page). Preserve everything after the first equals, reject mixed-form duplicates/empty values, and never interpret embedded help/JSON flags.
 - Customer get/update share target parsing and opaque-ID validation. Options precede `--`; exactly one literal ID follows. Global help/JSON and profile selection must never consume IDs after the separator. Execute still requires preview and idempotency UUIDs.
 - Validate login options before credential access or OAuth; malformed options use invalid_request/exit2, while actual login/storage failures use authentication_required/exit3. An unavailable Windows keychain fails before authorization; an available empty keychain still permits first login.
 - Opaque resource IDs use the shared canonical transport validator: bounded1–512, no route separators/query/fragment/control characters or dot segments, but no base64url-like token grammar. Always encode the single URL segment once.

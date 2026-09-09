@@ -69,7 +69,7 @@ const credentialConfig = async (directory: string, issuer = "https://example.tes
 };
 
 const opaqueId = "--synthetic:customer~id";
-const opaqueCursor = "next:page/2?query=a+b&filter=active#offset";
+const opaqueCursor = "--next:page/2?query=a+b&filter=active#offset";
 const previewId = "11111111-1111-4111-8111-111111111111";
 const executionKey = "22222222-2222-4222-8222-222222222222";
 const receipt = "r".repeat(43);
@@ -128,7 +128,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const list = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--profile", testProfile(directory)], directory, environment);
       const listed: unknown = JSON.parse(list);
       assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
-      const nextPage = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--cursor", opaqueCursor, "--profile", testProfile(directory)], directory, environment);
+      const nextPage = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", `--cursor=${opaqueCursor}`, "--profile", testProfile(directory)], directory, environment);
       const detail = await runInstalled(["customers", "get", "--profile", testProfile(directory), "--", opaqueId], directory, environment);
       const preview = await runInstalled(["customers", "update", "preview", "--input-stdin", "--profile", testProfile(directory), "--", opaqueId], directory, environment, JSON.stringify({ business: "Proposed" }));
       const execution = await runInstalled(["customers", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
