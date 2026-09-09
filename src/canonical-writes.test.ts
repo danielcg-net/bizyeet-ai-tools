@@ -12,6 +12,24 @@ const preview = { preview_id: id, request_hash: "b".repeat(41) + "-_", expires_a
 const envelope = (data: unknown): Readonly<Record<string, unknown>> => ({ data, meta: { contract_version: "v1", request_id: "req_write_abc" } });
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await Promise.all([6, 7, 8].map((version) => test(`write transport preserves UUIDv${String(version)} identifiers`, async () => {
+  const uuid = `abcdefab-1234-${String(version)}abc-8def-abcdefabcdef`;
+  const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
+    if (url.includes("update-preview")) return Promise.resolve(Response.json(envelope({ ...preview, preview_id: uuid, approval_path: `/dashboard/#/agent-approvals/${uuid}` })));
+    if (url.includes("update-status")) {
+      assert.equal(new URL(url).searchParams.get("idempotency_key"), uuid);
+      return Promise.resolve(Response.json(envelope({ preview_id: uuid, state: "pending", retry_mutation: false, reconciliation_required: false, outcome: null })));
+    }
+    assert.equal(init.body, JSON.stringify({ ...approval, preview_id: uuid, idempotency_key: uuid }));
+    return Promise.resolve(Response.json(envelope({ resource: { id: resourceId }, audit_reference: uuid })));
+  });
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  assert.equal((await client.previewCustomerUpdate(proposal)).status, 200);
+  assert.equal((await client.executeCustomerUpdate({ ...approval, preview_id: uuid, idempotency_key: uuid })).status, 200);
+  assert.equal((await client.customerUpdateStatus({ preview_id: uuid, idempotency_key: uuid })).status, 200);
+  assert.equal(request.mock.callCount(), 3);
+})));
+
 await Promise.all([
   { value: "2099-01-01T00:00:00Z", valid: true },
   { value: "2099-01-01T00:00:00.123456Z", valid: true },

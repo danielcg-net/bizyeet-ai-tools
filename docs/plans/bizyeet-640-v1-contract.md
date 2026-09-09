@@ -122,6 +122,11 @@ does not mutate business state or send external communication.
 - a UUID idempotency key; and
 - an unchanged authorization decision at execution time.
 
+UUID identifiers accept the assigned RFC 9562 variant versions 1–8, including
+UUIDv7, with either hexadecimal case. Nil, Max, reserved versions and malformed
+values are not operation identifiers. Server-generated previews and audit IDs
+remain cryptographically random UUIDv4; accepting a UUID never grants authority.
+
 The server stores the idempotency outcome per tenant, subject, capability, and
 key. Replays return the original outcome; a reused key with a different request
 returns `idempotency_conflict`. Financial mutations, lifecycle transitions, and
