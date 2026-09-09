@@ -15,7 +15,8 @@
     "test": "npm run build && node --test dist/src/*.test.js dist/scripts/*.test.js dist/.github/scripts/validate-youtrack-delivery-policy.test.js",
     "lint": "eslint .",
     "check:workflows": "npm run build && node dist/scripts/check-workflow-security.js",
-    "check": "npm run typecheck && npm run lint && npm run test && npm run check:workflows && npm run check:routing",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run check:workflows && npm run check:routing && npm run check:docs",
+    "check:docs": "npm run build && node dist/scripts/check-documentation.js",
     "check:routing": "npm run build && node dist/scripts/check-canonical-routing.js"
   },
   "bin": {

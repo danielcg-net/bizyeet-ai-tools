@@ -32,6 +32,12 @@ security, test, and review checks.
 
 Use Node.js 24 or newer and run the commands in the README.
 
+`npm run check:docs` verifies tracked public Markdown's local file/image targets,
+JSON code fences and documented `npm run` script names. It is part of the full
+PR and release checks. Links are not fetched and documentation commands are never
+executed. External availability, fragment anchors, full JSON-schema validation
+and arbitrary CLI example behavior require separate review/contract tests.
+
 ## Canonical business routing
 
 Tenant data consumers must use OAuth-authorized canonical agent endpoints or the
