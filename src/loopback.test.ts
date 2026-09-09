@@ -7,6 +7,21 @@ import { openLoopbackCallback } from "./loopback.js";
 
 const expectedIssuer = "https://example.test";
 
+void test("malformed HTTP request targets fail without an uncaught URL exception", { timeout: 5000 }, async (): Promise<void> => {
+  const callback = await openLoopbackCallback("matching-state", expectedIssuer);
+  const socket = connect(Number(new URL(callback.redirectUri).port), "127.0.0.1");
+  try {
+    await once(socket, "connect");
+    const received = once(socket, "data");
+    socket.write("GET //[ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    const data: unknown = (await received)[0];
+    assert.ok(Buffer.isBuffer(data));
+    assert.match(data.toString("utf8"), /^HTTP\/1.1 400/u);
+    await assert.rejects(callback.awaitCode(), /did not match/u);
+    await assert.rejects(fetch(callback.redirectUri), /fetch failed/u);
+  } finally { socket.destroy(); }
+});
+
 ["code=code&state=wrong", "error=access_denied&state=matching-state"].forEach((query): void => {
   void test(`handles early callback rejection before awaiting the code: ${query}`, async (): Promise<void> => {
     const callback = await openLoopbackCallback("matching-state", expectedIssuer);

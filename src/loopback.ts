@@ -30,12 +30,23 @@ const callbackResponse = (status: number, body: string): Readonly<{ body: string
   status,
 });
 
+const parseCallbackTarget = (target: string): URL | undefined => {
+  try { return new URL(target, "http://127.0.0.1"); }
+  catch { return undefined; }
+};
+
 /** Opens one IPv4 loopback callback listener and resolves only a matching OAuth authorization response. */
 export const openLoopbackCallback = async (state: string, issuer: string): Promise<LoopbackCallback> => {
   const result = await new Promise<Readonly<{ code: Promise<string>; server: Server }>>((resolve, reject) => {
     const code = new Promise<string>((resolveCode, rejectCode) => {
       const server = createServer((request, response) => {
-        const url = new URL(request.url ?? "/", "http://127.0.0.1");
+        const url = parseCallbackTarget(request.url ?? "/");
+        if (!url) {
+          const outcome = callbackResponse(400, "<p>BizYeet authorization could not be completed. Return to the CLI.</p>");
+          response.writeHead(outcome.status, outcome.headers).end(outcome.body);
+          rejectCode(new Error("OAuth authorization callback did not match this login."));
+          return;
+        }
         const authorizationCode = url.searchParams.get("code");
         const callbackState = url.searchParams.get("state");
         const error = url.searchParams.get("error");
