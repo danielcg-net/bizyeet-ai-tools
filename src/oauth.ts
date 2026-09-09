@@ -29,7 +29,7 @@ export type DeviceAuthorization = Readonly<{
 type DeviceAuthorizationResponse = Readonly<{
   device_code: string;
   expires_in: number;
-  interval: number;
+  interval?: number;
   user_code: string;
   verification_uri: string;
   verification_uri_complete?: string;
@@ -109,9 +109,9 @@ const isDeviceAuthorization = (value: unknown): value is DeviceAuthorizationResp
     && typeof candidate.expires_in === "number"
     && Number.isFinite(candidate.expires_in)
     && candidate.expires_in > 0
-    && typeof candidate.interval === "number"
-    && Number.isFinite(candidate.interval)
-    && candidate.interval > 0
+    && (candidate.interval === undefined || (typeof candidate.interval === "number"
+      && Number.isFinite(candidate.interval)
+      && candidate.interval > 0))
     && (candidate.verification_uri_complete === undefined || typeof candidate.verification_uri_complete === "string");
 };
 
@@ -249,7 +249,7 @@ export const requestDeviceAuthorization = async (input: Readonly<{
   return {
     deviceCode: body.device_code,
     expiresIn: body.expires_in,
-    interval: body.interval,
+    interval: body.interval ?? 5,
     userCode: body.user_code,
     verificationUri: body.verification_uri,
     ...(body.verification_uri_complete ? { verificationUriComplete: body.verification_uri_complete } : {}),

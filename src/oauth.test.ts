@@ -111,6 +111,31 @@ void test("binds device authorization to the OAuth resource", async (): Promise<
   assert.equal(device.userCode, "ABCD-EFGH");
 });
 
+void test("defaults an omitted device interval to five seconds and preserves explicit positive intervals", async () => {
+  await Promise.all([undefined, 1, 10].map(async (interval) => {
+    const device = await requestDeviceAuthorization({
+      clientId: "public-client",
+      fetcher: () => jsonResponse({ device_code: "device-code", expires_in: 900, interval, user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" }),
+      metadata: { authorization_endpoint: "https://example.test/authorize", device_authorization_endpoint: "https://example.test/device", token_endpoint: "https://example.test/token" },
+      resource: issuer,
+      scope: "customers.read",
+    });
+    assert.equal(device.interval, interval ?? 5);
+  }));
+});
+
+void test("rejects invalid explicit device intervals instead of applying the absent-value default", async () => {
+  await Promise.all([null, 0, -1, "5", true, Number.NaN, Number.POSITIVE_INFINITY].map(async (interval) => {
+    await assert.rejects(requestDeviceAuthorization({
+      clientId: "public-client",
+      fetcher: () => jsonResponse({ device_code: "device-code", expires_in: 900, interval, user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" }),
+      metadata: { authorization_endpoint: "https://example.test/authorize", device_authorization_endpoint: "https://example.test/device", token_endpoint: "https://example.test/token" },
+      resource: issuer,
+      scope: "customers.read",
+    }), /OAuth device authorization could not be started/u);
+  }));
+});
+
 void test("honors slow_down before retrying a device token exchange", async (): Promise<void> => {
   const responseStream = (function* (): Generator<Promise<Response>, undefined, undefined> {
     yield jsonResponse({ error: "slow_down" });
