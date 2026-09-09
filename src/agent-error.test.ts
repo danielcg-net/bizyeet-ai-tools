@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { agentFailure, agentFailureExitCode, agentFailureMessage, correlationReference } from "./agent-error.js";
 
-await Promise.all(["req_abc", "opaque:request-1", "x".repeat(128)].map((id) => test(`preserves opaque correlation ${id.slice(0, 20)}`, () => {
+await Promise.all(["req_abc", "opaque:request-1", "x".repeat(128), "référence:😀"].map((id) => test(`preserves opaque correlation ${id.slice(0, 20)}`, () => {
   assert.equal(agentFailure(400, { error: { code: "invalid_request", request_id: id } }).requestId, id);
 })));
-await Promise.all([undefined, null, 3, "", "x".repeat(129), "Bearer secret", "id\n", "id\u007f"].map((id, index) => test(`replaces unsafe correlation case ${String(index)}`, () => {
+await Promise.all([undefined, null, 3, "", "x".repeat(129), "Bearer secret", "id\n", "id\u007f", "id\u009b", "id\u0085", "id\u00a0", "id\u2028", "id\u2029", "id\u202e", "id\u200b", "id\ud800"].map((id, index) => test(`replaces unsafe correlation case ${String(index)}`, () => {
   assert.match(correlationReference(id), /^[a-f0-9-]{36}$/u);
 })));
 

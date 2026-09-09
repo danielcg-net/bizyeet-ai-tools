@@ -50,7 +50,8 @@ const validWrite = (body: unknown, preview: boolean): boolean => {
   const data = body.data;
   if (!preview) return uuid(data.audit_reference) && record(data.resource) && validResourceId(data.resource.id)
     && Object.keys(data.resource).every((key) => ["id", "business", "company", "contact_name", "updated_at"].includes(key))
-    && Object.values(data.resource).every((value) => value === null || typeof value === "string");
+    && Object.values(data.resource).every((value) => value === null || typeof value === "string")
+    && (data.resource.updated_at == null || utcTimestamp(data.resource.updated_at));
   return uuid(data.preview_id) && validResourceId(data.resource_id) && data.confirmation_class === "reversible_write"
     && typeof data.request_hash === "string" && /^[A-Za-z0-9_-]{43}$/u.test(data.request_hash)
     && utcTimestamp(data.expires_at)

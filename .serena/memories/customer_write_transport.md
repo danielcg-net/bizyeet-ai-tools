@@ -22,6 +22,12 @@ Never advertise them as retryable, generate a replacement idempotency key or
 silently submit a new preview. Only documented safe result fields are returned;
 unexpected receipt fields and nested/private record fields must not leak.
 
+Non-null mutation updated_at values must pass the same strict UTC timestamp
+validator as preview expiry, including when recovered through succeeded status.
+Malformed execute successes remain ambiguous and never trigger a mutation retry.
+Correlation references reject Unicode controls, format characters, surrogates
+and separators; preserve printable opaque Unicode and otherwise generate a UUID.
+
 CLI commands are customers update preview (JSON changes via --input-stdin) and
 customers update execute (preview UUID plus caller-owned --idempotency-key).
 Receipt entry uses hidden raw-mode terminal input or explicit --receipt-stdin.
