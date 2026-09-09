@@ -1,5 +1,3 @@
-import { AsyncEntry } from "@napi-rs/keyring";
-
 import { isCredentials, type StoredCredentials } from "./profile-store.js";
 
 const service = "net.bizyeet.ai-tools.oauth";
@@ -27,18 +25,21 @@ const parseCredentials = (value: string): StoredCredentials => {
 };
 
 /** Adapts a native credential entry without sending OAuth tokens to a shell or process arguments. */
-export const createKeychain = (entryFor: (profile: string) => NativeEntry): Keychain => ({
+export const createKeychain = (entryFor: (profile: string) => NativeEntry | Promise<NativeEntry>): Keychain => ({
   read: async (profile): Promise<StoredCredentials | undefined> => {
-    const stored = await entryFor(profile).getPassword();
+    const stored = await (await entryFor(profile)).getPassword();
     return typeof stored !== "string" || stored === "" ? undefined : parseCredentials(stored);
   },
   remove: async (profile): Promise<void> => {
-    await entryFor(profile).deleteCredential();
+    await (await entryFor(profile)).deleteCredential();
   },
   save: async (profile, credentials): Promise<void> => {
-    await entryFor(profile).setPassword(JSON.stringify(credentials));
+    await (await entryFor(profile)).setPassword(JSON.stringify(credentials));
   },
 });
 
 /** Uses the native OS credential service without sending OAuth tokens to a shell or process arguments. */
-export const nativeKeychain = createKeychain((profile) => new AsyncEntry(service, profile));
+export const nativeKeychain = createKeychain(async (profile) => {
+  const { AsyncEntry } = await import("@napi-rs/keyring");
+  return new AsyncEntry(service, profile);
+});

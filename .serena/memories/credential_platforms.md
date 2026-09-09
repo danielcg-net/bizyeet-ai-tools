@@ -1,5 +1,12 @@
 # Credential platform boundaries
 
+Load @napi-rs/keyring only when a native operation is selected, never during CLI
+module startup. Missing optional platform bindings must not break version,
+diagnostics or explicit POSIX file mode. Loader errors remain errors for native
+operations: do not classify arbitrary binding failures as permission to downgrade.
+The installed-package regression uses --omit=optional, proves direct binding
+import fails, then verifies credential-independent commands and explicit file mode.
+
 Browser awaitCode has a five-minute timeout, cancels its delay on every completion,
 and closes the real listener. Every shutdown grants active connections one second
 then force-closes them, with delay cancellation on earlier close. Device intervals must be at least one second

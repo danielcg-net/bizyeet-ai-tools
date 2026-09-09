@@ -10,6 +10,17 @@ const credentials = {
   scope: "customers.read",
 };
 
+void test("does not load the native entry until an operation and preserves loader errors", async (context): Promise<void> => {
+  const failure = new Error("Native binding unavailable");
+  const loader = context.mock.fn((): Promise<never> => Promise.reject(failure));
+  const keychain = createKeychain(loader);
+  assert.equal(loader.mock.callCount(), 0);
+  await assert.rejects(keychain.read("default"), (error: unknown) => error === failure);
+  await assert.rejects(keychain.save("default", credentials), (error: unknown) => error === failure);
+  await assert.rejects(keychain.remove("default"), (error: unknown) => error === failure);
+  assert.equal(loader.mock.callCount(), 3);
+});
+
 const entry = (password: unknown): Readonly<{
   deleteCredential: () => Promise<unknown>;
   getPassword: () => Promise<unknown>;

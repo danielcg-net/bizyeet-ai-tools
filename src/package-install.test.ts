@@ -197,3 +197,23 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
     await cleanup(directory);
   }
 });
+
+void test("installed POSIX CLI works in explicit file mode without optional native packages", { skip: process.platform === "win32" }, async (): Promise<void> => {
+  const directory = await mkdtemp(join(tmpdir(), "bizyeet-cli-no-native-"));
+  try {
+    const archive = await packedArchive(directory);
+    await runNpm(["install", "--omit=optional", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
+    await assert.rejects(run(process.execPath, ["--input-type=module", "-e", "await import('@napi-rs/keyring')"], directory), /Cannot find native binding/u);
+    const environment = await credentialConfig(directory);
+    const automatic = { ...environment, BIZYEET_CREDENTIAL_STORE: "auto" };
+    assert.match(await runInstalled(["--version"], directory, automatic), /"version":/u);
+    assert.match(await runInstalled(["diagnostics"], directory, automatic), /"runtime":/u);
+    const args = ["auth", "status", "--profile", testProfile(directory)];
+    const status = await runInstalled(args, directory, environment);
+    assert.match(status, /"authenticated":true/u);
+    assert.doesNotMatch(status, /synthetic-access|synthetic-refresh/u);
+    await assert.rejects(runInstalled(args, directory, automatic), /exited with 1/u);
+  } finally {
+    await cleanup(directory);
+  }
+});
