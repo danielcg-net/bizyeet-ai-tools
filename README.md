@@ -175,6 +175,20 @@ must be available on the selected issuer. They require `customers.write` and
 the server's current provider/role policy. Unsupported provider operations fail
 explicitly; the CLI never selects a different database.
 
+The default login requests only `customers.read`. Before using update commands,
+authorize a profile with both read and write scopes (add `--device` for a headless
+login):
+
+```sh
+bizyeet auth login --issuer https://your-bizyeet-origin --scope "customers.read customers.write"
+bizyeet auth check
+```
+
+For an existing read-only profile, repeat login with that scope request and the
+same `--profile` selection used by your update commands. The server can grant
+less than requested; `auth check` reports current permissions, and human approval
+is still required for each mutation. The CLI never silently upgrades a grant.
+
 Supply a JSON object of proposed changed fields through stdin, not argument values:
 
 ```sh

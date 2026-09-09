@@ -10,6 +10,7 @@ import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAg
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore } from "./credential-store.js";
 import { validResourceId } from "./canonical-crm-client.js";
+import { isUuid } from "./uuid.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, issuerOrigin, revokeRefreshToken } from "./oauth.js";
 import { profileName } from "./profile-store.js";
@@ -337,8 +338,7 @@ const customerUpdate = async (args: readonly string[], dependencies: CliStorage,
   if (mode === "preview" && !options.includes("--input-stdin")) return invalidInput("Preview changes require piped JSON with --input-stdin.");
   try {
     const key = mode !== "preview" ? oneOption(options, "--idempotency-key", "") : "";
-    const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu;
-    if (mode !== "preview" && (!uuid.test(id) || !uuid.test(key))) return invalidInput("Execution and status require a preview UUID and --idempotency-key UUID.");
+    if (mode !== "preview" && (!isUuid(id) || !isUuid(key))) return invalidInput("Execution and status require a preview UUID and --idempotency-key UUID.");
     const selected = await authenticatedProfile(options, dependencies);
     if ("exitCode" in selected) return selected;
     const session = { credentials: selected.credentials, profile: selected.profile,
