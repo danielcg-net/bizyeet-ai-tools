@@ -51,6 +51,15 @@ void test("checks complete quoted or punctuated npm operands and never expands e
   assert.equal(inspect('`npm run "unterminated`').length, 1);
 });
 
+void test("recognizes shell boundaries after bare npm run without accepting glob operands", (): void => {
+  ["; echo done", "&& echo done", "|| echo done", "| cat", "|& cat", "&", "# list scripts", "> output.txt"].forEach((suffix): void => {
+    assert.deepEqual(inspect(`\`\`\`sh\nnpm run ${suffix}\n\`\`\``), [], suffix);
+  });
+  assert.equal(inspect("`npm run check*`").length, 1);
+  assert.equal(inspect("`npm run <(echo check)`").length, 1);
+  assert.equal(inspect("`npm run && npm run missing`").length, 1);
+});
+
 const withRepository = (verify: (root: string) => void): void => {
   const root = mkdtempSync(join(tmpdir(), "documentation check "));
   try {

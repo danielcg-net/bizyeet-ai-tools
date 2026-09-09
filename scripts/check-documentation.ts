@@ -43,7 +43,8 @@ const scriptFindings = (file: string, source: string, scripts: ReadonlySet<strin
       if (word !== "npm" || words[index + 1] !== "run") return [];
       const operand = words[index + 2];
       // Bare npm run lists available scripts; prose also names this command.
-      if (operand === undefined) return [];
+      if (operand === undefined || (typeof operand === "object" && ("comment" in operand
+        || ("op" in operand && [";", ";;", "&&", "||", "|", "|&", "&", ")", ">", ">>", ">&", "<", "<&", "<<<"].includes(operand.op))))) return [];
       return typeof operand === "string" && !operand.includes("\0") && scripts.has(operand)
         ? [] : [{ file, reason: "Documented npm run command is absent from package.json or is not a literal script name." }];
     });
