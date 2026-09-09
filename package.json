@@ -8,6 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "security:actions": "npm run build && node dist/scripts/repository-action-pinning.js",
     "release:preflight": "npm run build && node dist/scripts/release-candidate.js",
     "release:verify": "npm run build && node dist/scripts/release-artifacts.js",
     "build": "tsc --project tsconfig.json",
