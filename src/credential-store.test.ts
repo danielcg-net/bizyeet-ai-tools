@@ -14,7 +14,7 @@ const memoryAuthority = (): CredentialAuthorityStore => {
   }) };
 };
 const createCredentialStore = (native: Keychain, file: Parameters<typeof createStore>[1], options: Parameters<typeof createStore>[2] = {}): ReturnType<typeof createStore> =>
-  createStore(native, file, { ...options, authority: options.authority ?? memoryAuthority() });
+  createStore(native, file, { platform: "linux", ...options, authority: options.authority ?? memoryAuthority() });
 
 const credentials: StoredCredentials = Object.freeze({
   accessToken: "access-secret",
