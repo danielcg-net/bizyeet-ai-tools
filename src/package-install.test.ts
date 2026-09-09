@@ -191,7 +191,7 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
     assert.doesNotMatch(diagnostics, /synthetic-access|synthetic-refresh/u);
     assert.match(status, /"authenticated":true/u);
     assert.doesNotMatch(status, /synthetic-access|synthetic-refresh/u);
-    await assert.rejects(runInstalled(["unknown-command"], directory, pathEnvironment), /exited with 1/u);
+    await assert.rejects(runInstalled(["unknown-command"], directory, pathEnvironment), /exited with 2/u);
     await assert.rejects(runInstalled(["customers", "list", "--limit", "--fields"], directory, pathEnvironment), /exited with 2/u);
   } finally {
     await cleanup(directory);

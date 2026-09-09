@@ -95,10 +95,10 @@ const query = (options: ListOptions): string => new URLSearchParams([
   ...(options.dir === undefined ? [] : [["dir", options.dir]]),
   ...(options.fields === undefined ? [] : [["fields", options.fields.join(",")]]),
 ]).toString();
-const validEnvelope = (body: unknown, list: boolean): boolean => {
+const validEnvelope = (body: unknown, id: string | null): boolean => {
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return false;
-  if (!list) return typeof body.data.id === "string";
-  return Array.isArray(body.data.items) && body.data.items.every((item: unknown) => record(item) && typeof item.id === "string") &&
+  if (id !== null) return validResourceId(body.data.id) && body.data.id === id;
+  return Array.isArray(body.data.items) && body.data.items.every((item: unknown) => record(item) && validResourceId(item.id)) &&
     Number.isSafeInteger(body.data.total) && typeof body.data.total === "number" && body.data.total >= 0 &&
     (body.meta.next_cursor === null || (typeof body.meta.next_cursor === "string"
       && body.meta.next_cursor.length > 0 && body.meta.next_cursor.length <= 4096));
@@ -135,7 +135,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       const body = await boundedResponse(response, 1_048_576);
       if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
         ? { status: response.status, body } : failure(502, "invalid_response");
-      return validEnvelope(body, id === null) ? { status: response.status, body } : failure(502, "invalid_response");
+      return validEnvelope(body, id) ? { status: response.status, body } : failure(502, "invalid_response");
     } catch {
       return failure(503, "request_unavailable");
     }

@@ -7,6 +7,25 @@ const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+await Promise.all(["", " ", "token\n", "token value"].map((accessToken, index) => test(`rejects unusable access tokens at every exchange ${String(index)}`, async () => {
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
+  const fetcher = (): Promise<Response> => jsonResponse({ access_token: accessToken, expires_in: 300, token_type: "Bearer" });
+  await assert.rejects(exchangeAuthorizationCode({ clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:43123/callback", resource: issuer, metadata, fetcher }), /exchange failed/u);
+  await assert.rejects(refreshAccessToken({ clientId: "client", refreshToken: "refresh", resource: issuer, metadata, fetcher }), /refresh failed/u);
+  await assert.rejects(exchangeDeviceCode({ clientId: "client", resource: issuer, metadata, fetcher,
+    device: { deviceCode: "device", userCode: "CODE", expiresIn: 900, interval: 5, verificationUri: "https://example.test/verify" } }));
+})));
+
+await Promise.all([901, 9_000_000, Number.MAX_VALUE].map((expiresIn) => test(`bounds advertised and direct device lifetimes ${String(expiresIn)}`, async () => {
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device" };
+  await assert.rejects(requestDeviceAuthorization({ clientId: "client", resource: issuer, scope: "customers.read", metadata,
+    fetcher: () => jsonResponse({ device_code: "device", user_code: "CODE", expires_in: expiresIn, verification_uri: "https://example.test/verify" }) }), /could not be started/u);
+  const fetcher = mock.fn(() => Promise.reject(new Error("Must not poll")));
+  await assert.rejects(exchangeDeviceCode({ clientId: "client", resource: issuer, metadata, fetcher,
+    device: { deviceCode: "device", userCode: "CODE", expiresIn, interval: 5, verificationUri: "https://example.test/verify" } }), /unsupported timing/u);
+  assert.equal(fetcher.mock.callCount(), 0);
+})));
+
 void test("rejects unrepresentable token expirations at every token exchange boundary", async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
   const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [
@@ -204,7 +223,7 @@ void test("rejects invalid explicit device intervals instead of applying the abs
 });
 
 void test("rejects timer-overflow inputs before polling and slow_down overflow before sleeping", async () => {
-  const device = { deviceCode: "device", expiresIn: 9_000_000, interval: 2_147_483.647, userCode: "CODE", verificationUri: "https://example.test/verify" };
+  const device = { deviceCode: "device", expiresIn: 900, interval: 2_147_483.647, userCode: "CODE", verificationUri: "https://example.test/verify" };
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
   const fetcher = mock.fn(() => jsonResponse({ error: "slow_down" }));
   const sleep = mock.fn(() => Promise.reject(new Error("Unsafe timer must not be scheduled")));

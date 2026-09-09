@@ -5,6 +5,19 @@ import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await test("rejects a structurally valid exact read for a different record", async () => {
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
+    request: () => Promise.resolve(Response.json({ data: { id: "other-customer" }, meta: { contract_version: "v1" } })) });
+  assert.deepEqual(await client.get("customers", "requested-customer"), { status: 502, body: { error: { code: "invalid_response" } } });
+});
+
+await Promise.all(["", "a/b", "a\\b", "a".repeat(513), "a".repeat(512), "--opaque-id"].map((id, index) =>
+  test(`validates list record ID round-trip case ${String(index)}`, async () => {
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
+      request: () => Promise.resolve(Response.json({ ...emptyPage, data: { items: [{ id }], total: 1 } })) });
+    assert.equal((await client.list("customers")).status, index >= 4 ? 200 : 502);
+  })));
+
 await Promise.all([0, 4096, 4097].map((length) => test(`validates returned cursor input compatibility at length ${String(length)}`, async () => {
   const cursor = "x".repeat(length);
   const page = { ...emptyPage, meta: { ...emptyPage.meta, next_cursor: cursor } };
