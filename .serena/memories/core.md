@@ -3,6 +3,8 @@
 - Separate registration response shape/HTTP failures from assigned-auth policy validation. Successful responses assigning non-public methods must still fail closed, but use the fixed administrator-facing assignment diagnostic rather than the generic registration failure.
 
 - Keep the fixed credential-free registration-assignment diagnostic in the CLI safe-message allowlist. Cover both browser/device command paths so administrator guidance is not replaced by a generic login failure; arbitrary remote error text must remain filtered.
+- OAuth token_type is case-insensitive; accept only Bearer variants without trimming and normalize successful code/refresh/device results to Bearer. List response counts must not exceed the requested page size (default25,max100), independently of byte caps. Preview expirations require a valid UTC date-time representation, not merely a finite Date.parse result.
+
 - Error/write/status correlation references are opaque printable non-whitespace strings bounded to128 UTF-16 units, not necessarily UUIDs. Preserve valid upstream references with one shared projector; synthesize a local UUID only for invalid/missing references. Audit and preview identifiers retain their separate UUID validation.
 
 - Opaque ID bounds count Unicode code points (512), not UTF-16 units; the preliminary1024-unit cap only bounds allocation. Auth status/logout distinguish profile/configuration input errors (exit2) from credential runtime/corruption failures (internal_error/exit1), retaining fixed safe diagnostics and redaction.

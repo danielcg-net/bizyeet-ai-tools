@@ -106,7 +106,7 @@ const isOAuthMetadata = (value: unknown, issuer: URL): value is OAuthMetadata =>
     && (candidate.code_challenge_methods_supported === undefined || isStringArray(candidate.code_challenge_methods_supported));
 };
 
-const isTokenSet = (value: unknown): value is OAuthTokenSet => {
+const isTokenSet = (value: unknown): value is Omit<OAuthTokenSet, "token_type"> & Readonly<{ token_type: string }> => {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return typeof candidate.access_token === "string"
@@ -115,7 +115,7 @@ const isTokenSet = (value: unknown): value is OAuthTokenSet => {
     && Number.isFinite(candidate.expires_in)
     && candidate.expires_in > 0
     && Number.isFinite(new Date(Date.now() + candidate.expires_in * 1000).getTime())
-    && candidate.token_type === "Bearer"
+    && typeof candidate.token_type === "string" && candidate.token_type.toLowerCase() === "bearer"
     && (candidate.refresh_token === undefined || typeof candidate.refresh_token === "string")
     && (candidate.scope === undefined || typeof candidate.scope === "string");
 };
@@ -216,7 +216,7 @@ export const exchangeAuthorizationCode = async (input: Readonly<{
   }));
   const tokens: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok || !isTokenSet(tokens)) throw new Error("OAuth authorization-code exchange failed.");
-  return tokens;
+  return { ...tokens, token_type: "Bearer" };
 };
 
 /** Rotates an existing refresh token exactly once through the published token endpoint. */
@@ -235,7 +235,7 @@ export const refreshAccessToken = async (input: Readonly<{
   }));
   const tokens: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok || !isTokenSet(tokens)) throw new Error("OAuth refresh failed; run auth login again.");
-  return tokens;
+  return { ...tokens, token_type: "Bearer" };
 };
 
 /** Requests server-side revocation for a client-owned refresh-token family without exposing its value to output. */
@@ -305,7 +305,7 @@ const pollDeviceToken = async (input: Readonly<{
     resource: input.resource.origin,
   }));
   const body: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
-  if (response.ok && isTokenSet(body)) return body;
+  if (response.ok && isTokenSet(body)) return { ...body, token_type: "Bearer" };
   const error = typeof body === "object" && body !== null ? (body as Record<string, unknown>).error : undefined;
   if (error !== "authorization_pending" && error !== "slow_down") throw new Error("OAuth device authorization was denied or is no longer valid.");
   const nextInterval = error === "slow_down" ? input.intervalMilliseconds + 5000 : input.intervalMilliseconds;

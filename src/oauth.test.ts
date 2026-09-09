@@ -26,6 +26,26 @@ await Promise.all([901, 9_000_000, Number.MAX_VALUE].map((expiresIn) => test(`bo
   assert.equal(fetcher.mock.callCount(), 0);
 })));
 
+void test("normalizes case-insensitive Bearer types at all token exchanges without accepting other schemes", async () => {
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
+  const operations = [
+    (fetcher: FetchLike): ReturnType<typeof exchangeAuthorizationCode> => exchangeAuthorizationCode({ fetcher, metadata, clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:1234/callback", resource: issuer }),
+    (fetcher: FetchLike): ReturnType<typeof refreshAccessToken> => refreshAccessToken({ fetcher, metadata, clientId: "client", refreshToken: "refresh", resource: issuer }),
+    (fetcher: FetchLike): ReturnType<typeof exchangeDeviceCode> => exchangeDeviceCode({ fetcher, metadata, clientId: "client", resource: issuer,
+      device: { deviceCode: "device", expiresIn: 900, interval: 5, userCode: "CODE", verificationUri: "https://example.test/verify" },
+      dependencies: { now: () => 1000, sleep: () => Promise.reject(new Error("Unexpected retry")) } }),
+  ];
+  await Promise.all(operations.flatMap((operation) => ["Bearer", "bearer", "BEARER", "bEaReR", " Bearer", "Bearer ", "Basic", "", null, 1].map(async (type) => {
+    const fetcher = mock.fn(() => jsonResponse({ access_token: "synthetic-access", expires_in: 300, token_type: type }));
+    if (typeof type === "string" && type.toLowerCase() === "bearer") {
+      assert.equal((await operation(fetcher)).token_type, "Bearer");
+    } else {
+      await assert.rejects(operation(fetcher), (error: unknown) => error instanceof Error && !error.message.includes("synthetic-access"));
+    }
+    assert.equal(fetcher.mock.callCount(), 1);
+  })));
+});
+
 void test("rejects unrepresentable token expirations at every token exchange boundary", async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
   const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [

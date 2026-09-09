@@ -12,6 +12,20 @@ const preview = { preview_id: id, request_hash: "b".repeat(41) + "-_", expires_a
 const envelope = (data: unknown): Readonly<Record<string, unknown>> => ({ data, meta: { contract_version: "v1", request_id: "req_write_abc" } });
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await Promise.all([
+  { value: "2099-01-01T00:00:00Z", valid: true },
+  { value: "2099-01-01T00:00:00.123456Z", valid: true },
+  { value: "2099-01-01t00:00:00.123456789123z", valid: true },
+  { value: "2099-01-01T00:00:00+00:00", valid: true },
+  { value: "2000-02-29T23:59:59.999Z", valid: true },
+  ...["1", "2099-01-01", "2099-01-01 00:00:00Z", "2099-01-01T00:00:00", "2099-01-01T00:00:00+01:00", "2099-02-29T00:00:00Z", "2099-02-30T00:00:00Z", "2099-01-01T24:00:00Z", "2099-13-01T00:00:00Z"].map((value) => ({ value, valid: false })),
+].map(({ value, valid }, index) => test(`validates UTC preview expiry case ${String(index)}`, async () => {
+  const request = mock.fn(() => Promise.resolve(Response.json(envelope({ ...preview, expires_at: value }))));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  assert.equal((await client.previewCustomerUpdate(proposal)).status, valid ? 200 : 502);
+  assert.equal(request.mock.callCount(), 1);
+})));
+
 await test("preview uses one canonical POST and projects only documented response fields", async () => {
   const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
     assert.equal(url, "https://tenant.example/api/agent/customers/update-preview?api_version=v1");
