@@ -69,9 +69,10 @@ Maintainers own failing checks and dependency/security alerts. Track fixes in
 YouTrack; GitHub Issues are disabled. Dependabot updates still need green security,
 architecture and package checks. Do not lower policy to clear a dependency alert.
 
-CI and Release Verification cancel superseded runs in their PR/ref concurrency
-groups. CodeQL, Dependency Review and delivery validation currently do not declare
-such groups; do not assume every superseded job will be canceled. Job timeouts are
+CI, Release Verification, CodeQL, Dependency Review and delivery validation cancel
+superseded runs in distinct workflow-specific PR/ref concurrency groups. A new run
+for one PR cannot cancel another PR's run or a main-branch run through these keys.
+Concurrency does not authorize release cancellation or publication. Job timeouts are
 5 minutes for delivery, 10 for CI/dependency review, and 15 for CodeQL/package jobs.
 Package artifacts expire after seven days. Workflow-log retention follows the
 repository's live Actions retention setting, not that artifact value; record the
