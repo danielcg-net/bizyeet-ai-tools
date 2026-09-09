@@ -333,6 +333,9 @@ await Promise.all([false, true].flatMap((deviceGrant) => [
   { grant_types: ["refresh_token"] },
   { grant_types: [deviceGrant ? "authorization_code" : "urn:ietf:params:oauth:grant-type:device_code", "refresh_token"] },
   { token_endpoint_auth_method: undefined },
+  { token_endpoint_auth_method: "client_secret_basic" },
+  { token_endpoint_auth_method: "client_secret_post" },
+  { token_endpoint_auth_method: null },
   { client_secret: "must-not-appear-in-error" },
   { response_types: null }, { response_types: "code" },
 ].map((override, index) => test(`rejects insufficient registration metadata ${String(deviceGrant)}/${String(index)}`, async () => {
