@@ -42,6 +42,8 @@ executed. External availability, fragment anchors, full JSON-schema validation
 and arbitrary CLI example behavior require separate review/contract tests.
 Checked shell examples must use literal package script names (quoted names are
 supported), without options before the name or environment-dependent names.
+Option-prefixed npm invocations are explicitly unsupported by the static checker,
+except standalone version/help flags; use direct commands in checked examples.
 Fence metadata after the language does not opt out of example validation.
 Only direct command positions are checked, not echoed examples or output.
 Console fences support a `$ ` prompt; wrappers, environment-prefix assignments,

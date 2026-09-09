@@ -10,6 +10,30 @@ const files = new Set(["README.md", "docs/setup.md", "docs/image name.png"]);
 const scripts = new Set(["check", "release:verify"]);
 const inspect = (source: string): readonly string[] => inspectDocumentation("docs/setup.md", source, files, scripts).map((finding) => finding.reason);
 
+void test("arithmetic shifts do not introduce heredocs or hide later npm commands", (): void => {
+  ["sh", "bash"].forEach((language): void => {
+    ["echo $((1 << 2))", "echo $(((1 + 2) << 3))", "echo $((1 <<\n2))", 'echo "$((1 << 2))"'].forEach((arithmetic): void => {
+      assert.deepEqual(inspect(`\`\`\`${language}\n${arithmetic}\nnpm run check\n\`\`\``), [], arithmetic);
+      assert.equal(inspect(`\`\`\`${language}\n${arithmetic}\nnpm run missing\n\`\`\``).length, 1, arithmetic);
+    });
+  });
+  assert.deepEqual(inspect("```bash\n(( value = 1 << 2 ))\nnpm run check\n```"), []);
+  assert.equal(inspect("```sh\necho $((1 << 2)\nnpm run check\n```").length, 1);
+});
+
+void test("rejects unsupported config options before npm run without treating separate commands as operands", (): void => {
+  ["--silent", "--loglevel silent", "--prefix ./project", "--"].forEach((options): void => {
+    ["check", "missing"].forEach((script): void => {
+      assert.deepEqual(inspect(`\`npm ${options} run ${script}\``), ["Option-prefixed npm commands are unsupported in checked examples; use direct commands."]);
+    });
+  });
+  assert.deepEqual(inspect("```sh\nnpm --version && npm run check\necho npm --silent run missing\n```"), []);
+  assert.equal(inspect("```sh\nnpm --version; npm --silent run missing\n```").length, 1);
+  ["npm --silent install run", "npm --prefix run install package", "npm --prefix ./project install package"].forEach((command): void => {
+    assert.deepEqual(inspect(`\`${command}\``), ["Option-prefixed npm commands are unsupported in checked examples; use direct commands."]);
+  });
+});
+
 void test("read/write redirects consume their target before the npm operand", (): void => {
   ["sh", "bash"].forEach((language): void => {
     ["npm run <>state check", "npm run 3<>state release:verify", "<>state npm run check", "npm run <>state"].forEach((command): void => {

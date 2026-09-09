@@ -1,5 +1,13 @@
 # Offline documentation contracts
 
+Track arithmetic-expansion parentheses (and Bash arithmetic commands) before
+detecting heredoc starts, so shifts are not input redirects. Parenthesized and
+multiline arithmetic retains its context; incomplete forms fail explicitly.
+Reject option-prefixed npm commands explicitly except standalone version/help
+flags. Do not guess option arity or mistake an option value/package named run
+for a script command. Checked examples must use direct commands; flags before
+run must never silently bypass the gate. Separate commands remain independent.
+
 Compound POSIX <> and << tokens consume a single redirect target before script
 selection. Track actual unquoted heredoc starts before token dequoting, consume
 quoted/escaped literal delimiters in order, support <<- tab stripping, and skip

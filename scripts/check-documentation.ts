@@ -36,7 +36,7 @@ const localLinkError = (file: string, href: string, files: ReadonlySet<string>):
 type HereDocument = Readonly<{ delimiter: string; stripTabs: boolean }>;
 type ShellLineState = Readonly<{
   quote: "single" | "double" | "none"; escaped: boolean; comment: boolean;
-  boundary: boolean; descriptorDigits: number; text: string; lessThanRun: number;
+  boundary: boolean; descriptorDigits: number; text: string; lessThanRun: number; arithmeticDepth: number;
   hereStarts: readonly number[]; documents: readonly HereDocument[]; documentLine: string;
 }>;
 
@@ -57,7 +57,7 @@ const endsDocument = (line: string, document: HereDocument): boolean =>
 const shellLines = (source: string, bashExample: boolean): readonly string[] => {
   if (source.includes("\0")) throw new Error("NUL is not supported in shell examples.");
   const initial: ShellLineState = { quote: "none", escaped: false, comment: false, boundary: true, descriptorDigits: 0,
-    text: "", lessThanRun: 0, hereStarts: [], documents: [], documentLine: "" };
+    text: "", lessThanRun: 0, arithmeticDepth: 0, hereStarts: [], documents: [], documentLine: "" };
   const completed = Array.from(source.replace(/\r\n/gu, "\n")).reduce<ShellLineState>((state, character) => {
     const document = state.documents[0];
     if (document) return character === "\n"
@@ -73,6 +73,12 @@ const shellLines = (source: string, bashExample: boolean): readonly string[] => 
     if (character === '"' && state.quote !== "single") return { ...state, boundary: false, descriptorDigits: 0, lessThanRun: 0,
       quote: state.quote === "double" ? "none" : "double", text: state.text + character };
     if (state.quote !== "none") return { ...state, text: state.text + character };
+    const opensArithmetic = state.arithmeticDepth === 0 && character === "("
+      && (state.text.endsWith("$(") || (bashExample && state.boundary && state.text.endsWith("(")));
+    if (opensArithmetic || state.arithmeticDepth > 0) return {
+      ...state, text: state.text + character, lessThanRun: 0,
+      arithmeticDepth: opensArithmetic ? 2 : state.arithmeticDepth + (character === "(" ? 1 : character === ")" ? -1 : 0),
+    };
     if (character === "\n") return { ...initial, text: `${state.text}\0`, documents: hereDocuments(state) };
     // Drop only an unquoted all-digit word immediately adjacent to a redirect:
     // 2>out is a descriptor, while "2">out and 2 >out have a script operand 2.
@@ -90,7 +96,7 @@ const shellLines = (source: string, bashExample: boolean): readonly string[] => 
       descriptorDigits: /[0-9]/u.test(character) && (state.boundary || state.descriptorDigits > 0) ? state.descriptorDigits + 1 : 0,
       boundary: /[\s;|&()<>]/u.test(character), text: prefix + literal };
   }, initial);
-  if (completed.quote !== "none" || completed.escaped) throw new Error("Incomplete shell example.");
+  if (completed.quote !== "none" || completed.escaped || completed.arithmeticDepth !== 0) throw new Error("Incomplete shell example.");
   if (completed.documents.length > 0 && !(completed.documents.length === 1 && completed.documents[0]
     && endsDocument(completed.documentLine, completed.documents[0]))) throw new Error("Incomplete heredoc.");
   if (completed.hereStarts.length > 0) throw new Error("Missing heredoc body.");
@@ -148,7 +154,16 @@ const scriptFindings = (file: string, source: string, scripts: ReadonlySet<strin
     return shellLines(commands, bashExample).flatMap((line): readonly DocumentationFinding[] => {
       const words = shellWords(line);
       return words.flatMap((word, index): readonly DocumentationFinding[] => {
-        if (word !== "npm" || words[index + 1] !== "run" || !commandPosition(words.slice(0, index))) return [];
+        if (word !== "npm" || !commandPosition(words.slice(0, index))) return [];
+        const rest = words.slice(index + 1);
+        const boundary = rest.findIndex((entry) => typeof entry === "object" && ("comment" in entry
+          || ("op" in entry && [";", ";;", "&&", "||", "|", "|&", "&", ")"].includes(entry.op))));
+        const command = boundary < 0 ? rest : rest.slice(0, boundary);
+        if (typeof command[0] === "string" && command[0].startsWith("-")) {
+          const informational = command.length === 1 && ["--version", "-v", "--help", "-h"].includes(command[0]);
+          return informational ? [] : [{ file, reason: "Option-prefixed npm commands are unsupported in checked examples; use direct commands." }];
+        }
+        if (words[index + 1] !== "run") return [];
         const operand = scriptOperand(words.slice(index + 2));
         // Bare npm run lists available scripts; prose also names this command.
         if (operand === undefined) return [];
