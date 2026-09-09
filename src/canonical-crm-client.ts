@@ -1,4 +1,5 @@
 import { readBoundedJson as boundedResponse } from "./bounded-json.js";
+import { canonicalErrorCode } from "./agent-error.js";
 
 export type CrmResource = "customers" | "leads";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
@@ -75,14 +76,14 @@ const statusData = (body: unknown, previewId: string): Readonly<Record<string, u
   if (!record(outcome)) return undefined;
   if (data.state === "succeeded") {
     if (outcome.status !== 200 || !validWrite({ data: outcome.data, meta: body.meta }, false)
-      || !record(outcome.data) || outcome.data.audit_reference !== previewId) return undefined;
-    return projected({ status: 200, data: { resource: outcome.data.resource, audit_reference: previewId } });
+      || !record(outcome.data)) return undefined;
+    return projected({ status: 200, data: { resource: outcome.data.resource, audit_reference: outcome.data.audit_reference } });
   }
   if (!record(outcome.error) || typeof outcome.status !== "number" || !Number.isInteger(outcome.status)
     || outcome.status < 400 || outcome.status > 599) return undefined;
-  const code = outcome.error.code;
+  const code = canonicalErrorCode(outcome.error.code);
   if (data.state === "ambiguous" ? code !== "execution_ambiguous" || outcome.status !== 503
-    : !["authorization_denied", "conflict", "invalid_request", "not_found", "crm_operation_unsupported"].includes(String(code))) return undefined;
+    : code === undefined || ["execution_ambiguous", "execution_in_progress"].includes(code)) return undefined;
   return projected({ status: outcome.status, error: { code } });
 };
 const query = (options: ListOptions): string => new URLSearchParams([
@@ -161,6 +162,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       const body = await boundedResponse(response, 32_768);
       if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
       if (!validWrite(body, preview) || !record(body) || !record(body.data)) return failure(502, preview ? "invalid_response" : "execution_ambiguous");
+      if (preview && "resource_id" in input && body.data.resource_id !== input.resource_id) return failure(502, "invalid_response");
       // Only documented fields cross the agent boundary. Never reflect a receipt,
       // extra private record fields or server diagnostics from a success response.
       const fields = preview ? ["preview_id", "request_hash", "expires_at", "confirmation_class", "resource_id", "proposed_changes", "side_effects", "warnings", "idempotency_key_format", "approval_path"] : ["resource", "audit_reference"];

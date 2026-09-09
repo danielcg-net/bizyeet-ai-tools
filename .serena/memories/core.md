@@ -1,5 +1,8 @@
 # Core
 
+- DCR sends explicit grant_types and response_types; device login includes the device-code grant. Validate both device verification URLs against the selected HTTPS issuer before displaying either.
+- Write previews must echo the requested resource ID. Status audit references are independently validated opaque UUIDs, not assumed equal to the preview ID. Share the safe error-code projection with direct requests, including the legacy unsupported-operation alias.
+
 - Public repository for the OAuth-only BizYeet CLI and MCP integration.
 - No tenant records, credentials, operational URLs, private implementation, or customer context may enter Git history.
 - The public CLI is fail-closed until an explicitly scoped operation is implemented.

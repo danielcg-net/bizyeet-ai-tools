@@ -66,3 +66,20 @@ await test("rejects invalid query UUIDs before acquiring credentials", async () 
   assert.equal((await client.customerUpdateStatus({ ...query, idempotency_key: "invalid" })).status, 400);
   assert.equal(token.mock.callCount(), 0);
 });
+
+await test("preserves an opaque audit UUID distinct from the preview", async () => {
+  const auditId = "33333333-3333-4333-8333-333333333333";
+  const data = makeData({ state: "succeeded", outcome: { status: 200, data: { audit_reference: auditId, resource: { id: "customer" } } } });
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken,
+    request: () => Promise.resolve(Response.json({ data, meta: metadata })) });
+  assert.deepEqual(await client.customerUpdateStatus(query), { status: 200, body: { data, meta: metadata } });
+});
+
+await Promise.all(["unsupported_operation", "idempotency_conflict", "preview_expired", "approval_required", "crm_operation_unsupported"].map((code) =>
+  test(`preserves a canonical recorded failure ${code}`, async () => {
+    const data = makeData({ state: "failed", outcome: { status: 409, error: { code } } });
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken,
+      request: () => Promise.resolve(Response.json({ data, meta: metadata })) });
+    assert.deepEqual(await client.customerUpdateStatus(query), { status: 200, body: { data: { ...data,
+      outcome: { status: 409, error: { code: code === "crm_operation_unsupported" ? "unsupported_operation" : code } } }, meta: metadata } });
+  })));

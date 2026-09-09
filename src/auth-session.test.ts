@@ -36,7 +36,13 @@ void test("stores the device-flow result without exposing tokens through the ver
     yield response({ access_token: "access-secret", expires_in: 300, refresh_token: "refresh-secret", scope: "customers.read", token_type: "Bearer" });
   })();
   const result = await loginWithDevice({ issuer: "https://example.test", scope: "customers.read" }, {
-    fetcher: () => responseStream.next().value ?? Promise.reject(new Error("Unexpected request.")),
+    fetcher: (url, init) => {
+      if (url.endsWith("/register")) {
+        if (typeof init?.body !== "string") throw new Error("Expected registration JSON");
+        assert.match(init.body, /urn:ietf:params:oauth:grant-type:device_code/u);
+      }
+      return responseStream.next().value ?? Promise.reject(new Error("Unexpected request."));
+    },
     now: () => 1000,
     onVerification: (device) => {
       assert.equal(device.userCode, "ABCD-EFGH");

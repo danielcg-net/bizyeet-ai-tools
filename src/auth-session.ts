@@ -50,7 +50,7 @@ export const loginWithDevice = async (input: Readonly<{
 }>, dependencies: DeviceLoginDependencies): Promise<DeviceLoginResult> => {
   const issuer = issuerOrigin(input.issuer);
   const metadata = await discoverOAuth(issuer, dependencies.fetcher);
-  const clientId = input.clientId ?? (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: deviceRedirectUri })).clientId;
+  const clientId = input.clientId ?? (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: deviceRedirectUri, deviceGrant: true })).clientId;
   const device = await requestDeviceAuthorization({ clientId, fetcher: dependencies.fetcher, metadata, resource: issuer, scope: input.scope });
   dependencies.onVerification(device);
   const tokens = await exchangeDeviceCode({ clientId, device, fetcher: dependencies.fetcher, metadata, resource: issuer });

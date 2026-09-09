@@ -278,6 +278,8 @@ void test("registers only a secretless public client with an exact loopback call
       assert.deepEqual(JSON.parse(body), {
         redirect_uris: ["http://127.0.0.1:43123/callback"],
         token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
       });
       return jsonResponse({ client_id: "registered-client", token_endpoint_auth_method: "none" });
     },
@@ -291,6 +293,39 @@ void test("registers only a secretless public client with an exact loopback call
     metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
     redirectUri: "https://example.test/callback",
   }));
+});
+
+void test("requests the device grant explicitly during public registration", async () => {
+  const registered = await registerPublicClient({ deviceGrant: true, redirectUri: "http://127.0.0.1:43123/callback",
+    metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
+    fetcher: (_url, request) => {
+      if (typeof request?.body !== "string") throw new Error("Expected registration JSON");
+      assert.deepEqual(JSON.parse(request.body), { redirect_uris: ["http://127.0.0.1:43123/callback"],
+        token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"], response_types: ["code"] });
+      return jsonResponse({ client_id: "device-client", token_endpoint_auth_method: "none" });
+    } });
+  assert.equal(registered.clientId, "device-client");
+});
+
+await Promise.all(["verification_uri", "verification_uri_complete"].flatMap((field) => [
+  "http://example.test/verify", "https://attacker.invalid/verify", "https://user:password@example.test/verify",
+  "javascript:alert(1)", "/relative", "https://example.test/verify#fragment", "",
+].map((url) => test(`rejects unsafe device ${field} ${url}`, async () => {
+  await assert.rejects(requestDeviceAuthorization({ clientId: "client", resource: new URL("https://example.test"), scope: "customers.read",
+    metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device" },
+    fetcher: () => jsonResponse({ device_code: "synthetic-device", user_code: "ABCD-EFGH", expires_in: 900,
+      verification_uri: "https://example.test/verify", verification_uri_complete: "https://example.test/verify?user_code=ABCD-EFGH", [field]: url }),
+  }), /OAuth device authorization could not be started/u);
+}))));
+
+void test("preserves trusted complete device verification URL and user code", async () => {
+  const result = await requestDeviceAuthorization({ clientId: "client", resource: new URL("https://example.test"), scope: "customers.read",
+    metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device" },
+    fetcher: () => jsonResponse({ device_code: "synthetic-device", user_code: "ABCD-EFGH", expires_in: 900,
+      verification_uri: "https://example.test/verify", verification_uri_complete: "https://example.test/verify?user_code=ABCD-EFGH" }),
+  });
+  assert.equal(result.verificationUriComplete, "https://example.test/verify?user_code=ABCD-EFGH");
+  assert.equal(result.userCode, "ABCD-EFGH");
 });
 
 void test("sends refresh-token revocation only to the advertised OAuth endpoint", async (): Promise<void> => {

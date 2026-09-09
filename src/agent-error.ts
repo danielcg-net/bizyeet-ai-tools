@@ -12,13 +12,17 @@ const codes = new Set([
   "invalid_cursor", "rate_limited", "internal_error", "provider_unavailable", "request_unavailable",
   "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress",
 ]);
+/** Shared safe wire-code vocabulary, including the existing server's legacy unsupported spelling. */
+export const canonicalErrorCode = (value: unknown): string | undefined =>
+  value === "crm_operation_unsupported" ? "unsupported_operation"
+    : typeof value === "string" && codes.has(value) ? value : undefined;
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Retains machine semantics without reflecting server messages, details or credentials. */
 export const agentFailure = (status: number, body: unknown): AgentFailure => {
   const error = record(body) && record(body.error) ? body.error : {};
-  const code = typeof error.code === "string" && codes.has(error.code) ? error.code : "internal_error";
+  const code = canonicalErrorCode(error.code) ?? "internal_error";
   const requestId = typeof error.request_id === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(error.request_id)
     ? error.request_id : crypto.randomUUID();
   return Object.freeze({ kind: "agent_failure", code, status, requestId,

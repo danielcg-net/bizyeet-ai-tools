@@ -38,6 +38,12 @@ await test("execution preserves exact receipt and idempotency key without reflec
   assert.equal(request.mock.callCount(), 1);
 });
 
+await test("rejects a structurally valid preview for a different customer", async () => {
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token,
+    request: () => Promise.resolve(Response.json(envelope({ ...preview, resource_id: "other-customer" }))) });
+  assert.deepEqual(await client.previewCustomerUpdate(proposal), { status: 502, body: { error: { code: "invalid_response" } } });
+});
+
 await Promise.all(["network", "malformed", "private-field", "oversized", "nested"].map((scenario) => test(`execution ${scenario} fails ambiguous without retry`, async () => {
   const request = mock.fn((): Promise<Response> => scenario === "network" ? Promise.reject(new Error(approval.approval_receipt))
     : Promise.resolve(Response.json(scenario === "malformed" ? {}

@@ -75,6 +75,9 @@ challenge and state. Waiting for the browser callback expires after five minutes
 and closes the listener; start a new login if authorization was abandoned.
 Device polling rejects advertised intervals below one second or beyond supported
 timer bounds, defaults an omitted interval to five seconds, and honors slowdown.
+Device registration explicitly requests the device-code and refresh grants.
+Verification links must use HTTPS on the selected issuer origin, without
+credentials or fragments; unsafe links are rejected before being displayed.
 The device flow prints its verification URI and user code
 to stderr. Successful token values are never printed. Where the platform has a
 native credential service, the CLI stores credentials there. On POSIX systems,

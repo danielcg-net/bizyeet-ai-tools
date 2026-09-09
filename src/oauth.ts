@@ -253,7 +253,11 @@ export const requestDeviceAuthorization = async (input: Readonly<{
     scope: input.scope,
   }));
   const body: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
-  if (!response.ok || !isDeviceAuthorization(body)) throw new Error("OAuth device authorization could not be started.");
+  if (!response.ok || !isDeviceAuthorization(body)
+    || !isAbsoluteHttpsUrl(body.verification_uri, input.resource)
+    || (body.verification_uri_complete !== undefined && !isAbsoluteHttpsUrl(body.verification_uri_complete, input.resource))) {
+    throw new Error("OAuth device authorization could not be started.");
+  }
   return {
     deviceCode: body.device_code,
     expiresIn: body.expires_in,
@@ -327,11 +331,14 @@ export const registerPublicClient = async (input: Readonly<{
   fetcher: FetchLike;
   metadata: OAuthMetadata;
   redirectUri: string;
+  deviceGrant?: boolean;
 }>): Promise<RegisteredPublicClient> => {
   if (!input.metadata.registration_endpoint) throw new Error("The authorization server does not support public-client registration.");
   if (!isLoopbackRedirect(input.redirectUri)) throw new Error("Public OAuth clients require an exact loopback redirect URI.");
   const response = await input.fetcher(input.metadata.registration_endpoint, {
-    body: JSON.stringify({ redirect_uris: [input.redirectUri], token_endpoint_auth_method: "none" }),
+    body: JSON.stringify({ redirect_uris: [input.redirectUri], token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token", ...(input.deviceGrant ? ["urn:ietf:params:oauth:grant-type:device_code"] : [])],
+      response_types: ["code"] }),
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     method: "POST",
     redirect: "error",
