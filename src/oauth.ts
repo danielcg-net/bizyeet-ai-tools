@@ -99,6 +99,7 @@ const isTokenSet = (value: unknown): value is OAuthTokenSet => {
     && typeof candidate.expires_in === "number"
     && Number.isFinite(candidate.expires_in)
     && candidate.expires_in > 0
+    && Number.isFinite(new Date(Date.now() + candidate.expires_in * 1000).getTime())
     && candidate.token_type === "Bearer"
     && (candidate.refresh_token === undefined || typeof candidate.refresh_token === "string")
     && (candidate.scope === undefined || typeof candidate.scope === "string");

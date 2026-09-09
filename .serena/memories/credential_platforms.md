@@ -1,5 +1,12 @@
 # Credential platform boundaries
 
+Token exchange validation rejects positive finite expires_in values whose absolute
+expiration cannot fit a JavaScript Date, before login/refresh consumers serialize
+the timestamp. The same predicate protects authorization-code, refresh and device
+token responses; malformed responses fail opaquely without retry or token output.
+This cannot undo a server-side refresh rotation already performed by a malformed
+issuer. Do not claim client validation recovers an already consumed refresh token.
+
 Reject an explicitly configured empty or relative XDG_CONFIG_HOME before fallback
 I/O; never place plaintext credentials beneath the process workspace by accident.
 Browser login cleanup covers dynamic registration, PKCE generation and launching;

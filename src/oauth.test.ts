@@ -7,6 +7,28 @@ const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+void test("rejects unrepresentable token expirations at every token exchange boundary", async () => {
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
+  const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [
+    (fetcher): Promise<unknown> => exchangeAuthorizationCode({ fetcher, metadata, clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:1234/callback", resource: issuer }),
+    (fetcher): Promise<unknown> => refreshAccessToken({ fetcher, metadata, clientId: "client", refreshToken: "old-refresh", resource: issuer }),
+    (fetcher): Promise<unknown> => exchangeDeviceCode({ fetcher, metadata, clientId: "client", resource: issuer,
+      device: { deviceCode: "device", expiresIn: 900, interval: 5, userCode: "CODE", verificationUri: "https://example.test/verify" },
+      dependencies: { now: () => 1000, sleep: () => Promise.reject(new Error("Unexpected retry")) } }),
+  ];
+  await Promise.all(operations.map(async (operation) => {
+    await Promise.all([1e20, Number.MAX_VALUE, 8_640_000_000_000].map(async (expiresIn) => {
+      const fetcher = mock.fn(() => jsonResponse({ access_token: "synthetic-access", refresh_token: "synthetic-refresh", expires_in: expiresIn, token_type: "Bearer" }));
+      await assert.rejects(operation(fetcher), (error: unknown) => error instanceof Error
+        && /OAuth|Device/u.test(error.message) && !error.message.includes("synthetic-") && !(error instanceof RangeError));
+      assert.equal(fetcher.mock.callCount(), 1);
+    }));
+    const fetcher = mock.fn(() => jsonResponse({ access_token: "synthetic-access", expires_in: 1_000_000_000, token_type: "Bearer" }));
+    await operation(fetcher);
+    assert.equal(fetcher.mock.callCount(), 1);
+  }));
+});
+
 void test("bounds every OAuth JSON boundary including successful and failed responses without retrying", async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token",
     registration_endpoint: "https://example.test/register", device_authorization_endpoint: "https://example.test/device" };
