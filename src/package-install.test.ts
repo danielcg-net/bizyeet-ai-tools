@@ -68,7 +68,7 @@ const credentialConfig = async (directory: string, issuer = "https://example.tes
   return { ...process.env, BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") };
 };
 
-const opaqueId = `crm1.${"a".repeat(64)}.customers.synthetic`;
+const opaqueId = "--synthetic:customer~id";
 const opaqueCursor = "next:page/2?query=a+b&filter=active#offset";
 const previewId = "11111111-1111-4111-8111-111111111111";
 const executionKey = "22222222-2222-4222-8222-222222222222";
@@ -101,7 +101,7 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
     : !authorized ? { error: { code: "authorization_required" } }
     : url.pathname === "/api/agent/me" ? { tenant_id: "synthetic-tenant", client_id: "public-client", scope: ["customers.read"] }
     : url.pathname === "/api/agent/customers" ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
-    : url.pathname === `/api/agent/customers/${opaqueId}` ? { data: { id: opaqueId }, meta: { contract_version: "v1" } }
+    : url.pathname === `/api/agent/customers/${encodeURIComponent(opaqueId)}` ? { data: { id: opaqueId }, meta: { contract_version: "v1" } }
     : { error: { code: "not_found" } };
   response.writeHead(metadata || authorized ? ("error" in body ? 404 : 200) : 401, { "Content-Type": "application/json" });
   response.end(JSON.stringify(body));
@@ -129,8 +129,8 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const listed: unknown = JSON.parse(list);
       assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
       const nextPage = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--cursor", opaqueCursor, "--profile", testProfile(directory)], directory, environment);
-      const detail = await runInstalled(["customers", "get", opaqueId, "--profile", testProfile(directory)], directory, environment);
-      const preview = await runInstalled(["customers", "update", "preview", opaqueId, "--input-stdin", "--profile", testProfile(directory)], directory, environment, JSON.stringify({ business: "Proposed" }));
+      const detail = await runInstalled(["customers", "get", "--profile", testProfile(directory), "--", opaqueId], directory, environment);
+      const preview = await runInstalled(["customers", "update", "preview", "--input-stdin", "--profile", testProfile(directory), "--", opaqueId], directory, environment, JSON.stringify({ business: "Proposed" }));
       const execution = await runInstalled(["customers", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
       assert.match(check, /"verification":"server"/u);
       assert.match(check, /synthetic-tenant/u);

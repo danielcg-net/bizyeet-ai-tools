@@ -135,6 +135,11 @@ never replace them with URLs, database IDs, or tenant identifiers. All command
 results use the versioned BizYeet JSON envelope on stdout. Diagnostics and
 errors use stderr with deterministic exit codes.
 
+For an ID beginning with an option-like prefix, put options before `--` and the
+single literal ID after it: `bizyeet customers get --profile default -- --opaque-id`.
+The same separator works for update previews; put `--input-stdin` before `--`.
+Anything after the separator is an ID, not a help, JSON, or profile option.
+
 ## Preview and approve a customer update
 
 This draft CLI includes customer update commands; the matching server endpoints

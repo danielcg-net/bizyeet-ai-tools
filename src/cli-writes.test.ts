@@ -15,6 +15,53 @@ const runtime: NonNullable<Parameters<typeof run>[2]> = {
   getCustomer: unexpected, listCustomers: unexpected, loginBrowser: unexpected, loginDevice: unexpected, revoke: unexpected,
 };
 
+await Promise.all(["customer:123", "opaque~id", "--customer", "--profile", "--help", "-h", "--json", "--"].map((target) =>
+  test(`get and preview preserve separated opaque target ${target}`, async () => {
+    const readCredentials = mock.fn((profile?: string) => {
+      assert.equal(profile, "default");
+      return Promise.resolve({ default: credentials });
+    });
+    const get = mock.fn((input: Parameters<typeof runtime.getCustomer>[0]) => {
+      assert.equal(input.resourceId, target);
+      return Promise.resolve({ credentials, response: { data: { id: target }, meta: { contract_version: "v1" } } });
+    });
+    const preview = mock.fn((input: Parameters<NonNullable<typeof runtime.previewCustomerUpdate>>[0]) => {
+      assert.equal(input.proposal.resource_id, target);
+      return Promise.resolve({ credentials, response: { data: { preview_id: id }, meta: { contract_version: "v1" } } });
+    });
+    const selected = { ...storage, readCredentials };
+    const execution = { ...runtime, getCustomer: get, previewCustomerUpdate: preview, readChanges: (): Promise<Readonly<Record<string, string>>> => Promise.resolve({ business: "New" }) };
+    const read = await run(["--json", "customers", "get", "--profile", "default", "--", target], selected, execution);
+    assert.equal(read.exitCode, 0);
+    assert.deepEqual(JSON.parse(read.message), { data: { id: target }, meta: { contract_version: "v1" } });
+    const proposed = await run(["customers", "update", "preview", "--input-stdin", "--profile", "default", "--", target], selected, execution);
+    assert.equal(proposed.exitCode, 0);
+    assert.equal(get.mock.callCount(), 1);
+    assert.equal(preview.mock.callCount(), 1);
+  })));
+
+await test("preview accepts non-option opaque IDs without a separator", async () => {
+  const preview = mock.fn((input: Parameters<NonNullable<typeof runtime.previewCustomerUpdate>>[0]) => {
+    assert.equal(input.proposal.resource_id, "customer:123~one");
+    return Promise.resolve({ credentials, response: { data: { preview_id: id }, meta: { contract_version: "v1" } } });
+  });
+  const result = await run(["customers", "update", "preview", "customer:123~one", "--input-stdin"], storage,
+    { ...runtime, previewCustomerUpdate: preview, readChanges: () => Promise.resolve({ business: "New" }) });
+  assert.equal(result.exitCode, 0);
+  assert.equal(preview.mock.callCount(), 1);
+});
+
+await Promise.all([
+  ["get", "--"], ["get", "--", "one", "two"], ["get", "--profile", "--", "id"],
+  ["get", "--", "../other"], ["get", "--unknown"], ["get", "one", "two"],
+  ["get", "--profile", "default", "--profile", "default", "--", "id"],
+  ["update", "preview", "--input-stdin", "--", "id", "--profile", "default"],
+  ["update", "execute", "--idempotency-key", key, "--", "--opaque-not-uuid"],
+].map((args, index) => test(`rejects ambiguous separated target ${String(index)} before storage`, async () => {
+  const result = await run(["customers", ...args], { ...storage, readCredentials: unexpected }, runtime);
+  assert.equal(result.exitCode, 2);
+})));
+
 await test("preview reads only piped changes and passes the selected canonical identifier", async () => {
   const preview = mock.fn((input: Parameters<NonNullable<typeof runtime.previewCustomerUpdate>>[0]) => {
     assert.deepEqual(input.proposal, { resource_id: "canonical-id", changes: { business: "New name" } });

@@ -9,6 +9,7 @@ import { launchBrowser } from "./browser.js";
 import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore } from "./credential-store.js";
+import { validResourceId } from "./canonical-crm-client.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, issuerOrigin, revokeRefreshToken } from "./oauth.js";
 import { profileName } from "./profile-store.js";
@@ -279,11 +280,19 @@ const customerListOptions = (args: readonly string[]): CustomerListOptions => {
   };
 };
 
-const customerResourceId = (args: readonly string[]): string => {
-  const identifiers = args.filter((argument, index) => !argument.startsWith("--") && args[index - 1] !== "--profile");
-  const valid = args.every((argument, index) => argument === identifiers[0] || argument === "--profile" || (args[index - 1] === "--profile" && !argument.startsWith("--")));
-  if (identifiers.length !== 1 || !valid) throw new Error("customers get requires one opaque ID and optional --profile.");
-  return identifiers[0] ?? "";
+const beforeSeparator = (args: readonly string[]): readonly string[] =>
+  args.includes("--") ? args.slice(0, args.indexOf("--")) : args;
+
+const resourceTarget = (args: readonly string[], valueOptions: readonly string[], flags: readonly string[] = []): Readonly<{ id: string; options: readonly string[] }> | undefined => {
+  const separator = args.indexOf("--");
+  const positional = separator < 0
+    ? args.findIndex((argument, index) => !argument.startsWith("--") && !valueOptions.includes(args[index - 1] ?? ""))
+    : separator + 1;
+  const id = args[positional];
+  const options = separator < 0 ? args.filter((_argument, index) => index !== positional) : args.slice(0, separator);
+  if (id === undefined || (separator >= 0 && positional !== args.length - 1)
+    || !validResourceId(id) || !hasOnlyOptions(options, valueOptions, flags)) return undefined;
+  return { id, options };
 };
 
 const customers = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
@@ -291,23 +300,25 @@ const customers = async (args: readonly string[], dependencies: CliStorage, exec
   if (command === "update") return customerUpdate(options, dependencies, execution);
   try {
     const listOptions = command === "list" ? customerListOptions(options) : undefined;
-    const resourceId = command === "get" ? customerResourceId(options) : undefined;
+    const target = command === "get" ? resourceTarget(options, ["--profile"]) : undefined;
+    if (command === "get" && !target) return invalidInput("customers get requires one opaque ID and optional --profile.");
     if (command !== "list" && command !== "get") return unsupportedCommand(`customers ${command ?? ""}`.trim());
-    const authenticated = await authenticatedProfile(options, dependencies);
+    const authenticated = await authenticatedProfile(target?.options ?? options, dependencies);
     if ("exitCode" in authenticated) return authenticated;
     const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
     if (listOptions) return resourceOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }));
-    return resourceOutput(await execution.getCustomer({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: resourceId ?? "" }));
+    return resourceOutput(await execution.getCustomer({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: target?.id ?? "" }));
   } catch (error) {
     return requestFailure(error);
   }
 };
 
 const customerUpdate = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
-  const [mode, id, ...options] = args;
+  const [mode, ...targetArgs] = args;
   if (mode !== "preview" && mode !== "execute") return invalidInput("Use customers update preview or execute.");
-  if (!id || !/^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,512}$/u.test(id)) return invalidInput("Customer ID is invalid.");
-  if (!hasOnlyOptions(options, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"], mode === "preview" ? ["--input-stdin"] : ["--receipt-stdin"])) return invalidInput("Unsupported update option. Receipts and changes must never be passed as argument values.");
+  const target = resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"], mode === "preview" ? ["--input-stdin"] : ["--receipt-stdin"]);
+  if (!target) return invalidInput("Unsupported update target or option. Receipts and changes must never be passed as argument values.");
+  const { id, options } = target;
   if (options.filter((value) => value === "--input-stdin" || value === "--receipt-stdin").length > 1) return invalidInput("Use each input flag only once.");
   if (mode === "preview" && !options.includes("--input-stdin")) return invalidInput("Preview changes require piped JSON with --input-stdin.");
   try {
@@ -330,17 +341,18 @@ const customerUpdate = async (args: readonly string[], dependencies: CliStorage,
 
 /** Resolves a CLI invocation without printing OAuth credentials or mutating user input. */
 export const run = async (args: readonly string[], dependencies: CliStorage = storage, execution: CliRuntime = runtime, onVerification: (device: DeviceAuthorization) => void = () => undefined): Promise<CliResult> => {
-  if (args[0] === "--json" || args.at(-1) === "--json") {
+  const optionArgs = beforeSeparator(args);
+  if (args[0] === "--json" || (!args.includes("--") && args.at(-1) === "--json")) {
     const normalized = args[0] === "--json" ? args.slice(1) : args.slice(0, -1);
-    if (normalized.includes("--json")) return invalidInput("Use --json only once.");
+    if (beforeSeparator(normalized).includes("--json")) return invalidInput("Use --json only once.");
     const resolved = await run(normalized, dependencies, execution, onVerification);
-    return resolved.exitCode === 0 && (normalized.length === 0 || normalized.includes("--help") || normalized.includes("-h"))
+    return resolved.exitCode === 0 && (normalized.length === 0 || beforeSeparator(normalized).includes("--help") || beforeSeparator(normalized).includes("-h"))
       ? output({ help: resolved.message }) : resolved;
   }
   const [first, second] = args;
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (first === "diagnostics") return args.length === 1 ? output(diagnostics()) : invalidInput("diagnostics accepts no arguments other than --json.");
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) return result(0, helpMessage, "stdout");
+  if (args.length === 0 || optionArgs.includes("--help") || optionArgs.includes("-h")) return result(0, helpMessage, "stdout");
   if (first === "customers") return customers(args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
