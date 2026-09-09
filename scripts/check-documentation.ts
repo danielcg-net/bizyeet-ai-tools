@@ -33,26 +33,47 @@ const localLinkError = (file: string, href: string, files: ReadonlySet<string>):
   }
 };
 
-type ShellLineState = Readonly<{ quote: "single" | "double" | "none"; escaped: boolean; comment: boolean; boundary: boolean; descriptorDigits: number; text: string }>;
+type HereDocument = Readonly<{ delimiter: string; stripTabs: boolean }>;
+type ShellLineState = Readonly<{
+  quote: "single" | "double" | "none"; escaped: boolean; comment: boolean;
+  boundary: boolean; descriptorDigits: number; text: string; lessThanRun: number;
+  hereStarts: readonly number[]; documents: readonly HereDocument[]; documentLine: string;
+}>;
+
+const hereDocuments = (state: ShellLineState): readonly HereDocument[] => state.hereStarts.map((start) => {
+  const suffix = state.text.slice(start + 2);
+  const stripTabs = suffix.startsWith("-");
+  const delimiter = parseShell(stripTabs ? suffix.slice(1) : suffix, () => "\0dynamic\0")[0];
+  if (typeof delimiter !== "string" || delimiter.includes("\0")) throw new Error("Nonliteral heredoc delimiter.");
+  return { delimiter, stripTabs };
+});
+
+const endsDocument = (line: string, document: HereDocument): boolean =>
+  (document.stripTabs ? line.replace(/^\t+/u, "") : line) === document.delimiter;
 
 // shell-quote ignores newlines and treats a comment as the rest of its input.
 // Separate physical command lines, but retain quoted newlines and join escaped
 // continuations. NUL is reserved for our boundaries and dynamic-value sentinel.
 const shellLines = (source: string, bashExample: boolean): readonly string[] => {
   if (source.includes("\0")) throw new Error("NUL is not supported in shell examples.");
-  const initial: ShellLineState = { quote: "none", escaped: false, comment: false, boundary: true, descriptorDigits: 0, text: "" };
+  const initial: ShellLineState = { quote: "none", escaped: false, comment: false, boundary: true, descriptorDigits: 0,
+    text: "", lessThanRun: 0, hereStarts: [], documents: [], documentLine: "" };
   const completed = Array.from(source.replace(/\r\n/gu, "\n")).reduce<ShellLineState>((state, character) => {
+    const document = state.documents[0];
+    if (document) return character === "\n"
+      ? { ...state, documentLine: "", documents: endsDocument(state.documentLine, document) ? state.documents.slice(1) : state.documents }
+      : { ...state, documentLine: state.documentLine + character };
     if (state.escaped) return character === "\n" ? { ...state, escaped: false }
-      : { ...state, escaped: false, boundary: false, descriptorDigits: 0, text: `${state.text}\\${character}` };
+      : { ...state, escaped: false, boundary: false, descriptorDigits: 0, lessThanRun: 0, text: `${state.text}\\${character}` };
     if (state.comment) return character === "\n"
-      ? { ...initial, text: `${state.text}\0` } : { ...state, text: state.text + character };
+      ? { ...initial, text: `${state.text}\0`, documents: hereDocuments(state) } : { ...state, text: state.text + character };
     if (character === "\\" && state.quote !== "single") return { ...state, escaped: true };
-    if (character === "'" && state.quote !== "double") return { ...state, boundary: false, descriptorDigits: 0,
+    if (character === "'" && state.quote !== "double") return { ...state, boundary: false, descriptorDigits: 0, lessThanRun: 0,
       quote: state.quote === "single" ? "none" : "single", text: state.text + character };
-    if (character === '"' && state.quote !== "single") return { ...state, boundary: false, descriptorDigits: 0,
+    if (character === '"' && state.quote !== "single") return { ...state, boundary: false, descriptorDigits: 0, lessThanRun: 0,
       quote: state.quote === "double" ? "none" : "double", text: state.text + character };
     if (state.quote !== "none") return { ...state, text: state.text + character };
-    if (character === "\n") return { ...initial, text: `${state.text}\0` };
+    if (character === "\n") return { ...initial, text: `${state.text}\0`, documents: hereDocuments(state) };
     // Drop only an unquoted all-digit word immediately adjacent to a redirect:
     // 2>out is a descriptor, while "2">out and 2 >out have a script operand 2.
     const redirectDescriptor = state.descriptorDigits > 0 && (character === ">" || character === "<");
@@ -62,15 +83,32 @@ const shellLines = (source: string, bashExample: boolean): readonly string[] => 
     const prefix = combinedOutput ? state.text.slice(0, -1)
       : redirectDescriptor ? state.text.slice(0, -state.descriptorDigits) : state.text;
     const literal = character === "#" && !state.boundary ? "\\#" : character;
+    const lessThanRun = character === "<" ? state.lessThanRun + 1 : 0;
     return { ...state, comment: character === "#" && state.boundary,
+      lessThanRun, hereStarts: lessThanRun === 2 ? [...state.hereStarts, state.text.length - 1]
+        : lessThanRun === 3 ? state.hereStarts.slice(0, -1) : state.hereStarts,
       descriptorDigits: /[0-9]/u.test(character) && (state.boundary || state.descriptorDigits > 0) ? state.descriptorDigits + 1 : 0,
       boundary: /[\s;|&()<>]/u.test(character), text: prefix + literal };
   }, initial);
   if (completed.quote !== "none" || completed.escaped) throw new Error("Incomplete shell example.");
+  if (completed.documents.length > 0 && !(completed.documents.length === 1 && completed.documents[0]
+    && endsDocument(completed.documentLine, completed.documents[0]))) throw new Error("Incomplete heredoc.");
+  if (completed.hereStarts.length > 0) throw new Error("Missing heredoc body.");
   return completed.text.split("\0");
 };
 
 type ShellWord = ReturnType<typeof parseShell>[number];
+const operator = (word: ShellWord | undefined): string | undefined => typeof word === "object" && "op" in word ? word.op : undefined;
+// The tokenizer splits POSIX <> and << into two operators. Both consume one
+// word; heredoc payloads are excluded by shellLines before operand selection.
+const shellWords = (line: string): readonly ShellWord[] => {
+  const words = parseShell(line, () => "\0dynamic\0");
+  return words.flatMap((word, index): readonly ShellWord[] => {
+    if (operator(word) === "<" && ["<", ">"].includes(operator(words[index + 1]) ?? "")) return [{ op: "<<<" }];
+    if (["<", ">"].includes(operator(word) ?? "") && operator(words[index - 1]) === "<") return [];
+    return [word];
+  });
+};
 type OperandState = Readonly<{ found: boolean; target: boolean; operand: ShellWord | undefined }>;
 const scriptOperand = (words: readonly ShellWord[]): ShellWord | undefined => {
   const initial: OperandState = { found: false, target: false, operand: undefined };
@@ -102,10 +140,13 @@ const commandPosition = (words: readonly ShellWord[]): boolean => {
 const scriptFindings = (file: string, source: string, scripts: ReadonlySet<string>, consoleExample: boolean, bashExample: boolean): readonly DocumentationFinding[] => {
   if (!/\bnpm\b/u.test(source)) return [];
   try {
+    const prompted = consoleExample && /^[\t ]*\$[\t ]+/mu.test(source);
+    const commands = prompted ? source.split(/\r?\n/u).filter((line) => /^[\t ]*\$[\t ]+/u.test(line))
+      .map((line) => line.replace(/^[\t ]*\$[\t ]+/u, "")).join("\n") : source;
     // Preserve expansions as an impossible literal operand, never read the
     // process environment or allow an unset suffix to become a valid prefix.
-    return shellLines(source, bashExample).flatMap((line): readonly DocumentationFinding[] => {
-      const words = parseShell(consoleExample ? line.replace(/^\s*\$\s+/u, "") : line, () => "\0dynamic\0");
+    return shellLines(commands, bashExample).flatMap((line): readonly DocumentationFinding[] => {
+      const words = shellWords(line);
       return words.flatMap((word, index): readonly DocumentationFinding[] => {
         if (word !== "npm" || words[index + 1] !== "run" || !commandPosition(words.slice(0, index))) return [];
         const operand = scriptOperand(words.slice(index + 2));

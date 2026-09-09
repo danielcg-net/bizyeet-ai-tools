@@ -46,6 +46,10 @@ Fence metadata after the language does not opt out of example validation.
 Only direct command positions are checked, not echoed examples or output.
 Console fences support a `$ ` prompt; wrappers, environment-prefix assignments,
 and other prompt formats need separate review rather than this static check.
+When a console fence uses that prompt, unprompted output is ignored. Literal
+heredoc delimiters are tracked so payload lines are not treated as commands;
+command checking resumes after the terminator. This does not evaluate shell
+expansions or command substitutions.
 
 ## Canonical business routing
 

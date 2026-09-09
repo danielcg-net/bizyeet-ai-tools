@@ -1,5 +1,15 @@
 # Offline documentation contracts
 
+Compound POSIX <> and << tokens consume a single redirect target before script
+selection. Track actual unquoted heredoc starts before token dequoting, consume
+quoted/escaped literal delimiters in order, support <<- tab stripping, and skip
+payload text without parsing its quotes or commands. Resume checking after the
+terminator; malformed or nonliteral delimiters fail explicitly. Here strings
+are not heredocs. This remains static direct-command validation, not expansion
+evaluation. In a console fence containing dollar-space prompts, only prompted
+lines are commands; arbitrary output must not enter shell tokenization. Console
+blocks with no supported prompts keep their previous direct-command behavior.
+
 `npm run check:docs` checks tracked root/public docs Markdown through Marked GFM.
 It verifies local link/image file targets, valid JSON fences and documented npm
 script names against package.json. Actual nested/reference destinations are used;

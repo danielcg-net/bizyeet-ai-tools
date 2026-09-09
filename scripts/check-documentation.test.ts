@@ -10,6 +10,41 @@ const files = new Set(["README.md", "docs/setup.md", "docs/image name.png"]);
 const scripts = new Set(["check", "release:verify"]);
 const inspect = (source: string): readonly string[] => inspectDocumentation("docs/setup.md", source, files, scripts).map((finding) => finding.reason);
 
+void test("read/write redirects consume their target before the npm operand", (): void => {
+  ["sh", "bash"].forEach((language): void => {
+    ["npm run <>state check", "npm run 3<>state release:verify", "<>state npm run check", "npm run <>state"].forEach((command): void => {
+      assert.deepEqual(inspect(`\`\`\`${language}\n${command}\n\`\`\``), [], command);
+    });
+    ["npm run <>state missing", "3<>state npm run missing", "npm run <>", "npm run <> && npm run check"].forEach((command): void => {
+      assert.equal(inspect(`\`\`\`${language}\n${command}\n\`\`\``).length, 1, command);
+    });
+  });
+  assert.deepEqual(inspectDocumentation("README.md", '`npm run "<>"`', files, new Set(["<>"])), []);
+});
+
+void test("prompted console transcripts ignore output even when it resembles commands or invalid shell", (): void => {
+  assert.deepEqual(inspect("```console\n$ printf 'npm run missing\\n'\nnpm run missing\nunterminated ' output\n$ npm run check\n```"), []);
+  assert.equal(inspect("```console\n$ npm run missing\nnpm run another-missing\n``` ").length, 1);
+  assert.equal(inspect("```console\nnpm run missing\n```").length, 1);
+});
+
+void test("heredoc payloads are data and commands after their delimiters remain checked", (): void => {
+  const fence = (source: string): string => `\`\`\`sh\n${source}\n\`\`\``;
+  ["EOF", "'EOF'", '"EOF"', "E'OF'", "\\EOF"].forEach((delimiter): void => {
+    assert.deepEqual(inspect(fence(`cat <<${delimiter}\nnpm run missing\nunmatched ' quote\nEOF\nnpm run check`)), [], delimiter);
+    assert.equal(inspect(fence(`cat <<${delimiter}\nnpm run ignored\nEOF\nnpm run missing`)).length, 1, delimiter);
+  });
+  assert.deepEqual(inspect(fence("npm run <<EOF check\nnpm run ignored\nEOF")), []);
+  assert.equal(inspect(fence("npm run <<EOF missing\ninput\nEOF")).length, 1);
+  assert.deepEqual(inspect(fence("cat <<-EOF\n\tnpm run ignored\n\tEOF\nnpm run check")), []);
+  assert.deepEqual(inspect(fence("cat <<'A' <<'B' # two inputs\nnpm run ignored\nA\nnpm run ignored-too\nB\nnpm run check")), []);
+  assert.deepEqual(inspect(fence("cat <<<value\nnpm run check")), []);
+  assert.equal(inspect(fence("cat <<<value\nnpm run missing")).length, 1);
+  assert.equal(inspect(fence("cat <<EOF\nnpm run payload-without-terminator")).length, 1);
+  assert.equal(inspect(fence("echo '<<EOF'\nnpm run missing")).length, 1);
+  assert.equal(inspect(fence("echo \\<\\<EOF\nnpm run missing")).length, 1);
+});
+
 void test("accepts relative files, encoded images and reference links while keeping external URLs offline", (): void => {
   assert.deepEqual(inspect("[home](../README.md#heading) [directory](../docs) [slash](../docs/) [root](../) ![asset](image%20name.png) [local](#heading) [web](https://example.invalid) [mail](mailto:example@example.invalid)\n\n[reference][home]\n\n[home]: ../README.md"), []);
 });
