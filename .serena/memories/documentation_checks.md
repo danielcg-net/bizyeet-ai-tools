@@ -28,3 +28,10 @@ names remain operands. Never infer descriptors from dequoted words. Regression
 coverage includes poisoned scripts behind redirects, multiline bare commands,
 comments, quoting, continuation, and malformed/missing redirect targets. This is
 still an offline static subset, not an execution engine or full shell grammar.
+
+Match npm run only at shell command positions (start or after command operators),
+not as arguments to echo/printf/other scripts or ordinary Usage output. Prefix
+redirection targets do not consume the command position. Console fences support
+the explicit dollar-space prompt; quoted dollar text is not a prompt. Environment
+assignments, wrappers and arbitrary prompt formats are outside this direct-command
+static subset; use direct literal invocations for checked examples.

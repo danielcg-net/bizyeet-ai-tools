@@ -82,15 +82,27 @@ const scriptOperand = (words: readonly ShellWord[]): ShellWord | undefined => {
   return selected.target ? "\0missing redirect target\0" : selected.operand;
 };
 
-const scriptFindings = (file: string, source: string, scripts: ReadonlySet<string>): readonly DocumentationFinding[] => {
+const commandPosition = (words: readonly ShellWord[]): boolean => {
+  const position = words.reduce<Readonly<{ command: boolean; target: boolean }>>((state, word) => {
+    if (state.target) return { ...state, target: false };
+    if (typeof word === "object" && "op" in word) {
+      if ([";", ";;", "&&", "||", "|", "|&", "&", "("].includes(word.op)) return { command: true, target: false };
+      if ([">", ">>", ">&", "<", "<&", "<<<"].includes(word.op)) return { ...state, target: true };
+    }
+    return { command: false, target: false };
+  }, { command: true, target: false });
+  return position.command && !position.target;
+};
+
+const scriptFindings = (file: string, source: string, scripts: ReadonlySet<string>, consoleExample: boolean): readonly DocumentationFinding[] => {
   if (!/\bnpm\b/u.test(source)) return [];
   try {
     // Preserve expansions as an impossible literal operand, never read the
     // process environment or allow an unset suffix to become a valid prefix.
     return shellLines(source).flatMap((line): readonly DocumentationFinding[] => {
-      const words = parseShell(line, () => "\0dynamic\0");
+      const words = parseShell(consoleExample ? line.replace(/^\s*\$\s+/u, "") : line, () => "\0dynamic\0");
       return words.flatMap((word, index): readonly DocumentationFinding[] => {
-        if (word !== "npm" || words[index + 1] !== "run") return [];
+        if (word !== "npm" || words[index + 1] !== "run" || !commandPosition(words.slice(0, index))) return [];
         const operand = scriptOperand(words.slice(index + 2));
         // Bare npm run lists available scripts; prose also names this command.
         if (operand === undefined) return [];
@@ -119,7 +131,7 @@ export const inspectDocumentation = (
     catch { return [{ file, reason: "JSON example is not valid JSON." }]; }
   }
   if (token.type === "code" && language !== undefined && !["sh", "bash", "shell", "console"].includes(language)) return [];
-  return scriptFindings(file, token.text, scripts);
+  return scriptFindings(file, token.text, scripts, language === "console");
 });
 
 const publicMarkdown = (file: string): boolean => /^(?:[^/]+\.md|docs\/.*\.md)$/u.test(file);

@@ -43,6 +43,9 @@ and arbitrary CLI example behavior require separate review/contract tests.
 Checked shell examples must use literal package script names (quoted names are
 supported), without options before the name or environment-dependent names.
 Fence metadata after the language does not opt out of example validation.
+Only direct command positions are checked, not echoed examples or output.
+Console fences support a `$ ` prompt; wrappers, environment-prefix assignments,
+and other prompt formats need separate review rather than this static check.
 
 ## Canonical business routing
 

@@ -88,6 +88,18 @@ void test("preserves unquoted line boundaries, comments, quoting and escaped con
   assert.deepEqual(inspectDocumentation("README.md", fence("npm run check#literal"), files, new Set(["check#literal"])), []);
 });
 
+void test("matches npm only in command positions and recognizes console dollar prompts", (): void => {
+  ["echo npm run missing", "Usage: npm run missing", "printf '%s' npm run missing", "npm run check -- npm run missing", "echo >output npm run missing", ">npm run missing"].forEach((source): void => {
+    assert.deepEqual(inspect(`\`\`\`console\n${source}\n\`\`\``), [], source);
+  });
+  ["echo done; npm run missing", "echo done && npm run missing", "echo done || npm run missing", "echo done | npm run missing", "(npm run missing)", ">output npm run missing"].forEach((source): void => {
+    assert.equal(inspect(`\`\`\`sh\n${source}\n\`\`\``).length, 1, source);
+  });
+  assert.deepEqual(inspect("```console\n$ npm run check\nUsage: npm run missing\n```"), []);
+  assert.equal(inspect("```console\n$ npm run missing\n``` ").length, 1);
+  assert.deepEqual(inspect("```sh\necho '$ npm run missing'\n```"), []);
+});
+
 const withRepository = (verify: (root: string) => void): void => {
   const root = mkdtempSync(join(tmpdir(), "documentation check "));
   try {
