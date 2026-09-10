@@ -69,6 +69,15 @@ If revocation fails, credentials are retained and no replacement login starts.
 After successful revocation, cancelling the new authorization requires signing in
 again; the retained old record does not restore the retired grant. Unbound legacy
 profiles require dashboard revocation and explicit local logout before replacement.
+Scope syntax is checked before touching the current grant. If saving a newly
+issued credential fails, login attempts to revoke that new grant; if revocation
+also fails, it explicitly directs you to revoke the connection in dashboard
+settings. Neither failure is reported as a successful login.
+Commands for the same profile use a separate cross-process operation lock,
+including authorization, refresh and logout. A concurrent command fails after
+bounded contention rather than overwriting another login. An abandoned
+`.profile-<name>.lock` directory requires operator recovery after confirming no
+command still owns it; it contains no credentials. Different profiles remain independent.
 If discovery or revocation fails, it exits unsuccessfully and retains credentials
 so you can retry. `revocation: "local_only"` applies only when the stored record
 has no usable server binding, such as an unbound legacy record.

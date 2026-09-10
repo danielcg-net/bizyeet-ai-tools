@@ -379,6 +379,35 @@ void test("replacement refuses an unbound legacy refresh credential before netwo
   assert.equal(forbidden.mock.callCount(), 0);
 });
 
+await Promise.all(["customers.read ", " customers.read", "customers.read  customers.write", "read\twrite", "read\n", "réad", 'read"write', "read\\write"].map((scope) => test(`invalid scope is rejected before storage, locking or revocation: ${JSON.stringify(scope)}`, async (context): Promise<void> => {
+  const forbidden = context.mock.fn((): Promise<never> => Promise.reject(new Error("Unexpected side effect")));
+  const response = await run(["auth", "login", "--issuer", "https://example.test", "--scope", scope], {
+    withProfileLock: forbidden, readCredentials: forbidden, saveCredentials: forbidden, removeCredentials: forbidden,
+  }, { revoke: forbidden, loginBrowser: forbidden, loginDevice: forbidden, getCustomer: forbidden, listCustomers: forbidden });
+  assert.equal(response.exitCode, 2);
+  assert.equal(forbidden.mock.callCount(), 0);
+})));
+
+await Promise.all([false, true].flatMap((device) => [false, true].map((cleanupFails) => test(`failed credential save revokes the completed grant: device=${String(device)}, cleanupFails=${String(cleanupFails)}`, async (context): Promise<void> => {
+  const profile = { issuer: "https://example.test", clientId: "new-client" };
+  const credentials = { accessToken: "new-access", refreshToken: "new-refresh", scope: "customers.read", expiresAt: "2099-01-01T00:00:00.000Z" };
+  const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected operation"));
+  const saved = context.mock.fn(() => Promise.reject(new Error("new-refresh storage failure")));
+  const revoke = context.mock.fn((input: Parameters<NonNullable<Parameters<typeof run>[2]>["revoke"]>[0]) => {
+    assert.equal(saved.mock.callCount(), 1);
+    assert.deepEqual(input, { credentials, profile });
+    return cleanupFails ? Promise.reject(new Error("new-refresh cleanup failure")) : Promise.resolve();
+  });
+  const authorize = (): Promise<Readonly<{ credentials: typeof credentials; profile: typeof profile }>> => Promise.resolve({ credentials, profile });
+  const response = await run(["auth", "login", "--issuer", profile.issuer, ...(device ? ["--device"] : [])], {
+    readCredentials: () => Promise.resolve({}), saveCredentials: saved, removeCredentials: forbidden,
+  }, { revoke, loginBrowser: authorize, loginDevice: authorize, getCustomer: forbidden, listCustomers: forbidden });
+  assert.equal(response.exitCode, 3);
+  assert.equal(revoke.mock.callCount(), 1);
+  assert.match(response.message, cleanupFails ? /dashboard settings/u : /new grant was revoked/u);
+  assert.doesNotMatch(response.message, /new-refresh|new-access/u);
+}))));
+
 void test("customer list preserves the agent response envelope and stores a rotated credential", async (): Promise<void> => {
   const result = await run(["customers", "list", "--limit", "10"], {
     readCredentials: () => Promise.resolve({ default: { profile: { clientId: "public-client", issuer: "https://example.test" }, accessToken: "old-access", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "old-refresh", scope: "customers.read" } }),

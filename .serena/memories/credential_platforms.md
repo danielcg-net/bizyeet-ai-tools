@@ -136,3 +136,13 @@ new login; reuse the old issuer/client binding for revocation, never the request
 replacement issuer. A cancelled replacement cannot restore a successfully retired
 grant. Unbound legacy refresh records require explicit dashboard revocation/local
 logout instead of silently overwriting an unrevocable token.
+
+CLI profile operations acquire a separate .profile-<name>.lock before reads,
+authorization, refresh and writes. Never nest the existing authority/file locks
+around their own public read/save methods. Profile locks contain no credentials,
+use bounded exclusive mkdir contention and release in finally; Windows tokens
+remain native-only. Invalid OAuth scope syntax fails before locking/storage or
+revocation. Failed new-credential persistence attempts grant revocation; combined
+storage/revocation failure is explicit and requires dashboard cleanup, never a
+successful login or secret-bearing diagnostic. Multi-process synthetic CLI tests
+verify that every displaced login grant is retired.
