@@ -76,7 +76,8 @@ has no usable server binding, such as an unbound legacy record.
 Issuer, public client ID and tokens are saved together in one protected credential
 record. Legacy `profiles.json` metadata is not used to route authenticated requests
 or reuse a client registration. If you have credentials created by an earlier CLI
-without this identity binding, run `bizyeet auth login` again for that profile.
+without this identity binding, revoke the old connection in dashboard settings,
+run `bizyeet auth logout` for that profile, then complete `bizyeet auth login`.
 They are never silently migrated using public metadata. Logout can clear an
 unbound legacy record locally but cannot safely revoke it remotely; revoke that
 old connection from the dashboard if needed. Refresh preserves the binding.
