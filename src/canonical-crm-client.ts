@@ -144,7 +144,10 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       const body = await boundedResponse(response, 1_048_576);
       if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
         ? { status: response.status, body } : failure(502, "invalid_response");
-      return validEnvelope(body, id, pageSize) ? { status: response.status, body } : failure(502, "invalid_response");
+      if (!validEnvelope(body, id, pageSize) || !record(body) || !record(body.meta)) return failure(502, "invalid_response");
+      return { status: response.status, body: { ...body, meta: { ...body.meta,
+        ...(Object.hasOwn(body.meta, "request_id") ? { request_id: correlationReference(body.meta.request_id) } : {}),
+      } } };
     } catch {
       return failure(503, "request_unavailable");
     }

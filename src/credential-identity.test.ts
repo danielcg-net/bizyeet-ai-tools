@@ -50,7 +50,10 @@ await test("login replacement saves one coherent protected record and a failed s
   // Extra legacy helpers deliberately exist but must never be invoked.
   const storage = { readCredentials: (): Promise<Readonly<Record<string, StoredCredentials>>> => Promise.resolve({ default: bound }), saveCredentials, removeCredentials: forbidden,
     readProfiles: publicMetadata, saveProfile: publicMetadata };
-  const runtime: NonNullable<Parameters<typeof run>[2]> = { ...makeRuntime(), loginDevice: (input) => {
+  const runtime: NonNullable<Parameters<typeof run>[2]> = { ...makeRuntime(), revoke: (input) => {
+    assert.deepEqual(input, { credentials: bound, profile });
+    return Promise.resolve();
+  }, loginDevice: (input) => {
     assert.equal(input.clientId, undefined);
     return Promise.resolve({ profile: replacement, credentials: { ...legacy, accessToken: "new-access", refreshToken: "new-refresh" } });
   }, checkIdentity: (input) => {
@@ -64,7 +67,7 @@ await test("login replacement saves one coherent protected record and a failed s
   assert.equal(publicMetadata.mock.callCount(), 0);
 });
 
-await test("explicit login replaces an unbound legacy record without reusing public client metadata", async () => {
+await test("explicit login refuses to overwrite an unbound legacy refresh grant", async () => {
   const saveCredentials = mock.fn(() => Promise.resolve());
   const loginDevice = mock.fn((input: Readonly<{ clientId?: string }>) => {
     assert.equal(input.clientId, undefined);
@@ -73,9 +76,10 @@ await test("explicit login replaces an unbound legacy record without reusing pub
   const result = await run(["auth", "login", "--device", "--issuer", profile.issuer], {
     readCredentials: () => Promise.resolve({ default: legacy }), removeCredentials: forbidden, saveCredentials,
   }, { ...makeRuntime(), loginDevice });
-  assert.equal(result.exitCode, 0);
-  assert.equal(saveCredentials.mock.callCount(), 1);
-  assert.deepEqual(saveCredentials.mock.calls[0]?.arguments, ["default", bound]);
+  assert.equal(result.exitCode, 3);
+  assert.match(result.message, /dashboard settings/u);
+  assert.equal(saveCredentials.mock.callCount(), 0);
+  assert.equal(loginDevice.mock.callCount(), 0);
 });
 
 await test("agent boundary rejects missing or mismatched identity before bearer use or refresh", async () => {

@@ -1,5 +1,22 @@
 # Credential platform boundaries
 
+Choose the operation-lock profile only from arguments before the `--` separator.
+Opaque record IDs such as `--profile=other` must not change the lock or storage
+profile. Successful canonical read request IDs use the same bounded printable
+correlation helper as errors and writes; preserve absent optional IDs.
+
+Bound-profile logout must retain credentials and return a safe nonzero error if
+discovery or revocation fails. Delete only after confirmed server revocation;
+local_only is for records without a usable issuer/client binding, not a swallowed
+network failure. Tests verify no deletion on failure and a later successful retry.
+
+Load @napi-rs/keyring only when a native operation is selected, never during CLI
+module startup. Missing optional platform bindings must not break version,
+diagnostics or explicit POSIX file mode. Loader errors remain errors for native
+operations: do not classify arbitrary binding failures as permission to downgrade.
+The installed-package regression uses --omit=optional, proves direct binding
+import fails, then verifies credential-independent commands and explicit file mode.
+
 Browser awaitCode has a five-minute timeout, cancels its delay on every completion,
 and closes the real listener. Every shutdown grants active connections one second
 then force-closes them, with delay cancellation on earlier close. Device intervals must be at least one second
@@ -117,3 +134,20 @@ app, not a browser/network destination, to verify metacharacter URL preservation
 Authorization Code requires PKCE S256; separately approved Device Authorization
 is retained for headless use under639/643. Do not remove device login by conflating
 the authorization-code proof with the distinct OAuth device grant.
+
+Profile replacement retires the selected old bound refresh grant before new
+authorization starts. Revocation failure retains the old record and starts no
+new login; reuse the old issuer/client binding for revocation, never the requested
+replacement issuer. A cancelled replacement cannot restore a successfully retired
+grant. Unbound legacy refresh records require explicit dashboard revocation/local
+logout instead of silently overwriting an unrevocable token.
+
+CLI profile operations acquire a separate .profile-<name>.lock before reads,
+authorization, refresh and writes. Never nest the existing authority/file locks
+around their own public read/save methods. Profile locks contain no credentials,
+use bounded exclusive mkdir contention and release in finally; Windows tokens
+remain native-only. Invalid OAuth scope syntax fails before locking/storage or
+revocation. Failed new-credential persistence attempts grant revocation; combined
+storage/revocation failure is explicit and requires dashboard cleanup, never a
+successful login or secret-bearing diagnostic. Multi-process synthetic CLI tests
+verify that every displaced login grant is retired.

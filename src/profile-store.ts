@@ -143,6 +143,23 @@ const withCredentialLock = async <T>(paths: ReturnType<typeof profilePaths>, ope
   finally { await operations.rmdir(lock); }
 };
 
+/** Serializes a complete CLI profile operation without nesting storage locks.
+ * The lock contains no credentials; Windows credentials remain native-only.
+ */
+export const withProfileOperationLock = async <T>(name: string, operation: () => Promise<T>,
+  environment: NodeJS.ProcessEnv = process.env, homeDirectory: string = homedir()): Promise<T> => {
+  const profile = profileName(name);
+  const paths = profilePaths(environment, homeDirectory);
+  await files.mkdir(paths.directory, { recursive: true, mode: 0o700 });
+  const directory = await files.lstat(paths.directory);
+  if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error("Profile operation directory is unsafe.");
+  if (process.platform !== "win32") await assertPrivateDirectory(paths.directory, files);
+  const lock = join(paths.directory, `.profile-${profile}.lock`);
+  await acquireCredentialLock(lock, files);
+  try { return await operation(); }
+  finally { await files.rmdir(lock); }
+};
+
 const writePrivateJson = async (path: string, value: unknown, operations: FileOperations, secret = false): Promise<void> => {
   const directory = dirname(path);
   const temporaryPath = join(directory, `.${randomUUID()}.tmp`);

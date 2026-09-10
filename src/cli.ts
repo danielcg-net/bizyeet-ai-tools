@@ -10,10 +10,11 @@ import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAg
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore } from "./credential-store.js";
 import { validResourceId } from "./canonical-crm-client.js";
+import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
 import { isUuid } from "./uuid.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, issuerOrigin, revokeRefreshToken } from "./oauth.js";
-import { profileName } from "./profile-store.js";
+import { profileName, withProfileOperationLock } from "./profile-store.js";
 import { openLoopbackCallback } from "./loopback.js";
 import { agentFailureExitCode, agentFailureMessage, isAgentFailure } from "./agent-error.js";
 
@@ -21,6 +22,7 @@ export type CliResult = Readonly<{ exitCode: number; message: string; stream: "s
 export type CliIo = Readonly<{ error: (message: string) => void; log: (message: string) => void }>;
 
 type CliStorage = Readonly<{
+  withProfileLock?: <T>(profile: string, operation: () => Promise<T>) => Promise<T>;
   readCredentials: (profile?: string) => Promise<import("./profile-store.js").CredentialCollection>;
   removeCredentials: (profile: string) => Promise<void>;
   saveCredentials: (profile: string, credentials: import("./profile-store.js").StoredCredentials) => Promise<void>;
@@ -41,6 +43,7 @@ type CliRuntime = Readonly<{
 }>;
 
 const storage: CliStorage = {
+  withProfileLock: withProfileOperationLock,
   readCredentials: credentialStore.read,
   removeCredentials: credentialStore.remove,
   saveCredentials: credentialStore.save,
@@ -131,7 +134,7 @@ const safeValidationMessages = new Set([
   "Preview changes require piped JSON with --input-stdin.",
   "Use hidden terminal entry, or --receipt-stdin with a pipe.",
   "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.",
-  "Search is limited to 120 characters.", "Requested fields are invalid.",
+  CRM_SEARCH_LIMIT_MESSAGE, "Requested fields are invalid.",
   "Stored BizYeet credentials are invalid.", "Credential fallback file permissions are unsafe; expected mode 0600.",
   "Credential fallback file permissions are unsafe; expected an owner-only regular file with mode 0600.",
   "Credential fallback directory is unsafe; expected an owner-only directory with mode 0700.",
@@ -192,9 +195,14 @@ const logout = async (args: readonly string[], dependencies: CliStorage, executi
     const credentials = await dependencies.readCredentials(name);
     const current = credentials[name];
     const profile = current?.profile;
-    const remoteRevoked = profile && current.refreshToken
-      ? await execution.revoke({ credentials: current, profile }).then(() => true).catch(() => false)
-      : false;
+    const remoteRevoked = Boolean(profile && current.refreshToken);
+    if (profile && current.refreshToken) {
+      try {
+        await execution.revoke({ credentials: current, profile });
+      } catch {
+        return result(1, errorEnvelope("request_unavailable", "Could not confirm server revocation. Credentials were retained; retry auth logout when the service is available."), "stderr");
+      }
+    }
     await dependencies.removeCredentials(name);
     return output({ logged_out: true, profile: name, revocation: remoteRevoked ? "confirmed" : "local_only" });
   } catch (error) {
@@ -213,6 +221,8 @@ const loginOptions = (args: readonly string[]): Readonly<{ name: string; issuer:
     const name = profileFrom(args);
     const issuer = oneOption(args, "--issuer");
     const scope = oneOption(args, "--scope", "customers.read");
+    // RFC 6749 section 3.3: scope-token *(SP scope-token), no quote/backslash.
+    if (!/^[\x21\x23-\x5b\x5d-\x7e]+(?: [\x21\x23-\x5b\x5d-\x7e]+)*$/u.test(scope)) return invalidInput("Use nonempty OAuth scope tokens separated by one space, without quotes, backslashes or non-ASCII characters.");
     if (!issuer) return invalidInput("auth login requires --issuer.");
     return { name, issuer: issuerOrigin(issuer).origin, scope };
   } catch (error) {
@@ -227,14 +237,32 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
   const { name: profileNameValue, issuer, scope } = parsed;
   try {
     const credentials = await dependencies.readCredentials(profileNameValue);
-    const previousProfile = credentials[profileNameValue]?.profile;
+    const previousCredentials = credentials[profileNameValue];
+    const previousProfile = previousCredentials?.profile;
     const existingClientId = previousProfile?.issuer === issuer && previousProfile.deviceGrantVerified === true
       && previousProfile.deviceRegistrationVersion === 1
       ? previousProfile.clientId : undefined;
+    if (previousCredentials?.refreshToken) {
+      if (!previousProfile) return result(3, errorEnvelope("authentication_required", "This legacy profile has no bound issuer. Revoke its access in dashboard settings and run auth logout before replacing it."), "stderr");
+      try {
+        await execution.revoke({ credentials: previousCredentials, profile: previousProfile });
+      } catch {
+        return result(1, errorEnvelope("request_unavailable", "Could not retire the previous grant. Credentials were retained and no new login started; retry when the service is available."), "stderr");
+      }
+    }
     const completed = args.includes("--device")
       ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 1 as const } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });
-    await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });
+    try {
+      await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });
+    } catch {
+      try {
+        await execution.revoke({ credentials: completed.credentials, profile: completed.profile });
+      } catch {
+        return result(3, errorEnvelope("authentication_required", "Credential persistence failed and the new grant could not be revoked. Revoke the new connection in dashboard settings before retrying login."), "stderr");
+      }
+      return result(3, errorEnvelope("authentication_required", "Credential persistence failed. The new grant was revoked; check credential storage before retrying login."), "stderr");
+    }
     return output({ authenticated: true, expires_at: completed.credentials.expiresAt, issuer: completed.profile.issuer, profile: profileNameValue, scope: completed.credentials.scope });
   } catch (error) {
     return result(3, errorEnvelope("authentication_required", safeLocalMessage(error, "OAuth login failed. Check the issuer, approval status and credential storage, then try again.")), "stderr");
@@ -371,6 +399,18 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (first === "diagnostics") return args.length === 1 ? output(diagnostics()) : invalidInput("diagnostics accepts no arguments other than --json.");
   if (args.length === 0 || optionArgs.includes("--help") || optionArgs.includes("-h")) return result(0, helpMessage, "stdout");
+  if (dependencies.withProfileLock && (first === "customers" || first === "auth")) {
+    try {
+      if (first === "auth" && second === "login") {
+        const parsed = loginOptions(args.slice(2));
+        if ("exitCode" in parsed) return parsed;
+      }
+      const { withProfileLock, ...unlockedStorage } = dependencies;
+      return await withProfileLock(profileFrom(optionArgs), () => run(args, unlockedStorage, execution, onVerification));
+    } catch (error) {
+      return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
+    }
+  }
   if (first === "customers") return customers(args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);

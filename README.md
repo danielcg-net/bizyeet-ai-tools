@@ -62,10 +62,31 @@ tenant and granted scopes without reading customer data. Individual commands
 still enforce current permissions. Use `--profile <name>` to select a stored
 connection; profiles never override the server's tenant decision.
 
+`auth logout` revokes a bound profile's grant before deleting local credentials.
+Repeating `auth login` retires that profile's previous refresh grant before starting
+replacement authorization, including when changing issuer or requesting write access.
+If revocation fails, credentials are retained and no replacement login starts.
+After successful revocation, cancelling the new authorization requires signing in
+again; the retained old record does not restore the retired grant. Unbound legacy
+profiles require dashboard revocation and explicit local logout before replacement.
+Scope syntax is checked before touching the current grant. If saving a newly
+issued credential fails, login attempts to revoke that new grant; if revocation
+also fails, it explicitly directs you to revoke the connection in dashboard
+settings. Neither failure is reported as a successful login.
+Commands for the same profile use a separate cross-process operation lock,
+including authorization, refresh and logout. A concurrent command fails after
+bounded contention rather than overwriting another login. An abandoned
+`.profile-<name>.lock` directory requires operator recovery after confirming no
+command still owns it; it contains no credentials. Different profiles remain independent.
+If discovery or revocation fails, it exits unsuccessfully and retains credentials
+so you can retry. `revocation: "local_only"` applies only when the stored record
+has no usable server binding, such as an unbound legacy record.
+
 Issuer, public client ID and tokens are saved together in one protected credential
 record. Legacy `profiles.json` metadata is not used to route authenticated requests
 or reuse a client registration. If you have credentials created by an earlier CLI
-without this identity binding, run `bizyeet auth login` again for that profile.
+without this identity binding, revoke the old connection in dashboard settings,
+run `bizyeet auth logout` for that profile, then complete `bizyeet auth login`.
 They are never silently migrated using public metadata. Logout can clear an
 unbound legacy record locally but cannot safely revoke it remotely; revoke that
 old connection from the dashboard if needed. Refresh preserves the binding.
