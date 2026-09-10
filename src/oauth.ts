@@ -124,7 +124,8 @@ const isDeviceAuthorization = (value: unknown): value is DeviceAuthorizationResp
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return typeof candidate.device_code === "string"
-    && typeof candidate.user_code === "string"
+    && typeof candidate.user_code === "string" && candidate.user_code.trim().length > 0 && candidate.user_code.length <= 128
+    && !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(candidate.user_code)
     && typeof candidate.verification_uri === "string"
     && typeof candidate.expires_in === "number"
     && Number.isFinite(candidate.expires_in)

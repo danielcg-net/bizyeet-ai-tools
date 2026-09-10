@@ -7,6 +7,14 @@ const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+await Promise.all(["", "   ", "bad\u009bcode", "bad\u202ecode", "bad\ncode", "bad\uD800code", "bad\u2028code", "x".repeat(129)].map((userCode, index) =>
+  test(`rejects undisplayable device user code ${String(index)}`, async () => {
+    await assert.rejects(requestDeviceAuthorization({ clientId: "client", resource: issuer, scope: "customers.read",
+      metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device" },
+      fetcher: () => jsonResponse({ device_code: "synthetic-device", user_code: userCode, expires_in: 900, verification_uri: "https://example.test/verify" }),
+    }), /could not be started/u);
+  })));
+
 await Promise.all(["", " ", "token\n", "token value"].map((accessToken, index) => test(`rejects unusable access tokens at every exchange ${String(index)}`, async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
   const fetcher = (): Promise<Response> => jsonResponse({ access_token: accessToken, expires_in: 300, token_type: "Bearer" });

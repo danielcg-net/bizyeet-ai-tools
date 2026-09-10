@@ -8,7 +8,7 @@ import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { launchBrowser } from "./browser.js";
 import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
 import { readChanges, readApprovalReceipt } from "./write-input.js";
-import { credentialStore } from "./credential-store.js";
+import { credentialStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { validResourceId } from "./canonical-crm-client.js";
 import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
 import { isUuid } from "./uuid.js";
@@ -255,7 +255,9 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
       : await execution.loginBrowser({ issuer, scope });
     try {
       await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });
-    } catch {
+    } catch (error) {
+      if (isCommittedCredentialCleanupFailure(error)) return result(1, errorEnvelope("internal_error",
+        "Credentials were saved and access was retained, but obsolete credential cleanup failed. Check credential storage before retrying."), "stderr");
       try {
         await execution.revoke({ credentials: completed.credentials, profile: completed.profile });
       } catch {
