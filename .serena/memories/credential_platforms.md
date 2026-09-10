@@ -129,3 +129,10 @@ app, not a browser/network destination, to verify metacharacter URL preservation
 Authorization Code requires PKCE S256; separately approved Device Authorization
 is retained for headless use under639/643. Do not remove device login by conflating
 the authorization-code proof with the distinct OAuth device grant.
+
+Profile replacement retires the selected old bound refresh grant before new
+authorization starts. Revocation failure retains the old record and starts no
+new login; reuse the old issuer/client binding for revocation, never the requested
+replacement issuer. A cancelled replacement cannot restore a successfully retired
+grant. Unbound legacy refresh records require explicit dashboard revocation/local
+logout instead of silently overwriting an unrevocable token.

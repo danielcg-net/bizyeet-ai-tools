@@ -63,6 +63,12 @@ still enforce current permissions. Use `--profile <name>` to select a stored
 connection; profiles never override the server's tenant decision.
 
 `auth logout` revokes a bound profile's grant before deleting local credentials.
+Repeating `auth login` retires that profile's previous refresh grant before starting
+replacement authorization, including when changing issuer or requesting write access.
+If revocation fails, credentials are retained and no replacement login starts.
+After successful revocation, cancelling the new authorization requires signing in
+again; the retained old record does not restore the retired grant. Unbound legacy
+profiles require dashboard revocation and explicit local logout before replacement.
 If discovery or revocation fails, it exits unsuccessfully and retains credentials
 so you can retry. `revocation: "local_only"` applies only when the stored record
 has no usable server binding, such as an unbound legacy record.

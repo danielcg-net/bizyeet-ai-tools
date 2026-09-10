@@ -232,9 +232,18 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
   const { name: profileNameValue, issuer, scope } = parsed;
   try {
     const credentials = await dependencies.readCredentials(profileNameValue);
-    const previousProfile = credentials[profileNameValue]?.profile;
+    const previousCredentials = credentials[profileNameValue];
+    const previousProfile = previousCredentials?.profile;
     const existingClientId = previousProfile?.issuer === issuer && previousProfile.deviceGrantVerified === true
       ? previousProfile.clientId : undefined;
+    if (previousCredentials?.refreshToken) {
+      if (!previousProfile) return result(3, errorEnvelope("authentication_required", "This legacy profile has no bound issuer. Revoke its access in dashboard settings and run auth logout before replacing it."), "stderr");
+      try {
+        await execution.revoke({ credentials: previousCredentials, profile: previousProfile });
+      } catch {
+        return result(1, errorEnvelope("request_unavailable", "Could not retire the previous grant. Credentials were retained and no new login started; retry when the service is available."), "stderr");
+      }
+    }
     const completed = args.includes("--device")
       ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });

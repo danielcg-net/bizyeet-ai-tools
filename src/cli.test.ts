@@ -325,7 +325,8 @@ await Promise.all([
   const result = await run(["auth", "login", "--device", "--issuer", "https://example.test"], {
     readCredentials: () => Promise.resolve({ default: stored }), removeCredentials: forbidden,
     saveCredentials: (_name, credentials) => { assert.deepEqual(credentials.profile, profile); return Promise.resolve(); },
-  }, { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden, revoke: forbidden,
+  }, { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden,
+    revoke: (input) => { assert.deepEqual(input.credentials, stored); assert.deepEqual(input.profile, stored.profile); return Promise.resolve(); },
     loginDevice: (input) => {
       assert.equal(input.clientId, previous.issuer === profile.issuer && previous.deviceGrantVerified === true ? "previous-client" : undefined);
       return Promise.resolve({ credentials: { ...stored, profile }, profile });
@@ -333,6 +334,50 @@ await Promise.all([
   });
   assert.equal(result.exitCode, 0);
 })));
+
+await Promise.all([false, true].map((device) => test(`replacement login retires the old grant first, device=${String(device)}`, async (context): Promise<void> => {
+  const profile = { clientId: "old-client", issuer: "https://old.example.test" };
+  const stored = { profile, accessToken: "old-access", refreshToken: "old-refresh", scope: "customers.read", expiresAt: "2099-01-01T00:00:00.000Z" };
+  const replacementProfile = { clientId: "new-client", issuer: "https://new.example.test" };
+  const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected operation"));
+  const save = context.mock.fn(() => Promise.resolve());
+  const revoke = context.mock.fn((input: Parameters<NonNullable<Parameters<typeof run>[2]>["revoke"]>[0]) => {
+    assert.deepEqual(input, { credentials: stored, profile });
+    return Promise.resolve();
+  });
+  const authorize = context.mock.fn(() => {
+    assert.equal(revoke.mock.callCount(), 1);
+    return Promise.resolve({ profile: replacementProfile, credentials: { ...stored, profile: replacementProfile, refreshToken: "new-refresh" } });
+  });
+  const storage: NonNullable<Parameters<typeof run>[1]> = { readCredentials: () => Promise.resolve({ default: stored }), saveCredentials: save, removeCredentials: forbidden };
+  const runtime = { revoke, loginBrowser: authorize, loginDevice: authorize, getCustomer: forbidden, listCustomers: forbidden };
+  const args = ["auth", "login", "--issuer", replacementProfile.issuer, ...(device ? ["--device"] : [])];
+  const failed = await run(args, storage, { ...runtime, revoke: () => Promise.reject(new Error("old-refresh")) });
+  assert.equal(failed.exitCode, 1);
+  assert.equal(authorize.mock.callCount(), 0);
+  assert.equal(save.mock.callCount(), 0);
+  assert.doesNotMatch(failed.message, /old-refresh|old-access/u);
+  const success = await run(args, storage, runtime);
+  assert.equal(success.exitCode, 0);
+  assert.equal(authorize.mock.callCount(), 1);
+  assert.equal(save.mock.callCount(), 1);
+  const cancelled = await run(args, storage, { ...runtime, loginBrowser: forbidden, loginDevice: forbidden });
+  assert.equal(cancelled.exitCode, 3);
+  assert.equal(revoke.mock.callCount(), 2);
+  assert.equal(save.mock.callCount(), 1);
+})));
+
+void test("replacement refuses an unbound legacy refresh credential before network or storage writes", async (context): Promise<void> => {
+  const forbidden = context.mock.fn((): Promise<never> => Promise.reject(new Error("Unexpected operation")));
+  const response = await run(["auth", "login", "--issuer", "https://example.test"], {
+    readCredentials: () => Promise.resolve({ default: { accessToken: "old-access", refreshToken: "old-refresh", scope: "customers.read", expiresAt: "2099-01-01T00:00:00.000Z" } }),
+    saveCredentials: forbidden, removeCredentials: forbidden,
+  }, { revoke: forbidden, loginBrowser: forbidden, loginDevice: forbidden, getCustomer: forbidden, listCustomers: forbidden });
+  assert.equal(response.exitCode, 3);
+  assert.match(response.message, /dashboard settings/u);
+  assert.doesNotMatch(response.message, /old-access|old-refresh/u);
+  assert.equal(forbidden.mock.callCount(), 0);
+});
 
 void test("customer list preserves the agent response envelope and stores a rotated credential", async (): Promise<void> => {
   const result = await run(["customers", "list", "--limit", "10"], {
