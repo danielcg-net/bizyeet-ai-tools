@@ -1,5 +1,10 @@
 # Credential platform boundaries
 
+Choose the operation-lock profile only from arguments before the `--` separator.
+Opaque record IDs such as `--profile=other` must not change the lock or storage
+profile. Successful canonical read request IDs use the same bounded printable
+correlation helper as errors and writes; preserve absent optional IDs.
+
 Bound-profile logout must retain credentials and return a safe nonzero error if
 discovery or revocation fails. Delete only after confirmed server revocation;
 local_only is for records without a usable issuer/client binding, not a swallowed

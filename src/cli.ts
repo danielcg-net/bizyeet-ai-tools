@@ -404,7 +404,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
         if ("exitCode" in parsed) return parsed;
       }
       const { withProfileLock, ...unlockedStorage } = dependencies;
-      return await withProfileLock(profileFrom(args), () => run(args, unlockedStorage, execution, onVerification));
+      return await withProfileLock(profileFrom(optionArgs), () => run(args, unlockedStorage, execution, onVerification));
     } catch (error) {
       return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
     }

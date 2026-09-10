@@ -2,6 +2,20 @@ import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 
+await Promise.all(["list", "get"].flatMap((method) => ["safe-reference", "bad\u009breference", "bad\u202ereference", "x".repeat(129), null].map((reference, index) =>
+  test(`${method} bounds successful read correlation reference ${String(index)}`, async () => {
+    const body = { data: method === "get" ? { id: "customer" } : { items: [{ id: "customer" }], total: 1 },
+      meta: { contract_version: "v1", next_cursor: null, request_id: reference } };
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("synthetic-token"),
+      request: () => Promise.resolve(Response.json(body)) });
+    const result = method === "get" ? await client.get("customers", "customer") : await client.list("customers");
+    assert.equal(result.status, 200);
+    const projected = JSON.parse(JSON.stringify(result.body)) as { readonly meta: { readonly request_id: string } };
+    if (reference === "safe-reference") assert.equal(projected.meta.request_id, reference);
+    else assert.match(projected.meta.request_id, /^[a-f0-9-]{36}$/u);
+    assert.deepEqual(result.body, { ...body, meta: { ...body.meta, request_id: projected.meta.request_id } });
+  }))));
+
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 

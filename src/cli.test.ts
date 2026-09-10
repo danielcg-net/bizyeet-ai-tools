@@ -6,6 +6,27 @@ import { agentFailure } from "./agent-error.js";
 import { listCustomers } from "./agent-client.js";
 import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
 
+await Promise.all(["--profile", "--profile=other"].flatMap((id) => ["default", "selected"].map((name) =>
+  test(`locks the selected profile for separated opaque ID ${id} with ${name}`, async (context) => {
+    const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected operation"));
+    const credentials = { profile: { clientId: "public-client", issuer: "https://example.test" },
+      accessToken: "synthetic-access", refreshToken: "synthetic-refresh", expiresAt: "2099-01-01", scope: "customers.read" };
+    const save = context.mock.fn((profile: string): Promise<void> => { assert.equal(profile, name); return Promise.resolve(); });
+    const result = await run(["customers", "get", ...(name === "default" ? [] : ["--profile", name]), "--", id], {
+      withProfileLock: async (profile, operation) => { assert.equal(profile, name); return operation(); },
+      readCredentials: () => Promise.resolve({ [name]: credentials }), saveCredentials: save, removeCredentials: forbidden,
+    }, {
+      loginBrowser: forbidden, loginDevice: forbidden, listCustomers: forbidden, revoke: forbidden,
+      getCustomer: async (input) => {
+        assert.equal(input.resourceId, id);
+        await input.persistCredentials(credentials);
+        return { credentials, response: { data: { id }, meta: { contract_version: "v1" } } };
+      },
+    });
+    assert.equal(result.exitCode, 0);
+    assert.equal(save.mock.callCount(), 1);
+  }))));
+
 void test("oversized Unicode searches return actionable CLI validation errors without network access", async (context): Promise<void> => {
   const forbidden = (): Promise<never> => Promise.reject(new Error("Must not dispatch"));
   const fetcher = context.mock.fn(forbidden);
