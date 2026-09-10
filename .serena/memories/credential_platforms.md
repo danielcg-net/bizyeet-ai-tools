@@ -1,5 +1,11 @@
 # Credential platform boundaries
 
+Native saves can commit before obsolete fallback removal fails. Report that
+cleanup failure without revoking the now-authoritative grant; do not swallow the
+error or treat it as successful cleanup. Pre-commit failures still revoke a newly
+issued grant. Device user codes must be nonempty, bounded and display-safe before
+returning device authorization to terminal progress output.
+
 Choose the operation-lock profile only from arguments before the `--` separator.
 Opaque record IDs such as `--profile=other` must not change the lock or storage
 profile. Successful canonical read request IDs use the same bounded printable

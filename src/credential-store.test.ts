@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createCredentialStore as createStore } from "./credential-store.js";
+import { createCredentialStore as createStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { run } from "./cli.js";
 import type { Keychain } from "./keychain.js";
 import type { CredentialAuthority, CredentialAuthorityStore, CredentialCollection, StoredCredentials } from "./profile-store.js";
@@ -166,10 +166,32 @@ void test("committed native generation wins even when obsolete fallback cleanup 
   });
   const file = fallback({ read: () => Promise.resolve({ default: credentials }), remove: () => Promise.reject(new Error("Cleanup failed")) });
   const newer = { ...credentials, refreshToken: "new-refresh" };
-  await assert.rejects(createCredentialStore(native, file, { authority }).save("default", newer), /Cleanup failed/u);
+  await assert.rejects(createCredentialStore(native, file, { authority }).save("default", newer), isCommittedCredentialCleanupFailure);
   const restarted = createCredentialStore(native, fallback({ read: () => Promise.reject(new Error("Must not use obsolete fallback")) }), { authority });
   assert.equal((await restarted.read()).default?.refreshToken, "new-refresh");
 });
+
+await Promise.all(["linux", "win32"].flatMap((platform) => [false, true].map((device) =>
+  test(`login retains committed credentials after cleanup failure on ${platform}, device=${String(device)}`, async (context) => {
+    const records = new Map<string, StoredCredentials>();
+    const native = keychain({ read: (name) => Promise.resolve(records.get(name)),
+      save: (name, value) => { records.set(name, value); return Promise.resolve(); } });
+    const store = createCredentialStore(native, fallback({ remove: () => Promise.reject(new Error("private cleanup failure")) }),
+      { platform: platform as NodeJS.Platform });
+    const profile = { issuer: "https://example.test", clientId: "public-client" };
+    const login = (): Promise<Readonly<{ credentials: StoredCredentials; profile: typeof profile }>> => Promise.resolve({ credentials, profile });
+    const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected operation"));
+    const revoke = context.mock.fn(forbidden);
+    const result = await run(["auth", "login", "--issuer", profile.issuer, ...(device ? ["--device"] : [])], {
+      readCredentials: store.read, saveCredentials: store.save, removeCredentials: store.remove,
+    }, { loginBrowser: login, loginDevice: login, revoke, getCustomer: forbidden, listCustomers: forbidden });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.message, /Credentials were saved and access was retained/u);
+    assert.doesNotMatch(result.message, /access-secret|refresh-secret|private cleanup/u);
+    assert.equal(revoke.mock.callCount(), 0);
+    assert.equal((await store.read()).default?.refreshToken, credentials.refreshToken);
+    assert.equal((await run(["auth", "status"], { readCredentials: store.read, saveCredentials: store.save, removeCredentials: store.remove })).exitCode, 0);
+  }))));
 
 void test("pending generations recover an exact write but never revive an older credential", async (): Promise<void> => {
   const authority = memoryAuthority();

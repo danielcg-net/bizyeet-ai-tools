@@ -48,6 +48,16 @@ const keychainOrFallback = async <T>(keychainOperation: () => Promise<T>, fallba
 const selected = (profile: string, value: StoredCredentials | undefined): CredentialCollection => value ? { [profile]: value } : {};
 const sameCredentials = (left: StoredCredentials, right: StoredCredentials): boolean => JSON.stringify(left) === JSON.stringify(right);
 const authorityStore = (options: StoreOptions): CredentialAuthorityStore => options.authority ?? createCredentialAuthorityStore();
+const committedCleanupFailure = Symbol("committed-credential-cleanup");
+
+/** Distinguish an authoritative save from a failure before credentials were committed. */
+export const isCommittedCredentialCleanupFailure = (error: unknown): boolean =>
+  error instanceof Error && error.cause === committedCleanupFailure;
+
+const cleanObsoleteFallback = async (store: FallbackStore, name: string): Promise<void> => {
+  try { await store.remove(name); }
+  catch { throw new Error("Credentials were saved, but obsolete credential cleanup failed.", { cause: committedCleanupFailure }); }
+};
 
 /** Persist ownership before writing credentials; recovered stores cannot revive older generations. */
 export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallbackStore: FallbackStore = fallback, options: StoreOptions = {}): CredentialStore => ({
@@ -109,7 +119,7 @@ export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallb
     const name = profileName(profile);
     if ((options.platform ?? process.platform) === "win32") {
       await keychain.save(name, credentials);
-      return fallbackStore.remove(name);
+      return cleanObsoleteFallback(fallbackStore, name);
     }
     await authorityStore(options).transaction(async (session): Promise<void> => {
       const generation = randomUUID();
@@ -124,7 +134,7 @@ export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallb
       );
       if (!storedSecurely) await fallbackStore.save(name, stored);
       await session.write(name, { backend: storedSecurely ? "native" : "fallback", generation });
-      if (storedSecurely) await fallbackStore.remove(name);
+      if (storedSecurely) await cleanObsoleteFallback(fallbackStore, name);
     });
   },
 });
