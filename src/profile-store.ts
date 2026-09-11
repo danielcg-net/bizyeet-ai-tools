@@ -25,7 +25,7 @@ export type CredentialAuthorityStore = Readonly<{
   transaction: <T>(operation: (session: CredentialAuthoritySession) => Promise<T>) => Promise<T>;
 }>;
 
-export type Profile = Readonly<{ clientId: string; issuer: string; deviceGrantVerified?: boolean }>;
+export type Profile = Readonly<{ clientId: string; issuer: string; deviceGrantVerified?: boolean; deviceRegistrationVersion?: number }>;
 export type ProfileCollection = Readonly<Record<string, Profile>>;
 export type CredentialCollection = Readonly<Record<string, StoredCredentials>>;
 
@@ -59,7 +59,9 @@ const isProfile = (value: unknown): value is Profile =>
   typeof value === "object" && value !== null
   && typeof (value as Record<string, unknown>).clientId === "string"
   && typeof (value as Record<string, unknown>).issuer === "string"
-  && (!("deviceGrantVerified" in value) || typeof value.deviceGrantVerified === "boolean");
+  && (!("deviceGrantVerified" in value) || typeof value.deviceGrantVerified === "boolean")
+  && (!("deviceRegistrationVersion" in value) || (typeof value.deviceRegistrationVersion === "number"
+    && Number.isSafeInteger(value.deviceRegistrationVersion) && value.deviceRegistrationVersion > 0));
 
 /** Parses protected records, retaining legacy unbound entries only for replacement or local removal. */
 export const isCredentials = (value: unknown): value is StoredCredentials =>

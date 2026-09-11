@@ -78,10 +78,23 @@ const isLoopbackRedirect = (value: string): boolean => {
   }
 };
 
-const isRegisteredPublicClient = (value: unknown): value is Readonly<{ client_id: string; token_endpoint_auth_method?: string }> =>
-  typeof value === "object" && value !== null
-  && typeof (value as Record<string, unknown>).client_id === "string"
-  && ((value as Record<string, unknown>).token_endpoint_auth_method === undefined || (value as Record<string, unknown>).token_endpoint_auth_method === "none");
+const isRegistrationResponse = (value: unknown): value is Readonly<{ client_id: string }> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+  && typeof (value as Record<string, unknown>).client_id === "string";
+
+const permitsRegisteredFlow = (value: unknown, deviceGrant: boolean): boolean => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const candidate = value as Readonly<Record<string, unknown>>;
+  const grants = candidate.grant_types;
+  const responses = candidate.response_types === undefined ? ["code"] : candidate.response_types;
+  return candidate.token_endpoint_auth_method === "none"
+    && candidate.client_secret === undefined
+    && isStringArray(grants)
+    && grants.includes("refresh_token")
+    && grants.includes(deviceGrant ? "urn:ietf:params:oauth:grant-type:device_code" : "authorization_code")
+    && isStringArray(responses)
+    && (deviceGrant || responses.includes("code"));
+};
 
 const isOAuthMetadata = (value: unknown, issuer: URL): value is OAuthMetadata => {
   if (typeof value !== "object" || value === null) return false;
@@ -351,6 +364,9 @@ export const registerPublicClient = async (input: Readonly<{
     signal: AbortSignal.timeout(15000),
   });
   const body: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
-  if (!response.ok || !isRegisteredPublicClient(body)) throw new Error("Public OAuth client registration failed.");
+  if (!response.ok || !isRegistrationResponse(body)) throw new Error("Public OAuth client registration failed.");
+  if (!permitsRegisteredFlow(body, input.deviceGrant === true)) {
+    throw new Error("OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.");
+  }
   return { clientId: body.client_id };
 };

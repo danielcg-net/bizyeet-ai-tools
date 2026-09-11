@@ -47,6 +47,22 @@ void test("oversized Unicode searches return actionable CLI validation errors wi
   assert.equal(fetcher.mock.callCount(), 0);
 });
 
+await Promise.all([false, true].map((device) => test(`registration assignment diagnostics survive CLI filtering (device: ${String(device)})`, async () => {
+  const message = "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.";
+  const forbidden = (): never => { throw new Error("Unexpected storage or business operation"); };
+  const rejectLogin = (): Promise<never> => Promise.reject(new Error(message));
+  const result = await run(["auth", "login", "--issuer", "https://example.test", ...(device ? ["--device"] : [])], {
+    readCredentials: () => Promise.resolve({}), removeCredentials: forbidden, saveCredentials: forbidden,
+  }, {
+    getCustomer: forbidden, listCustomers: forbidden, revoke: forbidden,
+    loginBrowser: device ? forbidden : rejectLogin, loginDevice: device ? rejectLogin : forbidden,
+  });
+  assert.equal(result.exitCode, 3);
+  assert.equal(result.stream, "stderr");
+  assert.ok(result.message.includes(JSON.stringify(message)));
+  assert.match(result.message, /"code":"authentication_required"/u);
+})));
+
 await Promise.all(["status", "logout"].map((command) => test(`auth ${command} distinguishes configuration from storage failures`, async () => {
   await Promise.all([
     { message: "keychain denied secret-access", exit: 1 },
@@ -338,6 +354,10 @@ await Promise.all([
   { issuer: "https://example.test", deviceGrantVerified: false },
   { issuer: "https://example.test", deviceGrantVerified: true },
   { issuer: "https://other.test", deviceGrantVerified: true },
+  { issuer: "https://example.test", deviceGrantVerified: true, deviceRegistrationVersion: 1 },
+  { issuer: "https://other.test", deviceGrantVerified: true, deviceRegistrationVersion: 1 },
+  { issuer: "https://example.test", deviceGrantVerified: false, deviceRegistrationVersion: 1 },
+  { issuer: "https://example.test", deviceGrantVerified: true, deviceRegistrationVersion: 2 },
 ].map((previous) => test(`device login reuses only a proven same-issuer client: ${JSON.stringify(previous)}`, async () => {
   const stored = { profile: { clientId: "previous-client", ...previous }, accessToken: "old-access",
     expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "old-refresh", scope: "customers.read" };
@@ -349,7 +369,9 @@ await Promise.all([
   }, { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden,
     revoke: (input) => { assert.deepEqual(input.credentials, stored); assert.deepEqual(input.profile, stored.profile); return Promise.resolve(); },
     loginDevice: (input) => {
-      assert.equal(input.clientId, previous.issuer === profile.issuer && previous.deviceGrantVerified === true ? "previous-client" : undefined);
+      const reusable = previous.issuer === profile.issuer && previous.deviceGrantVerified === true && previous.deviceRegistrationVersion === 1;
+      assert.equal(input.clientId, reusable ? "previous-client" : undefined);
+      assert.equal(input.deviceRegistrationVersion, reusable ? 1 : undefined);
       return Promise.resolve({ credentials: { ...stored, profile }, profile });
     },
   });
