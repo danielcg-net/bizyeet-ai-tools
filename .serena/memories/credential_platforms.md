@@ -223,3 +223,12 @@ Every token exchange validates access_token against RFC6750 section2.1 b64token
 before returning credentials. Reject controls, Unicode, separators and misplaced
 padding; accept the full allowed alphabet and trailing equals padding. Require
 the actual end of input so a terminal newline cannot bypass a regex dollar anchor.
+
+Windows export ACL helpers launch Windows PowerShell through Node. Remove all
+case variants of inherited PSModulePath from the child environment: a PS7 parent
+cannot perform its normal compatibility cleanup across this intermediate process.
+Import the inbox Security module by its fixed PSHOME-relative manifest, not a
+search-resolved user/PS7 module. Native synthetic tests retain stage diagnostics;
+public CLI errors remain redacted and no customer data enters PowerShell.
+Hosted diagnostic run34554915345 failed while autoloading Set-Acl, before the
+file-owner stage; do not misreport that observation as an ownership failure.

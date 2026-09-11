@@ -69,6 +69,18 @@ void test("oversized exports are rejected without creating an artifact", async (
   assert.equal(mkdtemp.mock.callCount(), 0);
 });
 
+void test("Windows ACL subprocess excludes inherited PowerShell module paths in every casing", async () => {
+  const environment = { SystemRoot: tmpdir(), PSModulePath: "incompatible-ps7", PSMODULEPATH: "incompatible-upper", psmodulepath: "incompatible-lower", SYNTHETIC_KEEP: "preserved" };
+  await secureWindowsExport(join(tmpdir(), "synthetic"), true, (_executable, args, child) => {
+    assert.equal(Object.keys(child).some((key) => key.toUpperCase() === "PSMODULEPATH"), false);
+    assert.equal(child.SYNTHETIC_KEEP, "preserved");
+    assert.equal(environment.PSModulePath, "incompatible-ps7");
+    const script = Buffer.from(args.at(-1) ?? "", "base64").toString("utf16le");
+    assert.ok(script.includes("Import-Module -Name (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1')"));
+    return Promise.resolve("private");
+  }, environment);
+});
+
 await Promise.all(["relative", "", `${tmpdir()}/unsafe\u009b`, `${tmpdir()}/unsafe\u202e`].map((temporaryRoot, index) =>
   test(`rejects unsafe temporary root ${String(index)}`, async (context) => {
     const mkdtemp = context.mock.fn(files.mkdtemp);

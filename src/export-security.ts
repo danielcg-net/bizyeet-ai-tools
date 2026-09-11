@@ -8,6 +8,7 @@ const execute = promisify(execFile);
 // source; canonical response data is never sent to this process.
 const aclScript = `
 $ErrorActionPreference = 'Stop'
+Import-Module -Name (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 $path = $env:BIZYEET_EXPORT_SECURITY_PATH
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $item = Get-Item -LiteralPath $path -Force
@@ -41,8 +42,11 @@ export const secureWindowsExport = async (path: string, createDirectoryAcl: bool
   const systemRoot = environment.SystemRoot ?? environment.SYSTEMROOT;
   if (!systemRoot || !isAbsolute(systemRoot) || !isAbsolute(path)) throw new Error("Export ACL protection is unavailable.");
   const executable = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  // Node inherits PS7 module paths without PowerShell's direct-child cleanup.
+  // Let Windows PowerShell construct its own compatible module search paths.
+  const childEnvironment = Object.fromEntries(Object.entries(environment).filter(([key]) => key.toUpperCase() !== "PSMODULEPATH"));
   const output = await executor(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(aclScript, "utf16le").toString("base64")], {
-    ...environment, BIZYEET_EXPORT_SECURITY_PATH: path,
+    ...childEnvironment, BIZYEET_EXPORT_SECURITY_PATH: path,
     BIZYEET_EXPORT_SECURITY_CREATE: createDirectoryAcl ? "directory" : "verify",
   });
   if (output !== "private") throw new Error("Export ACL protection could not be verified.");
