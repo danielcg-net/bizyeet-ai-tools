@@ -7,6 +7,23 @@ import { openLoopbackCallback, type LoopbackCallback } from "./loopback.js";
 const response = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+void test("persistent browser and device login reject missing or unusable refresh tokens", async () => {
+  await Promise.all([false, true].flatMap((device) => [undefined, "", " ", "bad token", "bad\u009btoken", "bad\u202etoken", "bad\uD800token"].map(async (refreshToken) => {
+    const fetcher = (url: string): Promise<Response> => {
+      if (url.endsWith("oauth-authorization-server")) return response({ issuer: "https://example.test", authorization_endpoint: "https://example.test/authorize", code_challenge_methods_supported: ["S256"], registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device" });
+      if (url.endsWith("/register")) return response({ client_id: "public-client", token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"] });
+      if (url.endsWith("/device")) return response({ device_code: "synthetic-device", user_code: "CODE", expires_in: 900, interval: 5, verification_uri: "https://example.test/verify" });
+      assert.equal(url, "https://example.test/token");
+      return response({ access_token: "secret-access", expires_in: 300, token_type: "Bearer", ...(refreshToken === undefined ? {} : { refresh_token: refreshToken }) });
+    };
+    const input = { issuer: "https://example.test", scope: "customers.read" };
+    const operation = device ? loginWithDevice(input, { fetcher, now: Date.now, onVerification: (): void => undefined })
+      : loginWithBrowser(input, { fetcher, now: Date.now, launchBrowser: () => Promise.resolve(),
+        openCallback: () => Promise.resolve({ redirectUri: "http://127.0.0.1:43123/callback", awaitCode: () => Promise.resolve("synthetic-code"), close: () => Promise.resolve() }) });
+    await assert.rejects(operation, (error: unknown) => error instanceof Error && error.message.includes("Persistent login was not completed") && !error.message.includes("secret-access"));
+  })));
+});
+
 await Promise.all([false, true].map((verified) => test(`saved device registration requires current assignment proof: ${String(verified)}`, async () => {
   const fetcher = mock.fn((url: string): Promise<Response> => {
     if (url.endsWith("oauth-authorization-server")) return response({ issuer: "https://example.test", authorization_endpoint: "https://example.test/authorize",

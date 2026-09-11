@@ -25,6 +25,8 @@ export const refreshPersistenceMessages = {
 } as const;
 
 const fieldPattern = /^[a-z][a-z0-9_]{0,63}$/u;
+const validTenantIdentifier = (value: unknown): value is string => typeof value === "string"
+  && value.trim().length > 0 && value.length <= 512 && !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(value);
 
 const boundedOptions = (options: CustomerListOptions): ListOptions => {
   const limit = options.limit ?? 25;
@@ -124,7 +126,7 @@ export const checkIdentity = (input: Readonly<{
   if (!response) return { status: 503, body: { error: { code: "request_unavailable" } } };
   const body: unknown = await readBoundedJson(response, AUTH_RESPONSE_BYTES).catch(() => null);
   if (!response.ok) return { status: response.status, body };
-  if (typeof body !== "object" || body === null || !("tenant_id" in body) || typeof body.tenant_id !== "string"
+  if (typeof body !== "object" || body === null || !("tenant_id" in body) || !validTenantIdentifier(body.tenant_id)
       || !("client_id" in body) || body.client_id !== input.profile.clientId
       || !("scope" in body) || !Array.isArray(body.scope) || !body.scope.every((scope: unknown) => validOAuthScope(scope) && !scope.includes(" "))) {
     return { status: 502, body: { error: { code: "invalid_response" } } };

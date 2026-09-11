@@ -34,13 +34,18 @@ type BrowserLoginDependencies = Readonly<{
   openCallback: (state: string, issuer: string) => Promise<LoopbackCallback>;
 }>;
 
-const credentialsFrom = (tokens: OAuthTokenSet, now: () => number, profile: Profile, requestedScope: string): StoredCredentials => ({
+const credentialsFrom = (tokens: OAuthTokenSet, now: () => number, profile: Profile, requestedScope: string): StoredCredentials => {
+  if (!tokens.refresh_token || /[\s\p{Cc}\p{Cf}\p{Cs}]/u.test(tokens.refresh_token)) {
+    throw new Error("The authorization server did not issue a usable refresh token. Persistent login was not completed.");
+  }
+  return {
   profile,
   accessToken: tokens.access_token,
   expiresAt: new Date(now() + tokens.expires_in * 1000).toISOString(),
-  refreshToken: tokens.refresh_token ?? "",
+  refreshToken: tokens.refresh_token,
   scope: tokens.scope ?? requestedScope,
-});
+  };
+};
 
 /** Completes an OAuth-only device login and returns secret-bearing credentials only to the local storage boundary. */
 export const loginWithDevice = async (input: Readonly<{

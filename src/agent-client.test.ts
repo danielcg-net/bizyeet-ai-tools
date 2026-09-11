@@ -118,6 +118,15 @@ void test("identity probe rejects a mismatched OAuth client and malformed scopes
   }));
 });
 
+void test("identity probe rejects blank, oversized or display-unsafe tenant identifiers", async () => {
+  await Promise.all(["", " ", "x".repeat(513), "tenant\u009b", "tenant\u001b", "tenant\u202e", "tenant\uD800", "tenant\u2028", "tenant\u2029"].map(async (tenantId) => {
+    await assert.rejects(checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      fetcher: () => Promise.resolve(Response.json({ tenant_id: tenantId, client_id: profile.clientId, scope: ["customers.read"] })),
+      persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === "invalid_response");
+  }));
+});
+
 void test("passes long opaque identifiers unchanged through the canonical transport", async (): Promise<void> => {
   const id = `crm1.${"a".repeat(489)}.customers.1234567`;
   assert.equal(id.length, 512);

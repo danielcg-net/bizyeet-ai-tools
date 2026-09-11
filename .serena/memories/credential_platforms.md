@@ -183,3 +183,8 @@ chmod, close and rename failure cleanup.
 The operation/cleanup boundary normalizes synchronous throws as well as rejected
 promises. Both must release the acquired storage lock and remain pre-commit
 failures; regression tests assert cleanup runs exactly once.
+
+Persistent browser/device login requires a nonempty usable refresh token before
+returning credentials to storage. Access-only responses are not persistent login
+success. Auth-check tenant identifiers are bounded to 512 code units, nonblank,
+and exclude Unicode controls/formatting/surrogates/line separators before output.
