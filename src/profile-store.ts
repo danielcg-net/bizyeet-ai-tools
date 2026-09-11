@@ -28,6 +28,7 @@ export type CredentialAuthorityStore = Readonly<{
 
 export type Profile = Readonly<{ clientId: string; issuer: string; deviceGrantVerified?: boolean; deviceRegistrationVersion?: number }>;
 export type ProfileCollection = Readonly<Record<string, Profile>>;
+export type ProfileOperationOutcome<T> = Readonly<{ result: T; cleanupFailed: boolean }>;
 export type CredentialCollection = Readonly<Record<string, StoredCredentials>>;
 
 type FileOperations = Readonly<{
@@ -147,17 +148,25 @@ const withCredentialLock = async <T>(paths: ReturnType<typeof profilePaths>, ope
  * The lock contains no credentials; Windows credentials remain native-only.
  */
 export const withProfileOperationLock = async <T>(name: string, operation: () => Promise<T>,
-  environment: NodeJS.ProcessEnv = process.env, homeDirectory: string = homedir()): Promise<T> => {
+  environment: NodeJS.ProcessEnv = process.env, homeDirectory: string = homedir(), operations: FileOperations = files): Promise<ProfileOperationOutcome<T>> => {
   const profile = profileName(name);
   const paths = profilePaths(environment, homeDirectory);
-  await files.mkdir(paths.directory, { recursive: true, mode: 0o700 });
-  const directory = await files.lstat(paths.directory);
+  await operations.mkdir(paths.directory, { recursive: true, mode: 0o700 });
+  const directory = await operations.lstat(paths.directory);
   if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error("Profile operation directory is unsafe.");
-  if (process.platform !== "win32") await assertPrivateDirectory(paths.directory, files);
+  if (process.platform !== "win32") await assertPrivateDirectory(paths.directory, operations);
   const lock = join(paths.directory, `.profile-${profile}.lock`);
-  await acquireCredentialLock(lock, files);
-  try { return await operation(); }
-  finally { await files.rmdir(lock); }
+  await acquireCredentialLock(lock, operations);
+  const outcome = await Promise.resolve().then(operation).then(
+    (value) => ({ ok: true, value } as const), (error: unknown) => ({ ok: false, error } as const),
+  );
+  try { await operations.rmdir(lock); }
+  catch {
+    if (outcome.ok) return { result: outcome.value, cleanupFailed: true };
+    throw new Error("Profile operation and lock cleanup failed.", { cause: outcome.error });
+  }
+  if (!outcome.ok) throw outcome.error;
+  return { result: outcome.value, cleanupFailed: false };
 };
 
 const writePrivateJson = async (path: string, value: unknown, operations: FileOperations, secret = false): Promise<void> => {

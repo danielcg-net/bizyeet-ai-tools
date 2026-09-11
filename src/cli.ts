@@ -16,15 +16,15 @@ import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
 import { isUuid } from "./uuid.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, issuerOrigin, revokeRefreshToken } from "./oauth.js";
-import { profileName, withProfileOperationLock } from "./profile-store.js";
+import { profileName, withProfileOperationLock, type ProfileOperationOutcome } from "./profile-store.js";
 import { openLoopbackCallback } from "./loopback.js";
 import { agentFailureExitCode, agentFailureMessage, isAgentFailure } from "./agent-error.js";
 
-export type CliResult = Readonly<{ exitCode: number; message: string; stream: "stderr" | "stdout" }>;
+export type CliResult = Readonly<{ exitCode: number; message: string; stream: "stderr" | "stdout"; warnings?: readonly string[] }>;
 export type CliIo = Readonly<{ error: (message: string) => void; log: (message: string) => void }>;
 
 type CliStorage = Readonly<{
-  withProfileLock?: <T>(profile: string, operation: () => Promise<T>) => Promise<T>;
+  withProfileLock?: <T>(profile: string, operation: () => Promise<T>) => Promise<ProfileOperationOutcome<T>>;
   readCredentials: (profile?: string) => Promise<import("./profile-store.js").CredentialCollection>;
   removeCredentials: (profile: string) => Promise<void>;
   saveCredentials: (profile: string, credentials: import("./profile-store.js").StoredCredentials) => Promise<void>;
@@ -411,7 +411,10 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
         if ("exitCode" in parsed) return parsed;
       }
       const { withProfileLock, ...unlockedStorage } = dependencies;
-      return await withProfileLock(profileFrom(optionArgs), () => run(args, unlockedStorage, execution, onVerification));
+      const outcome = await withProfileLock(profileFrom(optionArgs), () => run(args, unlockedStorage, execution, onVerification));
+      return outcome.cleanupFailed ? { ...outcome.result, warnings: [
+        "The operation result is preserved, but profile-lock cleanup failed. Do not repeat a completed mutation. Stop commands and recover the abandoned profile lock before continuing.",
+      ] } : outcome.result;
     } catch (error) {
       return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
     }
@@ -431,6 +434,7 @@ export const execute = async (args: readonly string[], io: CliIo): Promise<numbe
     io.error(JSON.stringify({ data: { user_code: device.userCode, verification_uri: device.verificationUriComplete ?? device.verificationUri }, meta: { contract_version: "v1" } }));
   });
   (resolved.stream === "stdout" ? io.log : io.error)(resolved.message);
+  resolved.warnings?.forEach((message) => { io.error(JSON.stringify({ warning: { code: "profile_lock_cleanup_failed", message } })); });
   return resolved.exitCode;
 };
 

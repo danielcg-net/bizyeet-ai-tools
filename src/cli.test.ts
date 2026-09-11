@@ -13,7 +13,7 @@ await Promise.all(["--profile", "--profile=other"].flatMap((id) => ["default", "
       accessToken: "synthetic-access", refreshToken: "synthetic-refresh", expiresAt: "2099-01-01", scope: "customers.read" };
     const save = context.mock.fn((profile: string): Promise<void> => { assert.equal(profile, name); return Promise.resolve(); });
     const result = await run(["customers", "get", ...(name === "default" ? [] : ["--profile", name]), "--", id], {
-      withProfileLock: async (profile, operation) => { assert.equal(profile, name); return operation(); },
+      withProfileLock: async (profile, operation) => { assert.equal(profile, name); return { result: await operation(), cleanupFailed: false }; },
       readCredentials: () => Promise.resolve({ [name]: credentials }), saveCredentials: save, removeCredentials: forbidden,
     }, {
       loginBrowser: forbidden, loginDevice: forbidden, listCustomers: forbidden, revoke: forbidden,

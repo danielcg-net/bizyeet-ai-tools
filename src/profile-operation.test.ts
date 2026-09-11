@@ -5,16 +5,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
+import * as files from "node:fs/promises";
 import { profilePaths, withProfileOperationLock } from "./profile-store.js";
+
+void test("profile cleanup failure does not turn a thrown operation into a completed result", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bizyeet-profile-failed-"));
+  const original = new Error("original operation failure");
+  try {
+    await assert.rejects(withProfileOperationLock("default", () => { throw original; }, {}, root, {
+      ...files, rmdir: () => Promise.reject(new Error("cleanup failure")),
+    }), (error: unknown) => error instanceof Error && error.cause === original);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 void test("profile operation lock releases after failure and permits other profiles", async (): Promise<void> => {
   const root = await mkdtemp(join(tmpdir(), "bizyeet-profile-lock-"));
   try {
     await assert.rejects(withProfileOperationLock("default", async (): Promise<never> => {
-      assert.equal(await withProfileOperationLock("other", () => Promise.resolve(7), {}, root), 7);
+      assert.deepEqual(await withProfileOperationLock("other", () => Promise.resolve(7), {}, root), { result: 7, cleanupFailed: false });
       throw new Error("synthetic failure");
     }, {}, root), /synthetic failure/u);
-    assert.equal(await withProfileOperationLock("default", () => Promise.resolve(9), {}, root), 9);
+    assert.deepEqual(await withProfileOperationLock("default", () => Promise.resolve(9), {}, root), { result: 9, cleanupFailed: false });
     assert.deepEqual(await readdir(profilePaths({}, root).directory), []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

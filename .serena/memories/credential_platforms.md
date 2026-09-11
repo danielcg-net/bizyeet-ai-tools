@@ -188,3 +188,8 @@ Persistent browser/device login requires a nonempty usable refresh token before
 returning credentials to storage. Access-only responses are not persistent login
 success. Auth-check tenant identifiers are bounded to 512 code units, nonblank,
 and exclude Unicode controls/formatting/surrogates/line separators before output.
+
+Outer profile locks return a typed result plus cleanup status. Completed CLI
+responses and exit codes survive cleanup failure; a separate stderr warning
+requires lock recovery and explicitly forbids repeating a completed mutation.
+Do not throw away canonical success/audit or denial results because rmdir failed.

@@ -128,6 +128,11 @@ stop all BizYeet commands and verify there is no live owner before an operator
 removes only that empty lock directory. Never delete credential files to recover
 the lock. This serializes local file updates, not overlapping OAuth refresh
 requests for the same profile; do not run those refreshes concurrently.
+If an operation completes but its outer profile lock cannot be removed, the CLI
+preserves that operation's response and exit code. It emits a separate JSON
+warning on stderr with code `profile_lock_cleanup_failed`. Do not repeat a
+completed mutation: stop commands and recover only the abandoned lock after
+checking that no live process owns it.
 In POSIX auto mode, protected `credential-authority.json` metadata records which
 store owns the current credential generation; it contains no OAuth tokens.
 An exclusive `.credential-authority.lock` serializes ownership and store updates.

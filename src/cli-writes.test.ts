@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { run } from "./cli.js";
 import { agentFailure } from "./agent-error.js";
+import * as files from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { withProfileOperationLock } from "./profile-store.js";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const key = "22222222-2222-4222-8222-222222222222";
@@ -14,6 +18,31 @@ const unexpected = (): never => { throw new Error("Unexpected operation"); };
 const runtime: NonNullable<Parameters<typeof run>[2]> = {
   getCustomer: unexpected, listCustomers: unexpected, loginBrowser: unexpected, loginDevice: unexpected, revoke: unexpected,
 };
+
+await Promise.all([false, true].map((denied) => test(`profile-lock cleanup preserves completed mutation result, denied=${String(denied)}`, async () => {
+  const root = await files.mkdtemp(join(tmpdir(), "bizyeet-mutation-lock-"));
+  const canonical = { data: { audit_reference: id, state: "succeeded" }, meta: { contract_version: "v1", request_id: "synthetic-request" } };
+  const execute = mock.fn(() => denied
+    ? Promise.reject(new Error("Denied", { cause: agentFailure(403, { error: { code: "authorization_denied" } }) }))
+    : Promise.resolve({ credentials, response: canonical }));
+  const lockedStorage: typeof storage = { ...storage,
+    withProfileLock: (name, operation) => withProfileOperationLock(name, operation, {}, root, {
+      ...files, rmdir: () => Promise.reject(new Error("private filesystem detail")),
+    }),
+  };
+  try {
+    const result = await run(["customers", "update", "execute", id, "--idempotency-key", key], lockedStorage, {
+      ...runtime, executeCustomerUpdate: execute, readApprovalReceipt: () => Promise.resolve("r".repeat(43)),
+    });
+    assert.equal(execute.mock.callCount(), 1);
+    assert.equal(result.exitCode, denied ? 4 : 0);
+    assert.equal(result.stream, denied ? "stderr" : "stdout");
+    if (!denied) assert.equal(result.message, JSON.stringify(canonical));
+    assert.equal(result.warnings?.length, 1);
+    assert.match(result.warnings[0] ?? "", /Do not repeat a completed mutation/u);
+    assert.doesNotMatch(JSON.stringify(result), /access-secret|refresh-secret|private filesystem detail/u);
+  } finally { await files.rm(root, { recursive: true, force: true }); }
+})));
 
 await Promise.all([6, 7, 8].map((version) => test(`execute and status accept caller UUIDv${String(version)} keys unchanged`, async () => {
   const uuid = `abcdefab-1234-${String(version)}abc-8def-abcdefabcdef`;
