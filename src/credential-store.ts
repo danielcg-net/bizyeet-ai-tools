@@ -1,8 +1,8 @@
 import { nativeKeychain, type Keychain } from "./keychain.js";
 import { randomUUID } from "node:crypto";
-import { committedCredentialCleanupError } from "./credential-cleanup.js";
+import { committedCredentialCleanupError, isCommittedCredentialCleanupFailure } from "./credential-cleanup.js";
 export { isCommittedCredentialCleanupFailure } from "./credential-cleanup.js";
-import { createCredentialAuthorityStore, profileName, readFallbackCredentials, removeFallbackCredentials, requireFileCredentialSupport, saveFallbackCredentials, type CredentialAuthorityStore, type CredentialCollection, type StoredCredentials } from "./profile-store.js";
+import { createCredentialAuthorityStore, profileName, readFallbackCredentials, removeFallbackCredentials, requireFileCredentialSupport, saveFallbackCredentials, type CredentialAuthoritySession, type CredentialAuthorityStore, type CredentialCollection, type StoredCredentials } from "./profile-store.js";
 
 export type CredentialStore = Readonly<{
   read: (profile?: string) => Promise<CredentialCollection>;
@@ -53,6 +53,22 @@ const authorityStore = (options: StoreOptions): CredentialAuthorityStore => opti
 const cleanObsoleteFallback = async (store: FallbackStore, name: string): Promise<void> => {
   try { await store.remove(name); }
   catch { throw committedCredentialCleanupError(); }
+};
+
+const hasRecoverableWrite = async (session: CredentialAuthoritySession, native: Keychain, file: FallbackStore, name: string, expected: StoredCredentials): Promise<boolean> => {
+  // Inspect under the existing authority lock, never through a nested public read.
+  const [authority, nativeRead, fileRead] = await Promise.allSettled([
+    Promise.resolve().then(() => session.read(name)),
+    Promise.resolve().then(() => keychainOrFallback(() => native.read(name), () => Promise.resolve(undefined))),
+    Promise.resolve().then(() => file.read()),
+  ]);
+  if (authority.status !== "fulfilled" || authority.value === undefined || authority.value.generation !== expected.storageGeneration || authority.value.backend === "removed") return false;
+  const matches = (value: StoredCredentials | undefined): boolean => value !== undefined && value.storageGeneration === expected.storageGeneration && sameCredentials(value, expected);
+  if (authority.value.backend === "native") return nativeRead.status === "fulfilled" && matches(nativeRead.value);
+  if (authority.value.backend === "fallback") return fileRead.status === "fulfilled" && matches(fileRead.value[name]);
+  if (nativeRead.status !== "fulfilled" || fileRead.status !== "fulfilled") return false;
+  const candidates = [nativeRead.value, fileRead.value[name]].filter((value) => value?.storageGeneration === expected.storageGeneration);
+  return candidates.length > 0 && candidates.every((value) => value !== undefined && sameCredentials(value, expected));
 };
 
 /** Persist ownership before writing credentials; recovered stores cannot revive older generations. */
@@ -121,16 +137,22 @@ export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallb
       const generation = randomUUID();
       const stored = { ...credentials, storageGeneration: generation };
       await session.write(name, { backend: "pending", generation });
-      const storedSecurely = await keychainOrFallback(
-        async () => {
-          await keychain.save(name, stored);
-          return true;
-        },
-        () => Promise.resolve(false),
-      );
-      if (!storedSecurely) await fallbackStore.save(name, stored);
-      await session.write(name, { backend: storedSecurely ? "native" : "fallback", generation });
-      if (storedSecurely) await cleanObsoleteFallback(fallbackStore, name);
+      try {
+        const storedSecurely = await keychainOrFallback(
+          async () => {
+            await keychain.save(name, stored);
+            return true;
+          },
+          () => Promise.resolve(false),
+        );
+        if (!storedSecurely) await fallbackStore.save(name, stored);
+        await session.write(name, { backend: storedSecurely ? "native" : "fallback", generation });
+        if (storedSecurely) await cleanObsoleteFallback(fallbackStore, name);
+      } catch (error) {
+        if (isCommittedCredentialCleanupFailure(error)) throw error;
+        if (await hasRecoverableWrite(session, keychain, fallbackStore, name, stored)) throw committedCredentialCleanupError();
+        throw error;
+      }
     });
   },
 });

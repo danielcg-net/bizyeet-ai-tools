@@ -193,3 +193,11 @@ Outer profile locks return a typed result plus cleanup status. Completed CLI
 responses and exit codes survive cleanup failure; a separate stderr warning
 requires lock recovery and explicitly forbids repeating a completed mutation.
 Do not throw away canonical success/audit or denial results because rmdir failed.
+
+A native or fallback save can persist the pending generation and then reject.
+Inspect authority and both stores inside the already-held authority transaction;
+only exact generation and credential identity establish recoverable persistence.
+Preserve that grant and report cleanup trouble instead of revoking it. Missing,
+mismatched, conflicting or unreadable pending records do not prove commitment.
+Never nest public credential reads inside the authority lock or treat the initial
+pending metadata write alone as proof that tokens were saved.

@@ -217,11 +217,68 @@ void test("pending generations recover an exact write but never revive an older 
     return Promise.reject(new Error("Interrupted after write"));
   } });
   const stored = createCredentialStore(native, fallback(), { authority });
-  await assert.rejects(stored.save("default", { ...credentials, refreshToken: "new-refresh" }), /Interrupted after write/u);
+  await assert.rejects(stored.save("default", { ...credentials, refreshToken: "new-refresh" }), isCommittedCredentialCleanupFailure);
   assert.equal((await createCredentialStore(native, fallback(), { authority }).read()).default?.refreshToken, "new-refresh");
   nativeRecords.set("default", credentials);
   assert.deepEqual(await stored.read(), {});
 });
+
+await Promise.all(["native", "fallback"].flatMap((backend) => ["login", "refresh"].map((operation) =>
+  test(`${operation} retains an exactly recovered pending ${backend} write`, async (context) => {
+    const records = new Map<string, StoredCredentials>();
+    const unavailable = (): Promise<never> => Promise.reject(new Error("No keyring backend is available."));
+    const interrupted = (name: string, value: StoredCredentials): Promise<never> => {
+      records.set(name, value);
+      return Promise.reject(new Error("Interrupted after write"));
+    };
+    const native = backend === "native" ? keychain({ read: (name) => Promise.resolve(records.get(name)), save: interrupted })
+      : keychain({ read: unavailable, save: unavailable });
+    const file = backend === "fallback" ? fallback({ read: () => Promise.resolve(Object.fromEntries(records)), save: interrupted }) : fallback();
+    const store = createCredentialStore(native, file);
+    const profile = { issuer: "https://example.test", clientId: "public-client" };
+    const bound = { ...credentials, profile };
+    const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected operation"));
+    const revoke = context.mock.fn(forbidden);
+    if (operation === "login") {
+      const login = (): Promise<Readonly<{ profile: typeof profile; credentials: StoredCredentials }>> => Promise.resolve({ profile, credentials: bound });
+      const result = await run(["auth", "login", "--issuer", profile.issuer], {
+        readCredentials: store.read, saveCredentials: store.save, removeCredentials: store.remove,
+      }, { loginBrowser: login, loginDevice: login, revoke, getCustomer: forbidden, listCustomers: forbidden });
+      assert.equal(result.exitCode, 1);
+      assert.match(result.message, /saved and access was retained/u);
+      assert.equal(revoke.mock.callCount(), 0);
+    } else {
+      const fetcher = context.mock.fn((url: string): Promise<Response> => {
+        assert.equal(url, "https://example.test/token");
+        return Promise.resolve(Response.json({ access_token: credentials.accessToken, refresh_token: credentials.refreshToken, token_type: "Bearer", expires_in: 300, scope: credentials.scope }));
+      });
+      await assert.rejects(getCustomer({ credentials: { ...bound, expiresAt: new Date(0).toISOString() }, profile,
+        persistCredentials: (value) => store.save("default", value), fetcher, now: () => 1000, resourceId: "customer-1",
+        metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", revocation_endpoint: "https://example.test/revoke" },
+      }), (error: unknown) => error instanceof Error && error.message === refreshPersistenceMessages.retained);
+      assert.equal(fetcher.mock.callCount(), 1);
+    }
+    const recovered = (await store.read()).default;
+    assert.equal(recovered?.refreshToken, credentials.refreshToken);
+    assert.deepEqual(recovered.profile, profile);
+  }))));
+
+await Promise.all(["before", "generation", "payload", "read-failure"].map((failure) =>
+  test(`pending recovery does not claim an unproven write: ${failure}`, async () => {
+    const records = new Map<string, StoredCredentials>();
+    const original = new Error("Interrupted write");
+    const native = keychain({
+      read: (name) => failure === "read-failure" ? Promise.reject(new Error("Read unavailable")) : Promise.resolve(records.get(name)),
+      save: (name, value) => {
+        if (failure !== "before") records.set(name, { ...value,
+          ...(failure === "generation" ? { storageGeneration: "11111111-1111-4111-8111-111111111111" } : {}),
+          ...(failure === "payload" ? { refreshToken: "different-refresh" } : {}),
+        });
+        return Promise.reject(original);
+      },
+    });
+    await assert.rejects(createCredentialStore(native, fallback()).save("default", credentials), (error: unknown) => error === original && !isCommittedCredentialCleanupFailure(error));
+  })));
 
 void test("authority failure prevents secret writes and legacy conflicts require re-login", async (context): Promise<void> => {
   const save = context.mock.fn(() => Promise.resolve());
