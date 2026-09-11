@@ -10,17 +10,20 @@ void test("Windows native export ACL protects the directory and its new file", {
   const directory = await files.mkdtemp(join(tmpdir(), "export-native-acl-test-"));
   try {
     context.diagnostic("Establishing current-user directory ACL");
-    await secureWindowsExport(directory, true);
+    await secureWindowsExport(directory, "directory");
     context.diagnostic("Directory ACL verified; creating empty synthetic file");
     const path = join(directory, "synthetic.json");
     const handle = await files.open(path, "wx", 0o600);
     try {
-      context.diagnostic("Verifying inherited file ACL before writing synthetic data");
-      await secureWindowsExport(path, false);
+      context.diagnostic("Establishing current-user file owner and ACL before writing synthetic data");
+      await secureWindowsExport(path, "file");
+      await secureWindowsExport(path, "verify");
       await handle.writeFile("{}\n", "utf8");
       await handle.sync();
     } finally { await handle.close(); }
     assert.equal(await files.readFile(path, "utf8"), "{}\n");
+    await assert.rejects(secureWindowsExport(path, "file"), /Expected empty file/u);
+    await secureWindowsExport(path, "verify");
   } finally { await files.rm(directory, { recursive: true, force: true }); }
 });
 
@@ -30,7 +33,7 @@ void test("exports an exact canonical envelope to a unique private file", async 
   try {
     assert.equal(await files.readFile(result.path, "utf8"), `${response}\n`);
     assert.equal(result.bytes, Buffer.byteLength(response) + 1);
-    if (process.platform === "win32") await secureWindowsExport(result.path, false);
+    if (process.platform === "win32") await secureWindowsExport(result.path, "verify");
     else {
       assert.equal((await files.stat(result.path)).mode & 0o777, 0o600);
       assert.equal((await files.stat(dirname(result.path))).mode & 0o777, 0o700);
@@ -52,7 +55,7 @@ void test("Windows ACL failure occurs before opening a data file and cleans its 
 
 void test("ACL invocation keeps hostile path data outside executable script text", async () => {
   const path = join(tmpdir(), "literal-'$();[]-directory");
-  await secureWindowsExport(path, true, (executable, args, environment) => {
+  await secureWindowsExport(path, "directory", (executable, args, environment) => {
     assert.equal(executable, join(tmpdir(), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
     assert.equal(environment.BIZYEET_EXPORT_SECURITY_PATH, path);
     assert.equal(environment.BIZYEET_EXPORT_SECURITY_CREATE, "directory");
@@ -60,7 +63,26 @@ void test("ACL invocation keeps hostile path data outside executable script text
     assert.equal(Buffer.from(args.at(-1) ?? "", "base64").toString("utf16le").includes(path), false);
     return Promise.resolve("private");
   }, { SystemRoot: tmpdir() });
-  await assert.rejects(secureWindowsExport(path, true, () => Promise.resolve("unexpected"), { SystemRoot: tmpdir() }), /could not be verified/u);
+  await assert.rejects(secureWindowsExport(path, "directory", () => Promise.resolve("unexpected"), { SystemRoot: tmpdir() }), /could not be verified/u);
+});
+
+void test("Windows file ACL failure closes the empty file without writing response data", async (context) => {
+  const root = await files.mkdtemp(join(tmpdir(), "export-file-acl-test-"));
+  const write = context.mock.fn((): Promise<void> => Promise.resolve());
+  const security = context.mock.fn((_path: string, mode: "directory" | "file" | "verify"): Promise<void> =>
+    mode === "file" ? Promise.reject(new Error("synthetic file ACL failure")) : Promise.resolve());
+  try {
+    await assert.rejects(exportReadResponse("synthetic-private-response", { temporaryRoot: root, platform: "win32", secureWindows: security,
+      operations: { ...files, open: async (path, flags, mode) => {
+        const handle = await files.open(path, flags, mode);
+        return { stat: (): Promise<import("node:fs").Stats> => handle.stat(), writeFile: write,
+          sync: (): Promise<void> => handle.sync(), close: (): Promise<void> => handle.close() };
+      } },
+    }), /No response data was printed/u);
+    assert.deepEqual(security.mock.calls.map((call) => call.arguments[1]), ["directory", "file"]);
+    assert.equal(write.mock.callCount(), 0);
+    assert.deepEqual(await files.readdir(root), []);
+  } finally { await files.rm(root, { recursive: true, force: true }); }
 });
 
 void test("oversized exports are rejected without creating an artifact", async (context) => {
@@ -71,7 +93,7 @@ void test("oversized exports are rejected without creating an artifact", async (
 
 void test("Windows ACL subprocess excludes inherited PowerShell module paths in every casing", async () => {
   const environment = { SystemRoot: tmpdir(), PSModulePath: "incompatible-ps7", PSMODULEPATH: "incompatible-upper", psmodulepath: "incompatible-lower", SYNTHETIC_KEEP: "preserved" };
-  await secureWindowsExport(join(tmpdir(), "synthetic"), true, (_executable, args, child) => {
+  await secureWindowsExport(join(tmpdir(), "synthetic"), "directory", (_executable, args, child) => {
     assert.equal(Object.keys(child).some((key) => key.toUpperCase() === "PSMODULEPATH"), false);
     assert.equal(child.SYNTHETIC_KEEP, "preserved");
     assert.equal(environment.PSModulePath, "incompatible-ps7");

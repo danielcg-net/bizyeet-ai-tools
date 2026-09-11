@@ -31,7 +31,7 @@ export const exportReadResponse = async (serialized: string, options: ExportOpti
   const directory = await operations.mkdtemp(join(temporaryRoot, "bizyeet-export-"));
   const path = join(directory, `${randomUUID()}.json`);
   try {
-    if (platform === "win32") await windowsSecurity(directory, true);
+    if (platform === "win32") await windowsSecurity(directory, "directory");
     const directoryStat = await operations.lstat(directory);
     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()
       || (platform !== "win32" && (directoryStat.uid !== process.getuid?.() || (directoryStat.mode & 0o077) !== 0))) throw new Error("Unsafe export directory.");
@@ -39,7 +39,7 @@ export const exportReadResponse = async (serialized: string, options: ExportOpti
     try {
       const status = await handle.stat();
       if (!status.isFile() || status.nlink !== 1 || (platform !== "win32" && (status.uid !== process.getuid?.() || (status.mode & 0o077) !== 0))) throw new Error("Unsafe export file.");
-      if (platform === "win32") await windowsSecurity(path, false);
+      if (platform === "win32") await windowsSecurity(path, "file");
       await handle.writeFile(content, "utf8");
       await handle.sync();
     } finally { await handle.close(); }

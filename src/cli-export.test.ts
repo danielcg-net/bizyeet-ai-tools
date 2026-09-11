@@ -7,6 +7,24 @@ const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected ope
 const storage = { readCredentials: (): Promise<Readonly<{ default: typeof credentials }>> => Promise.resolve({ default: credentials }), saveCredentials: forbidden, removeCredentials: forbidden };
 const baseRuntime = { loginBrowser: forbidden, loginDevice: forbidden, revoke: forbidden, getCustomer: forbidden, listCustomers: forbidden };
 
+await Promise.all(["inline", "explicit", "escaped-large"].map((mode) =>
+  test(`read output preserves opaque cursors without display controls: ${mode}`, async (context) => {
+    const cursor = "opaque\u009b\u202e\u2028\u{e0001}";
+    const response = { data: { items: [{ id: "synthetic", note: mode === "escaped-large" ? "\u009b".repeat(6000) : "private" }] }, meta: { contract_version: "v1", next_cursor: cursor } };
+    const exporter = context.mock.fn((serialized: string) => {
+      assert.deepEqual(JSON.parse(serialized) as unknown, response);
+      return Promise.resolve({ path: "/private/generated.json", bytes: Buffer.byteLength(serialized) + 1 });
+    });
+    const result = await run(["customers", "list", ...(mode === "explicit" ? ["--export"] : [])], storage,
+      { ...baseRuntime, listCustomers: () => Promise.resolve({ credentials, response }), exportReadResponse: exporter });
+    assert.equal(result.exitCode, 0);
+    assert.doesNotMatch(result.message, /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u);
+    assert.ok(Buffer.byteLength(result.message) <= 32 * 1024);
+    assert.equal(exporter.mock.callCount(), mode === "inline" ? 0 : 1);
+    const decoded = JSON.parse(result.message) as { readonly data: { readonly next_cursor?: string }; readonly meta: { readonly next_cursor?: string } };
+    assert.equal(mode === "inline" ? decoded.meta.next_cursor : decoded.data.next_cursor, cursor);
+  })));
+
 await Promise.all(["explicit", "automatic", "inline", "failure"].map((mode) =>
   test(`bounded CLI read output: ${mode}`, async (context) => {
     const response = { data: { items: [{ id: "synthetic", note: mode === "automatic" ? "x".repeat(33_000) : "private-customer-data" }] }, meta: { contract_version: "v1", next_cursor: "opaque-next" } };

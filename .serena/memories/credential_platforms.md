@@ -232,3 +232,15 @@ search-resolved user/PS7 module. Native synthetic tests retain stage diagnostics
 public CLI errors remain redacted and no customer data enters PowerShell.
 Hosted diagnostic run34554915345 failed while autoloading Set-Acl, before the
 file-owner stage; do not misreport that observation as an ownership failure.
+
+After module isolation, hosted run34556089266 reached the file stage and rejected
+its default owner. Directory ownership is not inherited by new files. Establish
+an explicit protected current-SID-only file ACL/owner while the exclusive file
+is still empty; verify before payload writes. Never normalize an existing
+nonempty file or accept a broad default owner as a substitute for protection.
+
+Escape Unicode display controls in agent-visible serialized JSON, including
+opaque continuation cursors, using JSON Unicode escapes that preserve decoded
+values (including supplementary formatting characters). Do not reject or alter
+opaque cursor values. Measure the escaped inline read output against32KiB; if
+escaping pushes it over, export the original bounded canonical envelope.

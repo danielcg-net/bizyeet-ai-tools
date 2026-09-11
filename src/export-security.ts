@@ -22,12 +22,21 @@ if ($env:BIZYEET_EXPORT_SECURITY_CREATE -eq 'directory') {
   $acl.AddAccessRule($rule)
   Set-Acl -LiteralPath $path -AclObject $acl
 }
+if ($env:BIZYEET_EXPORT_SECURITY_CREATE -eq 'file') {
+  if ($item.PSIsContainer -or $item.Length -ne 0) { throw 'Expected empty file' }
+  $acl = New-Object System.Security.AccessControl.FileSecurity
+  $acl.SetOwner($sid)
+  $acl.SetAccessRuleProtection($true, $false)
+  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'Allow')
+  $acl.AddAccessRule($rule)
+  Set-Acl -LiteralPath $path -AclObject $acl
+}
 $actual = Get-Acl -LiteralPath $path
 $rules = @($actual.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
 if ($actual.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Unexpected owner' }
 if ($rules.Count -ne 1) { throw 'Unexpected access rules' }
 if ($rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl) { throw 'Unexpected access' }
-if ($item.PSIsContainer -and -not $actual.AreAccessRulesProtected) { throw 'Unprotected directory' }
+if (-not $actual.AreAccessRulesProtected) { throw 'Unprotected export path' }
 [Console]::Out.Write('private')
 `;
 
@@ -37,7 +46,7 @@ const executeAcl: AclExecutor = async (executable, args, environment) =>
   (await execute(executable, args, { env: environment, timeout: 10_000, maxBuffer: 16_384, windowsHide: true })).stdout;
 
 /** Establish or verify owner-only Windows ACLs before an export receives data. */
-export const secureWindowsExport = async (path: string, createDirectoryAcl: boolean,
+export const secureWindowsExport = async (path: string, mode: "directory" | "file" | "verify",
   executor: AclExecutor = executeAcl, environment: NodeJS.ProcessEnv = process.env): Promise<void> => {
   const systemRoot = environment.SystemRoot ?? environment.SYSTEMROOT;
   if (!systemRoot || !isAbsolute(systemRoot) || !isAbsolute(path)) throw new Error("Export ACL protection is unavailable.");
@@ -47,7 +56,7 @@ export const secureWindowsExport = async (path: string, createDirectoryAcl: bool
   const childEnvironment = Object.fromEntries(Object.entries(environment).filter(([key]) => key.toUpperCase() !== "PSMODULEPATH"));
   const output = await executor(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(aclScript, "utf16le").toString("base64")], {
     ...childEnvironment, BIZYEET_EXPORT_SECURITY_PATH: path,
-    BIZYEET_EXPORT_SECURITY_CREATE: createDirectoryAcl ? "directory" : "verify",
+    BIZYEET_EXPORT_SECURITY_CREATE: mode,
   });
   if (output !== "private") throw new Error("Export ACL protection could not be verified.");
 };

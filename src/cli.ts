@@ -15,6 +15,7 @@ import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError }
 import { validResourceId } from "./canonical-crm-client.js";
 import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
 import { exportReadResponse, READ_OUTPUT_BYTE_LIMIT } from "./read-export.js";
+import { escapeDisplayJson } from "./display-json.js";
 import { isUuid } from "./uuid.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, issuerOrigin, revokeRefreshToken } from "./oauth.js";
@@ -113,14 +114,14 @@ const diagnostics = (): Readonly<Record<string, unknown>> => ({
   update: { checked: false, automatic: false, releases_url: "https://github.com/danielcg-net/bizyeet-ai-tools/releases", guidance: "Review the official release notes and installation instructions before updating. This command does not determine the latest release or install anything." },
 });
 
-const envelope = (data: Readonly<Record<string, unknown>>): string => JSON.stringify({
+const envelope = (data: Readonly<Record<string, unknown>>): string => escapeDisplayJson(JSON.stringify({
   data,
   meta: { contract_version: "v1", request_id: crypto.randomUUID() },
-});
+}));
 
-const errorEnvelope = (code: string, message: string): string => JSON.stringify({
+const errorEnvelope = (code: string, message: string): string => escapeDisplayJson(JSON.stringify({
   error: { code, details: {}, message, request_id: crypto.randomUUID(), retryable: false },
-});
+}));
 
 const result = (exitCode: number, message: string, stream: CliResult["stream"]): CliResult => ({ exitCode, message, stream });
 const output = (data: Readonly<Record<string, unknown>>): CliResult => result(0, envelope(data), "stdout");
@@ -319,11 +320,12 @@ const requestFailure = (error: unknown): CliResult => {
   return result(1, errorEnvelope("internal_error", "The agent service could not complete this request."), "stderr");
 };
 
-const resourceOutput = (outcome: AgentResult): CliResult => result(0, JSON.stringify(outcome.response), "stdout");
+const resourceOutput = (outcome: AgentResult): CliResult => result(0, escapeDisplayJson(JSON.stringify(outcome.response)), "stdout");
 
 const readOutput = async (outcome: AgentResult, explicit: boolean, execution: CliRuntime): Promise<CliResult> => {
   const serialized = JSON.stringify(outcome.response);
-  if (!explicit && Buffer.byteLength(serialized, "utf8") <= READ_OUTPUT_BYTE_LIMIT) return result(0, serialized, "stdout");
+  const printable = escapeDisplayJson(serialized);
+  if (!explicit && Buffer.byteLength(printable, "utf8") <= READ_OUTPUT_BYTE_LIMIT) return result(0, printable, "stdout");
   try {
     const exported = await (execution.exportReadResponse ?? exportReadResponse)(serialized);
     const response = outcome.response;
