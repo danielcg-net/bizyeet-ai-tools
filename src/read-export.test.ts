@@ -6,6 +6,24 @@ import { dirname, join } from "node:path";
 import { exportReadResponse } from "./read-export.js";
 import { secureWindowsExport } from "./export-security.js";
 
+void test("Windows native export ACL protects the directory and its new file", { skip: process.platform !== "win32" }, async (context) => {
+  const directory = await files.mkdtemp(join(tmpdir(), "export-native-acl-test-"));
+  try {
+    context.diagnostic("Establishing current-user directory ACL");
+    await secureWindowsExport(directory, true);
+    context.diagnostic("Directory ACL verified; creating empty synthetic file");
+    const path = join(directory, "synthetic.json");
+    const handle = await files.open(path, "wx", 0o600);
+    try {
+      context.diagnostic("Verifying inherited file ACL before writing synthetic data");
+      await secureWindowsExport(path, false);
+      await handle.writeFile("{}\n", "utf8");
+      await handle.sync();
+    } finally { await handle.close(); }
+    assert.equal(await files.readFile(path, "utf8"), "{}\n");
+  } finally { await files.rm(directory, { recursive: true, force: true }); }
+});
+
 void test("exports an exact canonical envelope to a unique private file", async () => {
   const response = JSON.stringify({ data: { items: [{ id: "synthetic-1" }] }, meta: { next_cursor: "opaque" } });
   const result = await exportReadResponse(response);
@@ -51,8 +69,8 @@ void test("oversized exports are rejected without creating an artifact", async (
   assert.equal(mkdtemp.mock.callCount(), 0);
 });
 
-await Promise.all(["relative", "", `${tmpdir()}/unsafe\u009b`, `${tmpdir()}/unsafe\u202e`].map((temporaryRoot) =>
-  test(`rejects unsafe temporary root ${JSON.stringify(temporaryRoot)}`, async (context) => {
+await Promise.all(["relative", "", `${tmpdir()}/unsafe\u009b`, `${tmpdir()}/unsafe\u202e`].map((temporaryRoot, index) =>
+  test(`rejects unsafe temporary root ${String(index)}`, async (context) => {
     const mkdtemp = context.mock.fn(files.mkdtemp);
     await assert.rejects(exportReadResponse("{}", { temporaryRoot, operations: { ...files, mkdtemp } }), /safe absolute/u);
     assert.equal(mkdtemp.mock.callCount(), 0);
