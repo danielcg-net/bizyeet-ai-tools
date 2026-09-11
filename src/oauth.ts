@@ -78,9 +78,11 @@ const isLoopbackRedirect = (value: string): boolean => {
   }
 };
 
+const isFormIdentifier = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.isWellFormed();
+
 const isRegistrationResponse = (value: unknown): value is Readonly<{ client_id: string }> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
-  && typeof (value as Record<string, unknown>).client_id === "string";
+  && isFormIdentifier((value as Record<string, unknown>).client_id);
 
 const permitsRegisteredFlow = (value: unknown, deviceGrant: boolean): boolean => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -108,8 +110,7 @@ const isOAuthMetadata = (value: unknown, issuer: URL): value is OAuthMetadata =>
 };
 
 /** Validate opaque refresh credentials before any login or rotation can persist them. */
-export const validRefreshToken = (value: unknown): value is string => typeof value === "string"
-  && value.length > 0 && value.isWellFormed() && !/[\s\p{Cc}\p{Cf}\p{Cs}]/u.test(value);
+export const validRefreshToken = (value: unknown): value is string => isFormIdentifier(value) && !/[\s\p{Cc}\p{Cf}\p{Cs}]/u.test(value);
 
 const isTokenSet = (value: unknown): value is Omit<OAuthTokenSet, "token_type"> & Readonly<{ token_type: string }> => {
   if (typeof value !== "object" || value === null) return false;
@@ -130,7 +131,7 @@ const isTokenSet = (value: unknown): value is Omit<OAuthTokenSet, "token_type"> 
 const isDeviceAuthorization = (value: unknown): value is DeviceAuthorizationResponse => {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  return typeof candidate.device_code === "string"
+  return isFormIdentifier(candidate.device_code)
     && typeof candidate.user_code === "string" && candidate.user_code.trim().length > 0 && candidate.user_code.length <= 128
     && !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(candidate.user_code)
     && typeof candidate.verification_uri === "string"

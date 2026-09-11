@@ -258,3 +258,7 @@ never persist its non-round-trippable token. Omitted refresh tokens remain an
 optional low-level OAuth field; persistent login/rotation callers require them.
 Device verification URLs are returned in validated canonical URL form and CLI
 verification stderr uses the same display-safe JSON serializer as stdout.
+
+Returned registration client IDs and device codes must likewise be nonempty and
+well-formed before use: URLSearchParams silently changes lone surrogates. Keep
+valid paired Unicode/punctuation opaque; do not impose a JWT/token alphabet.

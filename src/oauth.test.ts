@@ -7,6 +7,40 @@ const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+await Promise.all(["", "synthetic\ud800value", "synthetic\udfffvalue", null, 1].map((identifier, index) =>
+  test(`rejects unusable returned device and registration identifiers ${String(index)}`, async () => {
+    const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device", registration_endpoint: "https://example.test/register" };
+    await assert.rejects(requestDeviceAuthorization({ metadata, clientId: "client", resource: issuer, scope: "customers.read",
+      fetcher: () => jsonResponse({ device_code: identifier, user_code: "CODE", expires_in: 900, verification_uri: "https://example.test/verify" }),
+    }), /device authorization could not be started/u);
+    await assert.rejects(registerPublicClient({ metadata, redirectUri: "http://127.0.0.1:1234/callback",
+      fetcher: () => jsonResponse({ client_id: identifier, token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"] }),
+    }), /client registration failed/u);
+  })));
+
+void test("preserves opaque paired-Unicode device and registration identifiers through form encoding", async () => {
+  const identifier = "synthetic:🎉/?a=1&b=+";
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device", registration_endpoint: "https://example.test/register" };
+  const client = await registerPublicClient({ metadata, redirectUri: "http://127.0.0.1:1234/callback",
+    fetcher: () => jsonResponse({ client_id: identifier, token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"] }),
+  });
+  const device = await requestDeviceAuthorization({ metadata, clientId: client.clientId, resource: issuer, scope: "customers.read",
+    fetcher: (_url, init) => {
+      assert.ok(init?.body instanceof URLSearchParams);
+      assert.equal(init.body.get("client_id"), identifier);
+      return jsonResponse({ device_code: identifier, user_code: "CODE", expires_in: 900, verification_uri: "https://example.test/verify" });
+    },
+  });
+  await exchangeDeviceCode({ metadata, clientId: client.clientId, resource: issuer, device,
+    fetcher: (_url, init) => {
+      assert.ok(init?.body instanceof URLSearchParams);
+      assert.equal(init.body.get("client_id"), identifier);
+      assert.equal(init.body.get("device_code"), identifier);
+      return jsonResponse({ access_token: "synthetic", refresh_token: "synthetic-refresh", expires_in: 300, token_type: "Bearer" });
+    },
+  });
+});
+
 void test("every token exchange validates present refresh credentials before returning a token set", async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
   const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [
