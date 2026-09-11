@@ -1,5 +1,6 @@
 import { refreshAccessToken, revokeRefreshToken, type FetchLike, type OAuthMetadata } from "./oauth.js";
 import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
+import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validOAuthScope } from "./oauth-scope.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
@@ -19,6 +20,7 @@ export type PersistCredentials = (credentials: StoredCredentials) => Promise<voi
 type MetadataSource = OAuthMetadata | (() => Promise<OAuthMetadata>);
 
 export const refreshPersistenceMessages = {
+  uncertain: uncertainCredentialPersistenceError().message,
   retained: "Rotated credentials were saved and access was retained, but credential storage cleanup failed. Check storage and abandoned locks before retrying.",
   revoked: "Rotated credentials could not be saved; the new grant was revoked. Repair credential storage, then run auth login again.",
   unconfirmed: "Rotated credentials could not be saved and revocation could not be confirmed. Revoke this agent in dashboard settings, repair credential storage, then sign in again.",
@@ -76,6 +78,7 @@ const currentCredentials = async (input: Readonly<{
   // resource request fails. Persist before making that request.
   try { await input.persistCredentials(credentials); }
   catch (error) {
+    if (isUncertainCredentialPersistence(error)) throw new Error(refreshPersistenceMessages.uncertain, { cause: error });
     if (isCommittedCredentialCleanupFailure(error)) throw new Error(refreshPersistenceMessages.retained, { cause: error });
     try {
       await revokeRefreshToken({ clientId: input.profile.clientId, fetcher: input.fetcher, metadata, refreshToken: credentials.refreshToken });

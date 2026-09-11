@@ -1,6 +1,6 @@
 import { nativeKeychain, type Keychain } from "./keychain.js";
 import { randomUUID } from "node:crypto";
-import { committedCredentialCleanupError, isCommittedCredentialCleanupFailure } from "./credential-cleanup.js";
+import { committedCredentialCleanupError, isCommittedCredentialCleanupFailure, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 export { isCommittedCredentialCleanupFailure } from "./credential-cleanup.js";
 import { createCredentialAuthorityStore, profileName, readFallbackCredentials, removeFallbackCredentials, requireFileCredentialSupport, saveFallbackCredentials, type CredentialAuthoritySession, type CredentialAuthorityStore, type CredentialCollection, type StoredCredentials } from "./profile-store.js";
 
@@ -151,6 +151,10 @@ export const createCredentialStore = (keychain: Keychain = nativeKeychain, fallb
       } catch (error) {
         if (isCommittedCredentialCleanupFailure(error)) throw error;
         if (await hasRecoverableWrite(session, keychain, fallbackStore, name, stored)) throw committedCredentialCleanupError();
+        // Compensating revocation is safe only after this generation can no
+        // longer be selected, including when its verification read was transient.
+        try { await session.write(name, { backend: "removed", generation }); }
+        catch { throw uncertainCredentialPersistenceError(); }
         throw error;
       }
     });

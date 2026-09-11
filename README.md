@@ -142,6 +142,12 @@ and failed fallback cleanup cannot override a newer native save. Incomplete save
 without a matching record require re-login. Conflicting legacy stores without an
 ownership record also require re-login; auto mode does not guess which is newer.
 Do not delete or roll back ownership metadata independently of credentials.
+If immediate recovery cannot verify a failed save, the CLI retires its generation
+before revoking the grant, preventing later reads from reviving revoked tokens.
+If retirement cannot be confirmed either, the command stops with an uncertain
+storage outcome instead of claiming success or automatic revocation. Stop using
+that profile, revoke the connection in dashboard settings, and repair credential
+storage before signing in again.
 Logout reports failure if native deletion cannot be confirmed. Restore native
 service access and retry; an unavailable service is not proof that it is empty.
 Windows requires its native credential

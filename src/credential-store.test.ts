@@ -4,6 +4,7 @@ import test from "node:test";
 import { createCredentialStore as createStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { run } from "./cli.js";
 import { getCustomer, refreshPersistenceMessages } from "./agent-client.js";
+import { withCredentialCleanup } from "./credential-cleanup.js";
 import type { Keychain } from "./keychain.js";
 import type { CredentialAuthority, CredentialAuthorityStore, CredentialCollection, StoredCredentials } from "./profile-store.js";
 
@@ -277,7 +278,54 @@ await Promise.all(["before", "generation", "payload", "read-failure"].map((failu
         return Promise.reject(original);
       },
     });
-    await assert.rejects(createCredentialStore(native, fallback()).save("default", credentials), (error: unknown) => error === original && !isCommittedCredentialCleanupFailure(error));
+    const authority = memoryAuthority();
+    await assert.rejects(createCredentialStore(native, fallback(), { authority }).save("default", credentials), (error: unknown) => error === original && !isCommittedCredentialCleanupFailure(error));
+    const recovered = createCredentialStore(keychain({ read: (name) => Promise.resolve(records.get(name)) }), fallback(), { authority });
+    assert.deepEqual(await recovered.read(), {});
+  })));
+
+await Promise.all(["login", "refresh"].map((operation) =>
+  test(`${operation} reports uncertain persistence when retirement and lock cleanup fail`, async (context) => {
+    const records = new Map<string, StoredCredentials>();
+    const ownership = new Map<string, CredentialAuthority>();
+    const profile = { issuer: "https://example.test", clientId: "public-client" };
+    const authority: CredentialAuthorityStore = { transaction: (update) => withCredentialCleanup(() => update({
+      read: (name) => Promise.resolve(ownership.get(name)),
+      write: (name, value) => {
+        if (value.backend === "removed") return Promise.reject(new Error("private retirement failure"));
+        ownership.set(name, value);
+        return Promise.resolve();
+      },
+    }), () => Promise.reject(new Error("private cleanup failure"))) };
+    const native = keychain({
+      read: () => Promise.reject(new Error("private transient read failure")),
+      save: (name, value) => { records.set(name, value); return Promise.reject(new Error("private write rejection")); },
+    });
+    const store = createCredentialStore(native, fallback(), { authority });
+    const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected network action"));
+    const revoke = context.mock.fn(forbidden);
+    if (operation === "login") {
+      const login = (): Promise<Readonly<{ profile: typeof profile; credentials: StoredCredentials }>> => Promise.resolve({ profile, credentials });
+      const result = await run(["auth", "login", "--issuer", profile.issuer], {
+        readCredentials: () => Promise.resolve({}), saveCredentials: store.save, removeCredentials: store.remove,
+      }, { loginBrowser: login, loginDevice: login, revoke, getCustomer: forbidden, listCustomers: forbidden });
+      assert.equal(result.exitCode, 1);
+      assert.match(result.message, /persistence and retirement could not be confirmed/u);
+      assert.doesNotMatch(result.message, /private|access-secret|refresh-secret|were saved|was revoked/u);
+      assert.equal(revoke.mock.callCount(), 0);
+    } else {
+      const fetcher = context.mock.fn((url: string): Promise<Response> => {
+        assert.equal(url, "https://example.test/token");
+        return Promise.resolve(Response.json({ access_token: "rotated-access", refresh_token: "rotated-refresh", token_type: "Bearer", expires_in: 300, scope: credentials.scope }));
+      });
+      await assert.rejects(getCustomer({ credentials: { ...credentials, profile, expiresAt: new Date(0).toISOString() }, profile,
+        persistCredentials: (value) => store.save("default", value), fetcher, now: () => 1000, resourceId: "customer-1",
+        metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", revocation_endpoint: "https://example.test/revoke" },
+      }), (error: unknown) => error instanceof Error && error.message === refreshPersistenceMessages.uncertain);
+      assert.equal(fetcher.mock.callCount(), 1);
+    }
+    assert.equal(ownership.get("default")?.backend, "pending");
+    assert.equal(records.size, 1);
   })));
 
 void test("authority failure prevents secret writes and legacy conflicts require re-login", async (context): Promise<void> => {

@@ -10,7 +10,7 @@ import type { Keychain } from "./keychain.js";
 const generation = "11111111-1111-4111-8111-111111111111";
 
 [false, true].forEach((interruptCommit): void => {
-  void test(`fresh instances recover the persisted fallback generation (interrupted commit: ${String(interruptCommit)})`, { skip: process.platform === "win32" }, async (): Promise<void> => {
+  void test(`fresh instances respect fallback ownership or retirement (interrupted commit: ${String(interruptCommit)})`, { skip: process.platform === "win32" }, async (): Promise<void> => {
     const root = await mkdtemp(join(tmpdir(), "bizyeet-authority-recovery-"));
     const paths = profilePaths({}, root);
     const persisted = createCredentialAuthorityStore(paths);
@@ -28,8 +28,10 @@ const generation = "11111111-1111-4111-8111-111111111111";
       else await save;
       const recoveredNative: Keychain = { ...native, read: () => Promise.resolve({ ...credentials, refreshToken: "stale-native-refresh" }) };
       const restored = createCredentialStore(recoveredNative, file, { authority: createCredentialAuthorityStore(paths), platform: "linux" });
-      assert.equal((await restored.read()).default?.refreshToken, credentials.refreshToken);
+      assert.equal((await readFallbackCredentials(paths)).default?.refreshToken, credentials.refreshToken);
+      assert.equal((await restored.read()).default?.refreshToken, interruptCommit ? undefined : credentials.refreshToken);
       const source = await readFile(join(paths.directory, "credential-authority.json"), "utf8");
+      if (interruptCommit) assert.match(source, /"backend":"removed"/u);
       assert.doesNotMatch(source, /synthetic|new\.example|new-client/u);
     } finally { await rm(root, { recursive: true, force: true }); }
   });

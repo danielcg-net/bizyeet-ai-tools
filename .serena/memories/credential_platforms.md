@@ -201,3 +201,10 @@ Preserve that grant and report cleanup trouble instead of revoking it. Missing,
 mismatched, conflicting or unreadable pending records do not prove commitment.
 Never nest public credential reads inside the authority lock or treat the initial
 pending metadata write alone as proof that tokens were saved.
+
+Before compensating revocation after inconclusive read-back, persist removed
+authority for that generation so a later successful read cannot revive the
+revoked token. If retirement also fails, preserve a distinct uncertain outcome
+through lock cleanup: do not claim saved/revoked credentials or dispatch a
+business operation. Require dashboard revocation and storage repair explicitly;
+do not automatically revoke a potentially still-selected generation.
