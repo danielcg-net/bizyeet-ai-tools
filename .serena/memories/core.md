@@ -1,5 +1,8 @@
 # Core
 
+- Separate registration response shape/HTTP failures from assigned-auth policy validation. Successful responses assigning non-public methods must still fail closed, but use the fixed administrator-facing assignment diagnostic rather than the generic registration failure.
+
+- Keep the fixed credential-free registration-assignment diagnostic in the CLI safe-message allowlist. Cover both browser/device command paths so administrator guidance is not replaced by a generic login failure; arbitrary remote error text must remain filtered.
 - Browser/device login retains requested scopes only when a successful token response omits scope; an explicit granted scope takes precedence, including narrowing. Keep default login read-only and document the explicit combined read/write scope request before update commands; never silently upgrade grants.
 
 - Share UUID shape validation between CLI arguments and canonical transport: assigned RFC9562 variant versions1–8, case-insensitive, excluding Nil/Max/reserved versions. Do not impose the server's UUIDv4 generation choice on caller idempotency keys. Server authorization and approval remain mandatory.
@@ -17,11 +20,11 @@
 - Exact reads must echo the requested opaque ID, and every returned list/detail ID must satisfy the same input validator. Reject malformed success rather than returning a different/unreadable record.
 - Token responses require nonempty whitespace-free access tokens. Device lifetimes are capped at900 seconds at issuance parsing and direct polling entry. Unsupported commands use invalid_request with exit2, not internal-failure exit1.
 
-- Reuse a saved client for device login only after a successful device exchange has set deviceGrantVerified=true in its protected same-issuer profile. Browser/legacy profiles need a new device-capable registration; this is evidence of a completed flow, not a substitute for server authorization.
+- Reuse a saved device client only with deviceGrantVerified=true and deviceRegistrationVersion=1 in its protected same-issuer profile. Version1 proves the selected device plus refresh grants and secretless assignment were checked before the completed exchange. Legacy boolean-only and unknown-version profiles must register again. Pass the version to the device session; an unversioned clientId alone must not bypass registration. This local reuse proof never substitutes for server authorization.
 - Attach a rejection observer to the callback promise immediately when opening the listener, before registration/browser launch. Preserve the original rejected promise for awaitCode to report; do not turn denial into success. Catch malformed HTTP URL targets inside the callback handler so they produce a controlled 400/rejection rather than an uncaught process exception.
 - Recorded failed outcomes use only server outcome codes, never local request_unavailable/invalid_response or pending/ambiguous codes. Preserve the separate ambiguous status contract and shared legacy-code normalization.
 
-- DCR sends explicit grant_types and response_types; device login includes the device-code grant. Validate both device verification URLs against the selected HTTPS issuer before displaying either.
+- DCR sends explicit grant_types and response_types; device login includes the device-code grant. Validate the returned selected-flow plus refresh grant and explicit secretless auth assignment before login. Browser requires code response (omission defaults to code); do not accept null metadata or returned client secrets. Deploy compatible BIZYEET-848 server metadata before releasing this strict check. Validate both device verification URLs against the selected HTTPS issuer before displaying either.
 - Write previews must echo the requested resource ID. Status audit references are independently validated opaque UUIDs, not assumed equal to the preview ID. Share the safe error-code projection with direct requests, including the legacy unsupported-operation alias.
 
 - Public repository for the OAuth-only BizYeet CLI and MCP integration.

@@ -100,6 +100,11 @@ Device authorization lifetimes are limited to fifteen minutes; longer advertised
 lifetimes are rejected before polling. Token exchanges reject empty or
 whitespace-bearing access tokens before reporting a successful login.
 Device registration explicitly requests the device-code and refresh grants.
+Registration must explicitly assign the selected login flow and refresh-token
+grant with secretless authentication. A missing or insufficient assignment stops
+login with an administrator-facing diagnostic; requested grants are not assumed
+to have been granted. Browser login also requires the code response type (the
+default when omitted).
 Switching from a browser or legacy profile registers a device-capable client;
 later device logins reuse it only after a successful device exchange has been
 recorded in that same issuer's protected profile.

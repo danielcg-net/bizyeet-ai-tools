@@ -40,7 +40,7 @@ type CliRuntime = Readonly<{
   getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
   listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
-  loginDevice: (input: Readonly<{ clientId?: string; issuer: string; scope: string }>, onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
+  loginDevice: (input: Parameters<typeof loginWithDevice>[0], onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
   revoke: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; profile: import("./profile-store.js").Profile }>) => Promise<void>;
 }>;
 
@@ -130,6 +130,7 @@ const profileInputMessages = new Set([
 ]);
 const safeValidationMessages = new Set([
   ...profileInputMessages,
+  "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.",
   "Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.",
   "Write input is invalid, oversized, cancelled or expired.",
   "Preview changes require piped JSON with --input-stdin.",
@@ -241,6 +242,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
     const previousCredentials = credentials[profileNameValue];
     const previousProfile = previousCredentials?.profile;
     const existingClientId = previousProfile?.issuer === issuer && previousProfile.deviceGrantVerified === true
+      && previousProfile.deviceRegistrationVersion === 1
       ? previousProfile.clientId : undefined;
     if (previousCredentials?.refreshToken) {
       if (!previousProfile) return result(3, errorEnvelope("authentication_required", "This legacy profile has no bound issuer. Revoke its access in dashboard settings and run auth logout before replacing it."), "stderr");
@@ -251,7 +253,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
       }
     }
     const completed = args.includes("--device")
-      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId } : {}), issuer, scope }, onVerification)
+      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 1 as const } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });
     try {
       await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });
