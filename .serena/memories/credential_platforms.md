@@ -164,3 +164,12 @@ revocation is unavailable or fails, explicitly require dashboard revocation;
 never claim the active family was retired. Tagged post-commit cleanup failures
 retain the authoritative grant and report cleanup trouble without business
 dispatch. Requested and returned OAuth scopes share the RFC 6749 validator.
+
+Storage-lock cleanup is also post-completion. The shared credential-cleanup
+helper marks cleanup failures only after the whole operation succeeds, or
+preserves an existing committed marker when both operation and cleanup fail.
+Do not mark an arbitrary authority metadata write as a credential commit:
+pending metadata can be written before any new token exists. Real temporary
+filesystem tests cover native-authority and explicit-file login/refresh saves,
+failed lock removal, and retained reads after explicit test-owned lock recovery.
+Identity-check scopes must each be one valid OAuth token, not a whole scope list.

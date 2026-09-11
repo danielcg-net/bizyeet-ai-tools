@@ -110,6 +110,7 @@ void test("identity probe rejects a mismatched OAuth client and malformed scopes
   await Promise.all([
     { tenant_id: "tenant", client_id: "different-client", scope: [] },
     { tenant_id: "tenant", client_id: profile.clientId, scope: [123] },
+    ...["", " ", "customers.read customers.write", "customers.read\u009b", "customers.read\u001b", "customers.read\u202e", "customers.read\\", 'customers.read"'].map((scope) => ({ tenant_id: "tenant", client_id: profile.clientId, scope: [scope] })),
   ].map(async (body) => {
     await assert.rejects(checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile,
       fetcher: () => Promise.resolve(Response.json(body)), persistCredentials: () => Promise.resolve(),

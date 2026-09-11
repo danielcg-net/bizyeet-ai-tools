@@ -1,5 +1,6 @@
 import { refreshAccessToken, revokeRefreshToken, type FetchLike, type OAuthMetadata } from "./oauth.js";
 import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
+import { validOAuthScope } from "./oauth-scope.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
@@ -18,7 +19,7 @@ export type PersistCredentials = (credentials: StoredCredentials) => Promise<voi
 type MetadataSource = OAuthMetadata | (() => Promise<OAuthMetadata>);
 
 export const refreshPersistenceMessages = {
-  retained: "Rotated credentials were saved and access was retained, but obsolete credential cleanup failed. Check credential storage before retrying.",
+  retained: "Rotated credentials were saved and access was retained, but credential storage cleanup failed. Check storage and abandoned locks before retrying.",
   revoked: "Rotated credentials could not be saved; the new grant was revoked. Repair credential storage, then run auth login again.",
   unconfirmed: "Rotated credentials could not be saved and revocation could not be confirmed. Revoke this agent in dashboard settings, repair credential storage, then sign in again.",
 } as const;
@@ -125,7 +126,7 @@ export const checkIdentity = (input: Readonly<{
   if (!response.ok) return { status: response.status, body };
   if (typeof body !== "object" || body === null || !("tenant_id" in body) || typeof body.tenant_id !== "string"
       || !("client_id" in body) || body.client_id !== input.profile.clientId
-      || !("scope" in body) || !Array.isArray(body.scope) || !body.scope.every((scope: unknown) => typeof scope === "string")) {
+      || !("scope" in body) || !Array.isArray(body.scope) || !body.scope.every((scope: unknown) => validOAuthScope(scope) && !scope.includes(" "))) {
     return { status: 502, body: { error: { code: "invalid_response" } } };
   }
   return { status: response.status, body: { data: {

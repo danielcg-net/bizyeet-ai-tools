@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { withCredentialCleanup } from "./credential-cleanup.js";
 
 export type StoredCredentials = Readonly<{
   accessToken: string;
@@ -137,8 +138,7 @@ const withCredentialLock = async <T>(paths: ReturnType<typeof profilePaths>, ope
   await assertPrivateDirectory(paths.directory, operations);
   const lock = join(paths.directory, lockName);
   await acquireCredentialLock(lock, operations);
-  try { return await update(); }
-  finally { await operations.rmdir(lock); }
+  return withCredentialCleanup(update, () => operations.rmdir(lock));
 };
 
 /** Serializes a complete CLI profile operation without nesting storage locks.

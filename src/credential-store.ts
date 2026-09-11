@@ -1,5 +1,7 @@
 import { nativeKeychain, type Keychain } from "./keychain.js";
 import { randomUUID } from "node:crypto";
+import { committedCredentialCleanupError } from "./credential-cleanup.js";
+export { isCommittedCredentialCleanupFailure } from "./credential-cleanup.js";
 import { createCredentialAuthorityStore, profileName, readFallbackCredentials, removeFallbackCredentials, requireFileCredentialSupport, saveFallbackCredentials, type CredentialAuthorityStore, type CredentialCollection, type StoredCredentials } from "./profile-store.js";
 
 export type CredentialStore = Readonly<{
@@ -48,15 +50,9 @@ const keychainOrFallback = async <T>(keychainOperation: () => Promise<T>, fallba
 const selected = (profile: string, value: StoredCredentials | undefined): CredentialCollection => value ? { [profile]: value } : {};
 const sameCredentials = (left: StoredCredentials, right: StoredCredentials): boolean => JSON.stringify(left) === JSON.stringify(right);
 const authorityStore = (options: StoreOptions): CredentialAuthorityStore => options.authority ?? createCredentialAuthorityStore();
-const committedCleanupFailure = Symbol("committed-credential-cleanup");
-
-/** Distinguish an authoritative save from a failure before credentials were committed. */
-export const isCommittedCredentialCleanupFailure = (error: unknown): boolean =>
-  error instanceof Error && error.cause === committedCleanupFailure;
-
 const cleanObsoleteFallback = async (store: FallbackStore, name: string): Promise<void> => {
   try { await store.remove(name); }
-  catch { throw new Error("Credentials were saved, but obsolete credential cleanup failed.", { cause: committedCleanupFailure }); }
+  catch { throw committedCredentialCleanupError(); }
 };
 
 /** Persist ownership before writing credentials; recovered stores cannot revive older generations. */

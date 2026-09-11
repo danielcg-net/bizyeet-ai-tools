@@ -257,7 +257,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
       await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });
     } catch (error) {
       if (isCommittedCredentialCleanupFailure(error)) return result(1, errorEnvelope("internal_error",
-        "Credentials were saved and access was retained, but obsolete credential cleanup failed. Check credential storage before retrying."), "stderr");
+        "Credentials were saved and access was retained, but credential storage cleanup failed. Check storage and abandoned locks before retrying."), "stderr");
       try {
         await execution.revoke({ credentials: completed.credentials, profile: completed.profile });
       } catch {
