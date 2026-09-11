@@ -157,3 +157,10 @@ revocation. Failed new-credential persistence attempts grant revocation; combine
 storage/revocation failure is explicit and requires dashboard cleanup, never a
 successful login or secret-bearing diagnostic. Multi-process synthetic CLI tests
 verify that every displaced login grant is retired.
+
+Refresh rotation follows the same persistence boundary: on a pre-commit save
+failure, revoke the newly rotated refresh token before reporting failure. If
+revocation is unavailable or fails, explicitly require dashboard revocation;
+never claim the active family was retired. Tagged post-commit cleanup failures
+retain the authoritative grant and report cleanup trouble without business
+dispatch. Requested and returned OAuth scopes share the RFC 6749 validator.

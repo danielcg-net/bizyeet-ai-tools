@@ -7,6 +7,23 @@ const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+void test("all token exchanges reject malformed returned scopes and accept omitted or valid scopes", async () => {
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
+  const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [
+    (fetcher): Promise<unknown> => exchangeAuthorizationCode({ fetcher, metadata, clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:1234/callback", resource: issuer }),
+    (fetcher): Promise<unknown> => refreshAccessToken({ fetcher, metadata, clientId: "client", refreshToken: "refresh", resource: issuer }),
+    (fetcher): Promise<unknown> => exchangeDeviceCode({ fetcher, metadata, clientId: "client", resource: issuer,
+      device: { deviceCode: "device", expiresIn: 900, interval: 5, userCode: "CODE", verificationUri: "https://example.test/verify" },
+      dependencies: { now: () => 1000, sleep: () => Promise.reject(new Error("Unexpected retry")) } }),
+  ];
+  await Promise.all(operations.flatMap((operation) => [undefined, "customers.read", "customers.read customers.write", "", " ", "a  b", "a\u009bb", "a\u202eb", "a\nb", "a\\b", 'a"b', null, 1].map(async (scope) => {
+    const fetcher = mock.fn(() => jsonResponse({ access_token: "secret-access", refresh_token: "secret-refresh", expires_in: 300, token_type: "Bearer", ...(scope === undefined ? {} : { scope }) }));
+    if (scope === undefined || scope === "customers.read" || scope === "customers.read customers.write") await operation(fetcher);
+    else await assert.rejects(operation(fetcher), (error: unknown) => error instanceof Error && !/secret-access|secret-refresh/u.test(error.message));
+    assert.equal(fetcher.mock.callCount(), 1);
+  })));
+});
+
 await Promise.all(["", "   ", "bad\u009bcode", "bad\u202ecode", "bad\ncode", "bad\uD800code", "bad\u2028code", "x".repeat(129)].map((userCode, index) =>
   test(`rejects undisplayable device user code ${String(index)}`, async () => {
     await assert.rejects(requestDeviceAuthorization({ clientId: "client", resource: issuer, scope: "customers.read",

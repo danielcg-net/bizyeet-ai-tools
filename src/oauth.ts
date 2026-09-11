@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
+import { validOAuthScope } from "./oauth-scope.js";
 
 export type OAuthMetadata = Readonly<{
   authorization_endpoint: string;
@@ -117,7 +118,7 @@ const isTokenSet = (value: unknown): value is Omit<OAuthTokenSet, "token_type"> 
     && Number.isFinite(new Date(Date.now() + candidate.expires_in * 1000).getTime())
     && typeof candidate.token_type === "string" && candidate.token_type.toLowerCase() === "bearer"
     && (candidate.refresh_token === undefined || typeof candidate.refresh_token === "string")
-    && (candidate.scope === undefined || typeof candidate.scope === "string");
+    && (candidate.scope === undefined || validOAuthScope(candidate.scope));
 };
 
 const isDeviceAuthorization = (value: unknown): value is DeviceAuthorizationResponse => {

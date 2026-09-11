@@ -1,13 +1,45 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 
-import { checkIdentity, getCustomer, listCustomers, executeCustomerUpdate } from "./agent-client.js";
+import { checkIdentity, getCustomer, listCustomers, executeCustomerUpdate, refreshPersistenceMessages } from "./agent-client.js";
+import { run } from "./cli.js";
 import { isAgentFailure } from "./agent-error.js";
 
 const profile = { clientId: "public-client", issuer: "https://example.test" };
 const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
 const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
+
+void test("failed rotation persistence revokes once or gives explicit dashboard recovery without business dispatch", async () => {
+  await Promise.all(["revoked", "denied", "network", "missing"].map(async (mode) => {
+    const expired = { ...validCredentials, expiresAt: new Date(0).toISOString() };
+    const fetcher = mock.fn((url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/token")) return Promise.resolve(Response.json({ access_token: "new-access-secret", refresh_token: "new-refresh-secret", token_type: "Bearer", expires_in: 300 }));
+      assert.equal(url, "https://example.test/revoke");
+      assert.ok(init?.body instanceof URLSearchParams);
+      assert.equal(init.body.get("token"), "new-refresh-secret");
+      if (mode === "network") return Promise.reject(new Error("private-network-secret"));
+      return Promise.resolve(new Response(null, { status: mode === "denied" ? 503 : 200 }));
+    });
+    const persist = mock.fn(() => Promise.reject(new Error("private-storage-secret")));
+    const result = await run(["customers", "get", "customer-1"], {
+      readCredentials: () => Promise.resolve({ default: expired }), saveCredentials: persist,
+      removeCredentials: () => Promise.reject(new Error("Unexpected deletion")),
+    }, {
+      getCustomer: (input) => getCustomer({ ...input, now: () => 1000, fetcher,
+        metadata: { ...metadata, ...(mode === "missing" ? {} : { revocation_endpoint: "https://example.test/revoke" }) } }),
+      listCustomers: () => Promise.reject(new Error("Unexpected list")),
+      loginBrowser: () => Promise.reject(new Error("Unexpected login")),
+      loginDevice: () => Promise.reject(new Error("Unexpected login")),
+      revoke: () => Promise.reject(new Error("Unexpected CLI revocation")),
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(result.message.includes(mode === "revoked" ? refreshPersistenceMessages.revoked : refreshPersistenceMessages.unconfirmed));
+    assert.doesNotMatch(result.message, /new-access-secret|new-refresh-secret|private-storage-secret|private-network-secret/u);
+    assert.equal(persist.mock.callCount(), 1);
+    assert.equal(fetcher.mock.callCount(), mode === "missing" ? 1 : 2);
+  }));
+});
 
 void test("valid credentials reach the resource without OAuth discovery", async () => {
   const discovery = mock.fn(() => Promise.reject(new Error("Discovery unavailable")));
@@ -254,6 +286,6 @@ void test("does not call the resource if rotated credentials cannot be persisted
     fetcher, metadata, now: () => 1000,
     persistCredentials: () => Promise.reject(new Error("Credential store unavailable")),
     profile, resourceId: "customer-1",
-  }), /Credential store unavailable/u);
+  }), (error: unknown) => error instanceof Error && error.message === refreshPersistenceMessages.unconfirmed);
   assert.equal(fetcher.mock.callCount(), 1);
 });

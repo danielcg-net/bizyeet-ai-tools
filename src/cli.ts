@@ -5,6 +5,8 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
+import { validOAuthScope } from "./oauth-scope.js";
+import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
 import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
 import { readChanges, readApprovalReceipt } from "./write-input.js";
@@ -222,7 +224,7 @@ const loginOptions = (args: readonly string[]): Readonly<{ name: string; issuer:
     const issuer = oneOption(args, "--issuer");
     const scope = oneOption(args, "--scope", "customers.read");
     // RFC 6749 section 3.3: scope-token *(SP scope-token), no quote/backslash.
-    if (!/^[\x21\x23-\x5b\x5d-\x7e]+(?: [\x21\x23-\x5b\x5d-\x7e]+)*$/u.test(scope)) return invalidInput("Use nonempty OAuth scope tokens separated by one space, without quotes, backslashes or non-ASCII characters.");
+    if (!validOAuthScope(scope)) return invalidInput("Use nonempty OAuth scope tokens separated by one space, without quotes, backslashes or non-ASCII characters.");
     if (!issuer) return invalidInput("auth login requires --issuer.");
     return { name, issuer: issuerOrigin(issuer).origin, scope };
   } catch (error) {
@@ -303,6 +305,7 @@ const requestFailure = (error: unknown): CliResult => {
     message: agentFailureMessage(failure), request_id: failure.requestId, retryable: failure.retryable, details: {},
   } }), "stderr");
   const message = error instanceof Error ? error.message : "The agent request failed.";
+  if (Object.values(refreshPersistenceMessages).some((value) => value === message)) return result(1, errorEnvelope("internal_error", message), "stderr");
   if (safeValidationMessages.has(message)) return invalidInput(message);
   if (message.includes("session expired") || message.includes("auth login") || message.includes("OAuth refresh")) return authenticationRequired();
   if (message.includes("authorization_denied")) return result(4, errorEnvelope("authorization_denied", "You do not have permission for this operation."), "stderr");
