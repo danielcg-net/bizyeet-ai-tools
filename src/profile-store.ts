@@ -174,8 +174,11 @@ const writePrivateJson = async (path: string, value: unknown, operations: FileOp
       await handle.chmod(0o600);
     } finally { await handle.close(); }
     await operations.rename(temporaryPath, path);
-  } finally {
-    await operations.unlink(temporaryPath).catch((error: unknown) => { if (!isMissing(error)) throw error; });
+    // A successful rename consumes the temporary path. Cleanup is only needed
+    // before commit; post-commit unlink could misreport a completed save.
+  } catch (error) {
+    await operations.unlink(temporaryPath).catch((cleanupError: unknown) => { if (!isMissing(cleanupError)) throw cleanupError; });
+    throw error;
   }
 };
 

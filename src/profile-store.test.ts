@@ -7,7 +7,7 @@ import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { profileName, profilePaths, readFallbackCredentials, removeFallbackCredentials, requireFileCredentialSupport, saveFallbackCredentials, saveProfile } from "./profile-store.js";
+import { createCredentialAuthorityStore, profileName, profilePaths, readFallbackCredentials, removeFallbackCredentials, requireFileCredentialSupport, saveFallbackCredentials, saveProfile } from "./profile-store.js";
 
 const temporaryPaths = async (): Promise<ReturnType<typeof profilePaths>> =>
   profilePaths({}, await mkdtemp(join(tmpdir(), "bizyeet-cli-")));
@@ -159,6 +159,23 @@ void test("rejects non-files and hides parser excerpts from malformed credential
     assert.equal(error.cause, undefined);
     return true;
   });
+});
+
+void test("successful atomic credential and authority writes need no temporary-path cleanup", { skip: process.platform === "win32" }, async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "bizyeet-renamed-credentials-"));
+  const paths = profilePaths({}, root);
+  const unlink = context.mock.fn(() => Promise.reject(new Error("Unnecessary post-commit cleanup")));
+  const operations = { ...fileSystem, unlink };
+  const value = { accessToken: "synthetic-new", refreshToken: "synthetic-refresh", expiresAt: "2099-01-01", scope: "customers.read" };
+  try {
+    await saveFallbackCredentials("default", value, paths, operations);
+    assert.deepEqual((await readFallbackCredentials(paths)).default, value);
+    const authority = createCredentialAuthorityStore(paths, operations);
+    await authority.transaction((session) => session.write("default", { generation: "11111111-1111-4111-8111-111111111111", backend: "fallback" }));
+    assert.deepEqual(await authority.transaction((session) => session.read("default")), { generation: "11111111-1111-4111-8111-111111111111", backend: "fallback" });
+    assert.equal(unlink.mock.callCount(), 0);
+    assert.deepEqual((await fileSystem.readdir(paths.directory)).sort(), ["credential-authority.json", "credentials.json"]);
+  } finally { await fileSystem.rm(root, { recursive: true, force: true }); }
 });
 
 void test("cleans a partially written temporary credential file without replacing saved credentials", { skip: process.platform === "win32" }, async (): Promise<void> => {

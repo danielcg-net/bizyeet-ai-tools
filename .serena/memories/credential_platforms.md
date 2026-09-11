@@ -173,3 +173,9 @@ pending metadata can be written before any new token exists. Real temporary
 filesystem tests cover native-authority and explicit-file login/refresh saves,
 failed lock removal, and retained reads after explicit test-owned lock recovery.
 Identity-check scopes must each be one valid OAuth token, not a whole scope list.
+
+Atomic JSON writes only unlink the owned temporary path on failure before a
+successful rename. Rename consumes that path; do not run another unlink after
+commit or a cleanup error can falsely report that saved credentials were lost.
+Tests cover protected credential and authority files as well as partial-write,
+chmod, close and rename failure cleanup.
