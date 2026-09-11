@@ -32,7 +32,7 @@ await Promise.all(["", "   ", "bad\u009bcode", "bad\u202ecode", "bad\ncode", "ba
     }), /could not be started/u);
   })));
 
-await Promise.all(["", " ", "token\n", "token value"].map((accessToken, index) => test(`rejects unusable access tokens at every exchange ${String(index)}`, async () => {
+await Promise.all(["", " ", "token\n", "token value", "token\u0000", "token\u001b", "token\u007f", "token\u009b", "token\u202e", "token\uD800", "tokené", "a=b", "=", 'token"', "token\\"].map((accessToken, index) => test(`rejects unusable access tokens at every exchange ${String(index)}`, async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
   const fetcher = (): Promise<Response> => jsonResponse({ access_token: accessToken, expires_in: 300, token_type: "Bearer" });
   await assert.rejects(exchangeAuthorizationCode({ clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:43123/callback", resource: issuer, metadata, fetcher }), /exchange failed/u);
@@ -40,6 +40,16 @@ await Promise.all(["", " ", "token\n", "token value"].map((accessToken, index) =
   await assert.rejects(exchangeDeviceCode({ clientId: "client", resource: issuer, metadata, fetcher,
     device: { deviceCode: "device", userCode: "CODE", expiresIn: 900, interval: 5, verificationUri: "https://example.test/verify" } }));
 })));
+
+await Promise.all(["a", "AZaz09-._~+/", "padded==", "a.b.c"].map((accessToken) =>
+  test(`accepts RFC 6750 bearer syntax ${accessToken}`, async () => {
+    const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
+    const fetcher = (): Promise<Response> => jsonResponse({ access_token: accessToken, expires_in: 300, token_type: "Bearer" });
+    assert.equal((await exchangeAuthorizationCode({ clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:43123/callback", resource: issuer, metadata, fetcher })).access_token, accessToken);
+    assert.equal((await refreshAccessToken({ clientId: "client", refreshToken: "refresh", resource: issuer, metadata, fetcher })).access_token, accessToken);
+    assert.equal((await exchangeDeviceCode({ clientId: "client", resource: issuer, metadata, fetcher,
+      device: { deviceCode: "device", userCode: "CODE", expiresIn: 900, interval: 5, verificationUri: "https://example.test/verify" } })).access_token, accessToken);
+  })));
 
 await Promise.all([901, 9_000_000, Number.MAX_VALUE].map((expiresIn) => test(`bounds advertised and direct device lifetimes ${String(expiresIn)}`, async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device" };

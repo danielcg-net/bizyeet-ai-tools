@@ -111,7 +111,9 @@ const isTokenSet = (value: unknown): value is Omit<OAuthTokenSet, "token_type"> 
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return typeof candidate.access_token === "string"
-    && candidate.access_token.length > 0 && !/\s/u.test(candidate.access_token)
+    // RFC 6750 section 2.1 b64token; the negative lookahead requires the
+    // actual end of input (unlike $, which also matches before a final newline).
+    && /^[A-Za-z0-9._~+/-]+=*(?![\s\S])/u.test(candidate.access_token)
     && typeof candidate.expires_in === "number"
     && Number.isFinite(candidate.expires_in)
     && candidate.expires_in > 0

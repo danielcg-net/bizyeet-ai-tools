@@ -218,3 +218,8 @@ Windows sets/verifies current-SID-only native ACLs before payload writes. Consta
 PowerShell interop receives paths as environment data, not executable source.
 Write/sync/close failures clean the newly owned directory; cleanup failure is
 explicit. Tests use synthetic data and remove their test-owned export directories.
+
+Every token exchange validates access_token against RFC6750 section2.1 b64token
+before returning credentials. Reject controls, Unicode, separators and misplaced
+padding; accept the full allowed alphabet and trailing equals padding. Require
+the actual end of input so a terminal newline cannot bypass a regex dollar anchor.
