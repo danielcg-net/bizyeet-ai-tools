@@ -214,7 +214,7 @@ void test("rejects oversized raw searches before any request", async () => {
 });
 
 void test("round-trips opaque server cursors without imposing a token grammar", async (): Promise<void> => {
-  await Promise.all(["opaque", "v2:page/2?filter=a+b&x=1#next", "c".repeat(4096)].map(async (cursor): Promise<void> => {
+  await Promise.all(["opaque", "v2:page/2?filter=a+b&x=1#next", "c".repeat(4096), "opaque\u009b\u202e🎉\u{e0001}"].map(async (cursor): Promise<void> => {
     const fetcher = mock.fn((url: string): Promise<Response> => {
       const target = new URL(url);
       assert.equal(target.searchParams.get("cursor"), cursor);
@@ -237,6 +237,16 @@ void test("rejects oversized cursors before network or credential refresh", asyn
     persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
   }), /Cursor is invalid\./u);
   assert.equal(fetcher.mock.callCount(), 0);
+});
+
+void test("rejects non-round-trippable cursors before network or credential refresh", async (): Promise<void> => {
+  await Promise.all(["cursor\0value", "cursor\ud800", "\udfffvalue"].map(async (cursor): Promise<void> => {
+    const fetcher = mock.fn((): Promise<Response> => Promise.reject(new Error("Unexpected request")));
+    await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => Number.MAX_SAFE_INTEGER, profile,
+      options: { cursor }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    }), /Cursor is invalid\./u);
+    assert.equal(fetcher.mock.callCount(), 0);
+  }));
 });
 
 void test("refreshes once after an expired access token and preserves no generic retry loop", async (): Promise<void> => {

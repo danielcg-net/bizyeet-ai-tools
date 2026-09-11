@@ -1,6 +1,7 @@
 import { readBoundedJson as boundedResponse } from "./bounded-json.js";
 import { canonicalErrorCode, correlationReference, recordedFailureCode } from "./agent-error.js";
 import { isUuid as uuid } from "./uuid.js";
+import { validCursor } from "./cursor.js";
 
 export type CrmResource = "customers" | "leads";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
@@ -107,8 +108,7 @@ const validEnvelope = (body: unknown, id: string | null, pageSize: number): bool
   if (id !== null) return validResourceId(body.data.id) && body.data.id === id;
   return Array.isArray(body.data.items) && body.data.items.length <= pageSize && body.data.items.every((item: unknown) => record(item) && validResourceId(item.id)) &&
     Number.isSafeInteger(body.data.total) && typeof body.data.total === "number" && body.data.total >= body.data.items.length &&
-    (body.meta.next_cursor === null || (typeof body.meta.next_cursor === "string"
-      && body.meta.next_cursor.length > 0 && body.meta.next_cursor.length <= 4096));
+    (body.meta.next_cursor === null || validCursor(body.meta.next_cursor));
 };
 
 /** Provider-neutral transport with a closed capability set; mutations are never automatically retried. */
@@ -131,6 +131,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   const read = async (resource: CrmResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
     if (id !== null && !validResourceId(id)) return failure(400, "invalid_request");
+    if (options.cursor !== undefined && !validCursor(options.cursor)) return failure(400, "invalid_request");
     const pageSize = options.page_size ?? 25;
     if (id === null && (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100)) return failure(400, "invalid_request");
     try {

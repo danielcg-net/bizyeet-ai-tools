@@ -92,6 +92,18 @@ await Promise.all([0, 4096, 4097].map((length) => test(`validates returned curso
   if (length === 4096) assert.deepEqual(result.body, page);
 })));
 
+await Promise.all(["cursor\0value", "cursor\ud800", "\udfffvalue"].map((cursor, index) =>
+  test(`rejects non-round-trippable cursor at both transport boundaries ${String(index)}`, async (context) => {
+    const access = context.mock.fn(token);
+    const request = context.mock.fn(() => Promise.resolve(Response.json({ ...emptyPage, meta: { ...emptyPage.meta, next_cursor: cursor } })));
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: access, request });
+    assert.deepEqual(await client.list("customers", { cursor }), { status: 400, body: { error: { code: "invalid_request" } } });
+    assert.equal(access.mock.callCount(), 0);
+    assert.equal(request.mock.callCount(), 0);
+    assert.deepEqual(await client.list("customers"), { status: 502, body: { error: { code: "invalid_response" } } });
+    assert.equal(request.mock.callCount(), 1);
+  })));
+
 await test("caps actual streamed list, detail and error response bytes before parsing", async () => {
   await Promise.all(["list", "detail", "error"].map(async (kind) => {
     const cancel = mock.fn(() => undefined);

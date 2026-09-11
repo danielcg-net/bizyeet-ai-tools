@@ -244,3 +244,8 @@ opaque continuation cursors, using JSON Unicode escapes that preserve decoded
 values (including supplementary formatting characters). Do not reject or alter
 opaque cursor values. Measure the escaped inline read output against32KiB; if
 escaping pushes it over, export the original bounded canonical envelope.
+
+Opaque cursors must also survive argv and URL encoding. Reject NUL or ill-formed
+UTF-16 (lone surrogates) at canonical response and outbound option boundaries;
+JSON escaping alone cannot make them reusable. Keep valid paired Unicode and
+other opaque punctuation/control/format values, escaping only their display.
