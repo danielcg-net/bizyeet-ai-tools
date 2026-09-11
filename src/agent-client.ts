@@ -1,4 +1,5 @@
-import { refreshAccessToken, type FetchLike, type OAuthMetadata } from "./oauth.js";
+import { refreshAccessToken, revokeRefreshToken, type FetchLike, type OAuthMetadata } from "./oauth.js";
+import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
@@ -15,6 +16,12 @@ export type CustomerListOptions = Readonly<{
 export type AgentResult = Readonly<{ credentials: StoredCredentials; response: unknown }>;
 export type PersistCredentials = (credentials: StoredCredentials) => Promise<void>;
 type MetadataSource = OAuthMetadata | (() => Promise<OAuthMetadata>);
+
+export const refreshPersistenceMessages = {
+  retained: "Rotated credentials were saved and access was retained, but obsolete credential cleanup failed. Check credential storage before retrying.",
+  revoked: "Rotated credentials could not be saved; the new grant was revoked. Repair credential storage, then run auth login again.",
+  unconfirmed: "Rotated credentials could not be saved and revocation could not be confirmed. Revoke this agent in dashboard settings, repair credential storage, then sign in again.",
+} as const;
 
 const fieldPattern = /^[a-z][a-z0-9_]{0,63}$/u;
 
@@ -46,10 +53,11 @@ const currentCredentials = async (input: Readonly<{
   }
   if (new Date(input.credentials.expiresAt).getTime() > input.now() + 30000) return input.credentials;
   if (!input.credentials.refreshToken) throw new Error("OAuth session expired; run auth login again.");
+  const metadata = typeof input.metadata === "function" ? await input.metadata() : input.metadata;
   const tokens = await refreshAccessToken({
     clientId: input.profile.clientId,
     fetcher: input.fetcher,
-    metadata: typeof input.metadata === "function" ? await input.metadata() : input.metadata,
+    metadata,
     refreshToken: input.credentials.refreshToken,
     resource: new URL(input.profile.issuer),
   });
@@ -63,7 +71,14 @@ const currentCredentials = async (input: Readonly<{
   };
   // A successful rotation consumes the old refresh token, even if the next
   // resource request fails. Persist before making that request.
-  await input.persistCredentials(credentials);
+  try { await input.persistCredentials(credentials); }
+  catch (error) {
+    if (isCommittedCredentialCleanupFailure(error)) throw new Error(refreshPersistenceMessages.retained, { cause: error });
+    try {
+      await revokeRefreshToken({ clientId: input.profile.clientId, fetcher: input.fetcher, metadata, refreshToken: credentials.refreshToken });
+    } catch { throw new Error(refreshPersistenceMessages.unconfirmed); }
+    throw new Error(refreshPersistenceMessages.revoked, { cause: error });
+  }
   return credentials;
 };
 

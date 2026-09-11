@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createCredentialStore as createStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { run } from "./cli.js";
+import { getCustomer, refreshPersistenceMessages } from "./agent-client.js";
 import type { Keychain } from "./keychain.js";
 import type { CredentialAuthority, CredentialAuthorityStore, CredentialCollection, StoredCredentials } from "./profile-store.js";
 
@@ -155,6 +156,21 @@ void test("recovered keychain cannot override a newer fallback generation across
   assert.equal(result?.refreshToken, newer.refreshToken);
   assert.deepEqual(result.profile, newer.profile);
   assert.equal(nativeRead.mock.callCount(), 0);
+});
+
+void test("refresh retains committed credentials after obsolete cleanup failure", async (context) => {
+  const records = new Map<string, StoredCredentials>();
+  const native = keychain({ read: (name) => Promise.resolve(records.get(name)),
+    save: (name, value) => { records.set(name, value); return Promise.resolve(); } });
+  const store = createCredentialStore(native, fallback({ remove: () => Promise.reject(new Error("private cleanup failure")) }));
+  const profile = { issuer: "https://example.test", clientId: "public-client" };
+  const fetcher = context.mock.fn(() => Promise.resolve(Response.json({ access_token: "rotated-access", refresh_token: "rotated-refresh", token_type: "Bearer", expires_in: 300 })));
+  await assert.rejects(getCustomer({ credentials: { ...credentials, profile, expiresAt: new Date(0).toISOString() }, profile,
+    persistCredentials: (value) => store.save("default", value), now: () => 1000, resourceId: "customer-1", fetcher,
+    metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", revocation_endpoint: "https://example.test/revoke" },
+  }), (error: unknown) => error instanceof Error && error.message === refreshPersistenceMessages.retained);
+  assert.equal(fetcher.mock.callCount(), 1);
+  assert.equal((await store.read()).default?.refreshToken, "rotated-refresh");
 });
 
 void test("committed native generation wins even when obsolete fallback cleanup fails", async (): Promise<void> => {
