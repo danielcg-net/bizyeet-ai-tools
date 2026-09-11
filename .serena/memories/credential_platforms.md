@@ -249,3 +249,12 @@ Opaque cursors must also survive argv and URL encoding. Reject NUL or ill-formed
 UTF-16 (lone surrogates) at canonical response and outbound option boundaries;
 JSON escaping alone cannot make them reusable. Keep valid paired Unicode and
 other opaque punctuation/control/format values, escaping only their display.
+
+Use the same usable-refresh-token predicate for present token-endpoint refresh
+credentials and persistent login: nonempty, well-formed and free of whitespace
+or control/format characters. Validate rotations before persistence/business
+dispatch, not only initial login. A malformed consumed rotation requires re-login;
+never persist its non-round-trippable token. Omitted refresh tokens remain an
+optional low-level OAuth field; persistent login/rotation callers require them.
+Device verification URLs are returned in validated canonical URL form and CLI
+verification stderr uses the same display-safe JSON serializer as stdout.

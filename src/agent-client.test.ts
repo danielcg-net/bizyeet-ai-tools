@@ -10,6 +10,21 @@ const metadata = { authorization_endpoint: "https://example.test/authorize", tok
 const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
 
+void test("malformed rotated refresh credentials never persist or dispatch a business read", async () => {
+  await Promise.all(["", "next\ud800token", "next\udffftoken"].map(async (refreshToken) => {
+    const persist = mock.fn((): Promise<void> => Promise.resolve());
+    const fetcher = mock.fn((url: string): Promise<Response> => {
+      assert.equal(url, metadata.token_endpoint);
+      return Promise.resolve(Response.json({ access_token: "new-synthetic-access", refresh_token: refreshToken, expires_in: 300, token_type: "Bearer" }));
+    });
+    await assert.rejects(getCustomer({ credentials: { ...validCredentials, expiresAt: new Date(0).toISOString() }, profile,
+      metadata, now: () => 1000, fetcher, persistCredentials: persist, resourceId: "synthetic-customer",
+    }), /OAuth refresh failed; run auth login again/u);
+    assert.equal(fetcher.mock.callCount(), 1);
+    assert.equal(persist.mock.callCount(), 0);
+  }));
+});
+
 void test("failed rotation persistence revokes once or gives explicit dashboard recovery without business dispatch", async () => {
   await Promise.all(["revoked", "denied", "network", "missing"].map(async (mode) => {
     const expired = { ...validCredentials, expiresAt: new Date(0).toISOString() };

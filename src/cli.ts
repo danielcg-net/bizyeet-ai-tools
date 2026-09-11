@@ -455,10 +455,10 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
 /** Writes the resolved CLI result only at the process boundary. */
 export const execute = async (args: readonly string[], io: CliIo): Promise<number> => {
   const resolved = await run(args, storage, runtime, (device) => {
-    io.error(JSON.stringify({ data: { user_code: device.userCode, verification_uri: device.verificationUriComplete ?? device.verificationUri }, meta: { contract_version: "v1" } }));
+    io.error(escapeDisplayJson(JSON.stringify({ data: { user_code: device.userCode, verification_uri: device.verificationUriComplete ?? device.verificationUri }, meta: { contract_version: "v1" } })));
   });
   (resolved.stream === "stdout" ? io.log : io.error)(resolved.message);
-  resolved.warnings?.forEach((message) => { io.error(JSON.stringify({ warning: { code: "profile_lock_cleanup_failed", message } })); });
+  resolved.warnings?.forEach((message) => { io.error(escapeDisplayJson(JSON.stringify({ warning: { code: "profile_lock_cleanup_failed", message } }))); });
   return resolved.exitCode;
 };
 

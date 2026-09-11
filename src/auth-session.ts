@@ -7,6 +7,7 @@ import {
   issuerOrigin,
   registerPublicClient,
   requestDeviceAuthorization,
+  validRefreshToken,
   type DeviceAuthorization,
   type FetchLike,
   type OAuthTokenSet,
@@ -35,7 +36,7 @@ type BrowserLoginDependencies = Readonly<{
 }>;
 
 const credentialsFrom = (tokens: OAuthTokenSet, now: () => number, profile: Profile, requestedScope: string): StoredCredentials => {
-  if (!tokens.refresh_token || /[\s\p{Cc}\p{Cf}\p{Cs}]/u.test(tokens.refresh_token)) {
+  if (!validRefreshToken(tokens.refresh_token)) {
     throw new Error("The authorization server did not issue a usable refresh token. Persistent login was not completed.");
   }
   return {

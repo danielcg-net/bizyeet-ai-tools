@@ -52,7 +52,7 @@ const isDeviceInterval = (value: unknown): value is number => typeof value === "
 const base64Url = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
 
 const isAbsoluteHttpsUrl = (value: unknown, issuer: URL): value is string => {
-  if (typeof value !== "string") return false;
+  if (typeof value !== "string" || !value.isWellFormed()) return false;
   try {
     const url = new URL(value);
     return url.protocol === "https:" && url.origin === issuer.origin && !url.username && !url.password && !url.hash;
@@ -107,6 +107,10 @@ const isOAuthMetadata = (value: unknown, issuer: URL): value is OAuthMetadata =>
     && (candidate.code_challenge_methods_supported === undefined || isStringArray(candidate.code_challenge_methods_supported));
 };
 
+/** Validate opaque refresh credentials before any login or rotation can persist them. */
+export const validRefreshToken = (value: unknown): value is string => typeof value === "string"
+  && value.length > 0 && value.isWellFormed() && !/[\s\p{Cc}\p{Cf}\p{Cs}]/u.test(value);
+
 const isTokenSet = (value: unknown): value is Omit<OAuthTokenSet, "token_type"> & Readonly<{ token_type: string }> => {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
@@ -119,7 +123,7 @@ const isTokenSet = (value: unknown): value is Omit<OAuthTokenSet, "token_type"> 
     && candidate.expires_in > 0
     && Number.isFinite(new Date(Date.now() + candidate.expires_in * 1000).getTime())
     && typeof candidate.token_type === "string" && candidate.token_type.toLowerCase() === "bearer"
-    && (candidate.refresh_token === undefined || typeof candidate.refresh_token === "string")
+    && (candidate.refresh_token === undefined || validRefreshToken(candidate.refresh_token))
     && (candidate.scope === undefined || validOAuthScope(candidate.scope));
 };
 
@@ -283,8 +287,8 @@ export const requestDeviceAuthorization = async (input: Readonly<{
     expiresIn: body.expires_in,
     interval: body.interval ?? 5,
     userCode: body.user_code,
-    verificationUri: body.verification_uri,
-    ...(body.verification_uri_complete ? { verificationUriComplete: body.verification_uri_complete } : {}),
+    verificationUri: new URL(body.verification_uri).href,
+    ...(body.verification_uri_complete ? { verificationUriComplete: new URL(body.verification_uri_complete).href } : {}),
   };
 };
 

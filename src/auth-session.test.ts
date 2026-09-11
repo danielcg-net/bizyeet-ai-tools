@@ -20,7 +20,8 @@ void test("persistent browser and device login reject missing or unusable refres
     const operation = device ? loginWithDevice(input, { fetcher, now: Date.now, onVerification: (): void => undefined })
       : loginWithBrowser(input, { fetcher, now: Date.now, launchBrowser: () => Promise.resolve(),
         openCallback: () => Promise.resolve({ redirectUri: "http://127.0.0.1:43123/callback", awaitCode: () => Promise.resolve("synthetic-code"), close: () => Promise.resolve() }) });
-    await assert.rejects(operation, (error: unknown) => error instanceof Error && error.message.includes("Persistent login was not completed") && !error.message.includes("secret-access"));
+    const expected = refreshToken === undefined ? "Persistent login was not completed" : device ? "OAuth device authorization was denied or is no longer valid" : "OAuth authorization-code exchange failed";
+    await assert.rejects(operation, (error: unknown) => error instanceof Error && error.message.includes(expected) && !error.message.includes("secret-access"));
   })));
 });
 

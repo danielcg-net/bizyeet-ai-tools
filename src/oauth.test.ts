@@ -7,6 +7,39 @@ const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
   Promise.resolve(new Response(JSON.stringify(value)));
 
+void test("every token exchange validates present refresh credentials before returning a token set", async () => {
+  const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
+  const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [
+    (fetcher): Promise<unknown> => exchangeAuthorizationCode({ fetcher, metadata, clientId: "client", code: "code", verifier: "verifier", redirectUri: "http://127.0.0.1:1234/callback", resource: issuer }),
+    (fetcher): Promise<unknown> => refreshAccessToken({ fetcher, metadata, clientId: "client", refreshToken: "refresh", resource: issuer }),
+    (fetcher): Promise<unknown> => exchangeDeviceCode({ fetcher, metadata, clientId: "client", resource: issuer,
+      device: { deviceCode: "device", expiresIn: 900, interval: 5, userCode: "CODE", verificationUri: "https://example.test/verify" },
+      dependencies: { now: () => 1000, sleep: () => Promise.reject(new Error("Unexpected retry")) } }),
+  ];
+  await Promise.all(operations.flatMap((operation) => ["", " ", "bad token", "bad\0token", "bad\ud800token", "bad\udffftoken", "bad\u009btoken", "bad\u202etoken", null, 1].map(async (refreshToken) => {
+    const fetcher = mock.fn(() => jsonResponse({ access_token: "synthetic-access", refresh_token: refreshToken, expires_in: 300, token_type: "Bearer" }));
+    await assert.rejects(operation(fetcher), (error: unknown) => error instanceof Error && !/synthetic-access|bad/u.test(error.message));
+    assert.equal(fetcher.mock.callCount(), 1);
+  })));
+  await Promise.all(operations.map((operation) => operation(() => jsonResponse({ access_token: "synthetic-access", refresh_token: "synthetic-🎉", expires_in: 300, token_type: "Bearer" }))));
+});
+
+await Promise.all(["verification_uri", "verification_uri_complete"].map((field) =>
+  test(`canonicalizes display-unsafe device URL ${field}`, async () => {
+    const uri = "https://example.test/veri\u009b\u202efy?code=é\u2028\u{e0001}";
+    const device = await requestDeviceAuthorization({ clientId: "client", resource: issuer, scope: "customers.read",
+      metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device" },
+      fetcher: () => jsonResponse({ device_code: "synthetic-device", user_code: "CODE", expires_in: 900, verification_uri: "https://example.test/verify", [field]: uri }),
+    });
+    const displayed = field === "verification_uri" ? device.verificationUri : device.verificationUriComplete;
+    assert.equal(displayed, new URL(uri).href);
+    assert.doesNotMatch(displayed, /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u);
+    await assert.rejects(requestDeviceAuthorization({ clientId: "client", resource: issuer, scope: "customers.read",
+      metadata: { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", device_authorization_endpoint: "https://example.test/device" },
+      fetcher: () => jsonResponse({ device_code: "synthetic-device", user_code: "CODE", expires_in: 900, verification_uri: "https://example.test/verify", [field]: "https://example.test/verify\ud800" }),
+    }), /could not be started/u);
+  })));
+
 void test("all token exchanges reject malformed returned scopes and accept omitted or valid scopes", async () => {
   const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
   const operations: readonly ((fetcher: FetchLike) => Promise<unknown>)[] = [
