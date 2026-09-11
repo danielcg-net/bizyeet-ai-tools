@@ -10,7 +10,7 @@ export const committedCredentialCleanupError = (): Error =>
 
 /** Preserves completion evidence across cleanup, including nested cleanup failures. */
 export const withCredentialCleanup = async <T>(update: () => Promise<T>, cleanup: () => Promise<void>): Promise<T> => {
-  const outcome = await update().then(
+  const outcome = await Promise.resolve().then(update).then(
     (value) => ({ ok: true, value } as const),
     (error: unknown) => ({ ok: false, error } as const),
   );

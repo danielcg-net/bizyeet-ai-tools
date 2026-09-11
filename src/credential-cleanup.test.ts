@@ -20,6 +20,13 @@ void test("cleanup failure preserves completion but never upgrades failed update
   assert.equal(await withCredentialCleanup(() => Promise.resolve(1), () => Promise.resolve()), 1);
 });
 
+void test("synchronously throwing operations still release their storage lock", async () => {
+  const failure = new Error("synchronous precommit failure");
+  const cleanup = mock.fn(() => Promise.resolve());
+  await assert.rejects(withCredentialCleanup(() => { throw failure; }, cleanup), (error: unknown) => error === failure);
+  assert.equal(cleanup.mock.callCount(), 1);
+});
+
 await Promise.all(["auto", "file"].flatMap((mode) => ["login", "refresh"].map((operation) =>
   test(`${operation} retains ${mode} credentials after real storage-lock cleanup failure`, { skip: process.platform === "win32" }, async () => {
     const root = await files.mkdtemp(join(tmpdir(), "bizyeet-cleanup-"));

@@ -179,3 +179,7 @@ successful rename. Rename consumes that path; do not run another unlink after
 commit or a cleanup error can falsely report that saved credentials were lost.
 Tests cover protected credential and authority files as well as partial-write,
 chmod, close and rename failure cleanup.
+
+The operation/cleanup boundary normalizes synchronous throws as well as rejected
+promises. Both must release the acquired storage lock and remain pre-commit
+failures; regression tests assert cleanup runs exactly once.
