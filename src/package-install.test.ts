@@ -134,6 +134,13 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const list = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--profile", testProfile(directory)], directory, environment);
       const listed: unknown = JSON.parse(list);
       assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
+      const exported = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)], directory,
+        { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory });
+      const summary: unknown = JSON.parse(exported);
+      assert.ok(typeof summary === "object" && summary !== null && "data" in summary);
+      assert.ok(typeof summary.data === "object" && summary.data !== null && "path" in summary.data && typeof summary.data.path === "string");
+      assert.deepEqual(JSON.parse(await readFile(summary.data.path, "utf8")) as unknown, listed);
+      assert.doesNotMatch(exported, /"items"|synthetic-access|synthetic-refresh/u);
       const nextPage = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", `--cursor=${opaqueCursor}`, "--profile", testProfile(directory)], directory, environment);
       const detail = await runInstalled(["customers", "get", "--profile", testProfile(directory), "--", opaqueId], directory, environment);
       const preview = await runInstalled(["customers", "update", "preview", "--input-stdin", "--profile", testProfile(directory), "--", opaqueId], directory, environment, JSON.stringify({ business: "Proposed" }));
@@ -149,7 +156,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.match(preview, /"confirmation_class":"reversible_write"/u);
       assert.match(execution, /"business":"Proposed"/u);
       assert.doesNotMatch(check + list + nextPage + detail + preview + execution + status, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
-      assert.equal(handler.mock.callCount(), 7);
+      assert.equal(handler.mock.callCount(), 8);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);

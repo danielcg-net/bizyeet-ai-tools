@@ -180,7 +180,23 @@ The reader consumes chunks iteratively and cancels/releases its reader on failur
 response content is never included in parser errors.
 
 The V1 client intentionally exposes explicit business commands only. It has no
-raw HTTP, SQL, tenant-selection, bulk-export, or file-path command.
+raw HTTP, SQL, tenant-selection, bulk-export, or caller-supplied output-path command.
+
+Use `--export` on `customers list` or `customers get` to save the complete bounded
+canonical JSON response in a generated private local file. Responses above 32 KiB
+use the same mechanism automatically. Stdout contains only a versioned path,
+byte-count and continuation-cursor summary. Export does not follow the cursor or
+fetch another page; use the normal list options to select the next bounded page.
+Existing fields and provider/tenant permissions still apply. OAuth credentials,
+auth output, errors and mutation responses are not exported by this mechanism.
+
+Exports use an owner-only temporary directory and exclusive generated filename.
+POSIX exports require 0700 directory/0600 file protection; Windows verifies a native
+current-user-only ACL before writing data. Unsupported protection fails closed;
+the CLI does not print the response as a fallback. Files remain until you remove
+them: inspect the returned path and delete its export directory when finished.
+Do not commit or upload customer exports into logs, telemetry or build artifacts.
+On failure, inspect private export directories for incomplete files before retrying.
 
 ```sh
 bizyeet customers list --limit 25 --search "acme"

@@ -2,6 +2,10 @@
 
 **Status:** Approved baseline under BIZYEET-640. CLI authentication details below incorporate the delivered BIZYEET-641 and BIZYEET-643 requirements.
 
+The approved BIZYEET-643 export amendment supersedes the original no-file-output
+rule below. It permits permission-safe local read-response exports, not bulk
+downloads, server-side jobs, or additional business authority.
+
 This is the public contract for the OAuth-only BizYeet agent interface. It is
 deliberately independent of dashboard routes, database tables, provider
 configuration, tenant records, and deployment details.
@@ -193,10 +197,34 @@ than inventing tool-specific business semantics.
   client minor versions and 90 days, and may be removed earlier only for a
   documented security emergency.
 - V1 creates no server-side export jobs and has no bulk-download capability.
-  The CLI writes structured JSON to stdout by default and may render a local
-  table for the same bounded response; it does not write files, stream archives,
-  or follow model-supplied file paths. Callers needing records paginate through
-  the authorized list tools within their normal rate limits.
+  CLI read commands support permission-safe local export of the same authorized,
+  bounded response. Export never changes fields, authorization, routing, page
+  limits or response byte limits, and never follows cursors automatically.
+  Callers needing additional records paginate explicitly within normal limits.
+
+### Local read exports (BIZYEET-643 amendment)
+
+- `--export` on a supported read command writes that response to a generated
+  JSON file. Successful read output above 32 KiB uses the same export mechanism
+  automatically so stdout remains concise. Other successful reads retain their
+  existing JSON envelope. Authentication, diagnostics, errors and mutation
+  responses are never implicitly exported.
+- Files contain the complete canonical response envelope, not credentials or
+  the internal client session. Stdout contains a versioned summary with the
+  absolute local path, byte count and continuation cursor when present; it does
+  not repeat the exported records or claim that all pages were downloaded.
+- The CLI chooses the filename in a private local directory. It accepts no
+  model-supplied output path, overwrites no existing file and follows no symlink
+  to write data. Files are owner-only on POSIX; Windows requires verified native
+  ACL protection before any response data is written. A platform or filesystem
+  unable to establish protection fails explicitly, never downgrades to public
+  output or pretends POSIX mode bits enforce Windows access.
+- Partial writes must be cleaned up or reported as cleanup failures without
+  leaking response data. A failed export is not retried automatically and does
+  not refetch the business response. Files remain local until the operator
+  removes them; do not upload them into telemetry, repository artifacts or CI.
+- This is a local CLI output capability, not a new MCP business tool. Remote MCP
+  retains bounded canonical results and cannot create files on the user's host.
 
 ## Codex MCP profile
 

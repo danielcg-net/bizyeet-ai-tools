@@ -208,3 +208,13 @@ revoked token. If retirement also fails, preserve a distinct uncertain outcome
 through lock cleanup: do not claim saved/revoked credentials or dispatch a
 business operation. Require dashboard revocation and storage repair explicitly;
 do not automatically revoke a potentially still-selected generation.
+
+The approved643 amendment permits bounded local read-response exports. Only the
+canonical response envelope enters the exporter, never AgentResult credentials.
+Explicit --export or read JSON above32KiB produces a generated private file and
+compact path/bytes/cursor output, never automatic pagination or arbitrary paths.
+POSIX checks owned700directory/600regular single-link file and exclusive creation;
+Windows sets/verifies current-SID-only native ACLs before payload writes. Constant
+PowerShell interop receives paths as environment data, not executable source.
+Write/sync/close failures clean the newly owned directory; cleanup failure is
+explicit. Tests use synthetic data and remove their test-owned export directories.

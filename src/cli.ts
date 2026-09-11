@@ -14,6 +14,7 @@ import { credentialStore, isCommittedCredentialCleanupFailure } from "./credenti
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validResourceId } from "./canonical-crm-client.js";
 import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
+import { exportReadResponse, READ_OUTPUT_BYTE_LIMIT } from "./read-export.js";
 import { isUuid } from "./uuid.js";
 import type { DeviceAuthorization } from "./oauth.js";
 import { discoverOAuth, issuerOrigin, revokeRefreshToken } from "./oauth.js";
@@ -32,6 +33,7 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  exportReadResponse?: typeof exportReadResponse;
   previewCustomerUpdate?: (input: Omit<Parameters<typeof previewCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeCustomerUpdate?: (input: Omit<Parameters<typeof executeCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   customerUpdateStatus?: (input: Omit<Parameters<typeof customerUpdateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -81,8 +83,9 @@ const runtime: CliRuntime = {
 const helpMessage = [
   "Usage: bizyeet auth <login|status|check|logout> [--profile <name>]",
   "       auth status inspects local credentials; auth check verifies current server access.",
-  "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>]",
-  "       bizyeet customers get <opaque-id> [--profile <name>]",
+  "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet customers get <opaque-id> [--profile <name>] [--export]",
+  "Read commands accept --export for a private local JSON file; responses above 32 KiB export automatically. No output-path argument or automatic pagination is supported.",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
   "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet customers update status <preview-id> --idempotency-key <uuid> [--profile <name>]",
@@ -142,7 +145,7 @@ const safeValidationMessages = new Set([
   "Credential fallback file permissions are unsafe; expected an owner-only regular file with mode 0600.",
   "Credential fallback directory is unsafe; expected an owner-only directory with mode 0700.",
   "Credential fallback file must not be a symbolic link.",
-  "customers list accepts --cursor, --fields, --limit, --profile, and --search only.",
+  "customers list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
   "customers get requires one opaque ID and optional --profile.",
   ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key"].map((option) => `Use ${option} once with a value.`),
 ]);
@@ -318,8 +321,23 @@ const requestFailure = (error: unknown): CliResult => {
 
 const resourceOutput = (outcome: AgentResult): CliResult => result(0, JSON.stringify(outcome.response), "stdout");
 
+const readOutput = async (outcome: AgentResult, explicit: boolean, execution: CliRuntime): Promise<CliResult> => {
+  const serialized = JSON.stringify(outcome.response);
+  if (!explicit && Buffer.byteLength(serialized, "utf8") <= READ_OUTPUT_BYTE_LIMIT) return result(0, serialized, "stdout");
+  try {
+    const exported = await (execution.exportReadResponse ?? exportReadResponse)(serialized);
+    const response = outcome.response;
+    const meta: unknown = typeof response === "object" && response !== null && "meta" in response ? response.meta : undefined;
+    const cursor = typeof meta === "object" && meta !== null && "next_cursor" in meta ? meta.next_cursor : undefined;
+    return output({ exported: true, path: exported.path, bytes: exported.bytes,
+      ...(typeof cursor === "string" ? { next_cursor: cursor } : {}) });
+  } catch {
+    return result(1, errorEnvelope("internal_error", "Read export failed. No response data was printed. Inspect private export directories for incomplete files and check local storage protection before retrying."), "stderr");
+  }
+};
+
 const customerListOptions = (args: readonly string[]): CustomerListOptions => {
-  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search"])) throw new Error("customers list accepts --cursor, --fields, --limit, --profile, and --search only.");
+  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search"], ["--export"])) throw new Error("customers list accepts --cursor, --fields, --limit, --profile, --search, and --export only.");
   const rawLimit = oneOption(args, "--limit", "25");
   const fields = oneOption(args, "--fields", "").split(",").filter(Boolean);
   return {
@@ -349,15 +367,17 @@ const customers = async (args: readonly string[], dependencies: CliStorage, exec
   const [command, ...options] = args;
   if (command === "update") return customerUpdate(options, dependencies, execution);
   try {
+    if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
     const listOptions = command === "list" ? customerListOptions(options) : undefined;
-    const target = command === "get" ? resourceTarget(options, ["--profile"]) : undefined;
+    const target = command === "get" ? resourceTarget(options, ["--profile"], ["--export"]) : undefined;
     if (command === "get" && !target) return invalidInput("customers get requires one opaque ID and optional --profile.");
     if (command !== "list" && command !== "get") return unsupportedCommand(`customers ${command ?? ""}`.trim());
     const authenticated = await authenticatedProfile(target?.options ?? options, dependencies);
     if ("exitCode" in authenticated) return authenticated;
     const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
-    if (listOptions) return resourceOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }));
-    return resourceOutput(await execution.getCustomer({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: target?.id ?? "" }));
+    const explicit = beforeSeparator(options).includes("--export");
+    if (listOptions) return await readOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }), explicit, execution);
+    return await readOutput(await execution.getCustomer({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: target?.id ?? "" }), explicit, execution);
   } catch (error) {
     return requestFailure(error);
   }
