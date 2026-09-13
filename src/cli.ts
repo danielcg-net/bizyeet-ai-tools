@@ -8,7 +8,7 @@ import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { canonicalRegistrationScope } from "./oauth.js";
 import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
-import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
@@ -41,7 +41,9 @@ type CliRuntime = Readonly<{
   readChanges?: typeof readChanges;
   readApprovalReceipt?: typeof readApprovalReceipt;
   checkIdentity?: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
-  getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
+  getLead?: (input: Omit<Parameters<typeof getAgentLead>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  listLeads?: (input: Omit<Parameters<typeof listAgentLeads>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  getCustomer: (input: Omit<Parameters<typeof getAgentCustomer>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
   loginDevice: (input: Parameters<typeof loginWithDevice>[0], onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
@@ -56,6 +58,8 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  getLead: async (input) => getAgentLead({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  listLeads: async (input) => listAgentLeads({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   readChanges,
   readApprovalReceipt,
   previewCustomerUpdate: async (input) => previewCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -85,7 +89,9 @@ const helpMessage = [
   "Usage: bizyeet auth <login|status|check|logout> [--profile <name>]",
   "       auth status inspects local credentials; auth check verifies current server access.",
   "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
-  "       bizyeet customers get <opaque-id> [--profile <name>] [--export]",
+  "       bizyeet customers get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet leads list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet leads get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "Read commands accept --export for a private local JSON file; responses above 32 KiB export automatically. No output-path argument or automatic pagination is supported.",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
   "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
@@ -141,13 +147,14 @@ const safeValidationMessages = new Set([
   "Write input is invalid, oversized, cancelled or expired.",
   "Preview changes require piped JSON with --input-stdin.",
   "Use hidden terminal entry, or --receipt-stdin with a pipe.",
-  "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.",
+  "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.", "Lead ID is invalid.",
   CRM_SEARCH_LIMIT_MESSAGE, "Requested fields are invalid.",
   "Stored BizYeet credentials are invalid.", "Credential fallback file permissions are unsafe; expected mode 0600.",
   "Credential fallback file permissions are unsafe; expected an owner-only regular file with mode 0600.",
   "Credential fallback directory is unsafe; expected an owner-only directory with mode 0700.",
   "Credential fallback file must not be a symbolic link.",
   "customers list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
+  "leads list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
   "customers get requires one opaque ID and optional --profile.",
   ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key"].map((option) => `Use ${option} once with a value.`),
 ]);
@@ -339,8 +346,8 @@ const readOutput = async (outcome: AgentResult, explicit: boolean, execution: Cl
   }
 };
 
-const customerListOptions = (args: readonly string[]): CustomerListOptions => {
-  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search"], ["--export"])) throw new Error("customers list accepts --cursor, --fields, --limit, --profile, --search, and --export only.");
+const crmListOptions = (resource: "customers" | "leads", args: readonly string[]): CustomerListOptions => {
+  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search"], ["--export"])) throw new Error(`${resource} list accepts --cursor, --fields, --limit, --profile, --search, and --export only.`);
   const rawLimit = oneOption(args, "--limit", "25");
   const fields = oneOption(args, "--fields", "").split(",").filter(Boolean);
   return {
@@ -366,21 +373,25 @@ const resourceTarget = (args: readonly string[], valueOptions: readonly string[]
   return { id, options };
 };
 
-const customers = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+const crmRead = async (resource: "customers" | "leads", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
-  if (command === "update") return customerUpdate(options, dependencies, execution);
+  if (resource === "customers" && command === "update") return customerUpdate(options, dependencies, execution);
   try {
     if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
-    const listOptions = command === "list" ? customerListOptions(options) : undefined;
-    const target = command === "get" ? resourceTarget(options, ["--profile"], ["--export"]) : undefined;
-    if (command === "get" && !target) return invalidInput("customers get requires one opaque ID and optional --profile.");
-    if (command !== "list" && command !== "get") return unsupportedCommand(`customers ${command ?? ""}`.trim());
+    const listOptions = command === "list" ? crmListOptions(resource, options) : undefined;
+    const target = command === "get" ? resourceTarget(options, ["--profile", "--fields"], ["--export"]) : undefined;
+    if (command === "get" && !target) return invalidInput(`${resource} get requires one opaque ID and optional --profile, --fields or --export.`);
+    if (command !== "list" && command !== "get") return unsupportedCommand(`${resource} ${command ?? ""}`.trim());
+    const fields = command === "get" ? oneOption(target?.options ?? [], "--fields", "").split(",").filter(Boolean) : [];
     const authenticated = await authenticatedProfile(target?.options ?? options, dependencies);
     if ("exitCode" in authenticated) return authenticated;
     const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
     const explicit = beforeSeparator(options).includes("--export");
-    if (listOptions) return await readOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }), explicit, execution);
-    return await readOutput(await execution.getCustomer({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: target?.id ?? "" }), explicit, execution);
+    const list = resource === "customers" ? execution.listCustomers : execution.listLeads;
+    const get = resource === "customers" ? execution.getCustomer : execution.getLead;
+    if (listOptions && list) return await readOutput(await list({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }), explicit, execution);
+    if (!get || listOptions) return unsupportedCommand(`${resource} ${command}`);
+    return await readOutput(await get({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: target?.id ?? "", ...(fields.length ? { options: { fields } } : {}) }), explicit, execution);
   } catch (error) {
     return requestFailure(error);
   }
@@ -429,7 +440,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (first === "diagnostics") return args.length === 1 ? output(diagnostics()) : invalidInput("diagnostics accepts no arguments other than --json.");
   if (args.length === 0 || optionArgs.includes("--help") || optionArgs.includes("-h")) return result(0, helpMessage, "stdout");
-  if (dependencies.withProfileLock && (first === "customers" || first === "auth")) {
+  if (dependencies.withProfileLock && (first === "customers" || first === "leads" || first === "auth")) {
     try {
       if (first === "auth" && second === "login") {
         const parsed = loginOptions(args.slice(2));
@@ -444,7 +455,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
       return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
     }
   }
-  if (first === "customers") return customers(args.slice(1), dependencies, execution);
+  if (first === "customers" || first === "leads") return crmRead(first, args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
   if (second === "status") return status(args.slice(2), dependencies);

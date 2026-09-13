@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 
-import { checkIdentity, getCustomer, listCustomers, executeCustomerUpdate, refreshPersistenceMessages } from "./agent-client.js";
+import { checkIdentity, getCustomer, getLead, listCustomers, listLeads, executeCustomerUpdate, refreshPersistenceMessages } from "./agent-client.js";
 import { run } from "./cli.js";
 import { isAgentFailure } from "./agent-error.js";
 
@@ -9,6 +9,48 @@ const profile = { clientId: "public-client", issuer: "https://example.test" };
 const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
 const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
+
+void test("CRM exact reads preserve opaque IDs and field projections through canonical endpoints", async () => {
+  await Promise.all([{ resource: "customers", read: getCustomer }, { resource: "leads", read: getLead }].map(async ({ resource, read }) => {
+    const fetcher = mock.fn((url: string): Promise<Response> => {
+      const target = new URL(url);
+      assert.equal(target.pathname, `/api/agent/${resource}/${encodeURIComponent("provider:id one")}`);
+      assert.equal(target.searchParams.get("fields"), "id,name");
+      return Promise.resolve(Response.json({ data: { id: "provider:id one" }, meta: { contract_version: "v1" } }));
+    });
+    await read({ credentials: validCredentials, profile, metadata, now: () => 1000, fetcher,
+      persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+      resourceId: "provider:id one", options: { fields: ["id", "name"] } });
+    assert.equal(fetcher.mock.callCount(), 1);
+  }));
+});
+
+void test("lead lists preserve bounded canonical search and opaque pagination", async () => {
+  const cursor = "provider:v2/page?next=a+b";
+  const fetcher = mock.fn((url: string): Promise<Response> => {
+    const target = new URL(url);
+    assert.equal(target.pathname, "/api/agent/leads");
+    assert.equal(target.searchParams.get("cursor"), cursor);
+    assert.equal(target.searchParams.get("search"), "Synthetic Lead");
+    assert.equal(target.searchParams.get("limit"), "10");
+    assert.equal(target.searchParams.get("fields"), "id,name");
+    return Promise.resolve(Response.json({ data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } }));
+  });
+  await listLeads({ credentials: validCredentials, profile, metadata, now: () => 1000, fetcher,
+    persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    options: { cursor, search: "Synthetic Lead", limit: 10, fields: ["id", "name"] } });
+  assert.equal(fetcher.mock.callCount(), 1);
+});
+
+void test("CRM read projections reject invalid fields before OAuth or business requests", async () => {
+  await Promise.all([getCustomer, getLead].flatMap((read) => [["secret*"], Array.from({ length: 21 }, () => "name")].map(async (fields) => {
+    const fetcher = mock.fn(() => Promise.reject(new Error("Unexpected request")));
+    await assert.rejects(read({ credentials: { ...validCredentials, expiresAt: new Date(0).toISOString() }, profile, metadata,
+      now: () => 1000, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+      resourceId: "synthetic-id", options: { fields } }), /Requested fields are invalid/u);
+    assert.equal(fetcher.mock.callCount(), 0);
+  })));
+});
 
 void test("malformed rotated refresh credentials never persist or dispatch a business read", async () => {
   await Promise.all(["", "next\ud800token", "next\udffftoken"].map(async (refreshToken) => {

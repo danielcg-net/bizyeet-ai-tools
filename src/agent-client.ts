@@ -3,7 +3,7 @@ import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validOAuthScope } from "./oauth-scope.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch } from "./search-contract.js";
@@ -28,6 +28,10 @@ export const refreshPersistenceMessages = {
 } as const;
 
 const fieldPattern = /^[a-z][a-z0-9_]{0,63}$/u;
+const boundedReadOptions = (options: ReadOptions): ReadOptions => {
+  if (options.fields && (options.fields.length > 20 || !options.fields.every((field) => fieldPattern.test(field)))) throw new Error("Requested fields are invalid.");
+  return options.fields?.length ? { fields: options.fields } : {};
+};
 const validTenantIdentifier = (value: unknown): value is string => typeof value === "string"
   && value.trim().length > 0 && value.length <= 512 && !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(value);
 
@@ -36,10 +40,9 @@ const boundedOptions = (options: CustomerListOptions): ListOptions => {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("--limit must be an integer from 1 to 100.");
   if (options.cursor && !validCursor(options.cursor)) throw new Error("Cursor is invalid.");
   if (options.search && !validCrmSearch(options.search)) throw new Error(CRM_SEARCH_LIMIT_MESSAGE);
-  if (options.fields && (options.fields.length > 20 || !options.fields.every((field) => fieldPattern.test(field)))) throw new Error("Requested fields are invalid.");
   return {
     ...(options.cursor ? { cursor: options.cursor } : {}),
-    ...(options.fields?.length ? { fields: options.fields } : {}),
+    ...boundedReadOptions(options),
     page_size: limit,
     ...(options.search ? { search: options.search } : {}),
   };
@@ -163,9 +166,24 @@ export const getCustomer = async (input: Readonly<{
   persistCredentials: PersistCredentials;
   profile: Profile;
   resourceId: string;
+  options?: ReadOptions;
 }>): Promise<AgentResult> => {
   if (!validResourceId(input.resourceId)) throw new Error("Customer ID is invalid.");
-  return invoke({ ...input, operation: (client) => client.get("customers", input.resourceId) });
+  const options = boundedReadOptions(input.options ?? {});
+  return invoke({ ...input, operation: (client) => client.get("customers", input.resourceId, options) });
+};
+
+/** Lists bounded canonical leads through the same OAuth refresh and persistence boundary as customers. */
+export const listLeads = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
+  const options = boundedOptions(input.options);
+  return invoke({ ...input, operation: (client) => client.list("leads", options) });
+};
+
+/** Reads a projected canonical lead without provider-specific routing or arbitrary query keys. */
+export const getLead = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Lead ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  return invoke({ ...input, operation: (client) => client.get("leads", input.resourceId, options) });
 };
 
 type WriteSession = Readonly<{

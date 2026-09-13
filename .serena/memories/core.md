@@ -1,5 +1,7 @@
 # Core
 
+- Customer and lead CLI reads share OAuth invocation, profile locking, canonical transport and protected exports. Exact reads pass ReadOptions.fields just like lists; never add provider routing in the CLI. Keep the literal ID after `--` separate from projection/profile/export flags and preserve opaque cursors unchanged.
+
 - Separate registration response shape/HTTP failures from assigned-auth policy validation. Successful responses assigning non-public methods must still fail closed, but use the fixed administrator-facing assignment diagnostic rather than the generic registration failure.
 
 - Keep the fixed credential-free registration-assignment diagnostic in the CLI safe-message allowlist. Cover both browser/device command paths so administrator guidance is not replaced by a generic login failure; arbitrary remote error text must remain filtered.
