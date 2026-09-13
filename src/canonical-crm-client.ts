@@ -143,6 +143,9 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         redirect: "error", signal: AbortSignal.timeout(15_000),
       });
       const body = await boundedResponse(response, 1_048_576);
+      // The bearer middleware uses the OAuth error shape, not a business
+      // envelope. Preserve its 401 so the shared session can refresh once.
+      if (response.status === 401 && record(body) && body.error === "invalid_token") return failure(401, "authorization_required");
       if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
         ? { status: response.status, body } : failure(502, "invalid_response");
       if (!validEnvelope(body, id, pageSize) || !record(body) || !record(body.meta)) return failure(502, "invalid_response");

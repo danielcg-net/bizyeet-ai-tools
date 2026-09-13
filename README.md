@@ -188,7 +188,7 @@ response content is never included in parser errors.
 The V1 client intentionally exposes explicit business commands only. It has no
 raw HTTP, SQL, tenant-selection, bulk-export, or caller-supplied output-path command.
 
-Use `--export` on `customers list` or `customers get` to save the complete bounded
+Use `--export` on customer or lead `list`/`get` commands to save the complete bounded
 canonical JSON response in a generated private local file. Responses above 32 KiB
 use the same mechanism automatically. Stdout contains only a versioned path,
 byte-count and continuation-cursor summary. Export does not follow the cursor or
@@ -206,8 +206,15 @@ On failure, inspect private export directories for incomplete files before retry
 
 ```sh
 bizyeet customers list --limit 25 --search "acme"
-bizyeet customers get customer_opaque_id
+bizyeet customers get customer_opaque_id --fields id,name
+bizyeet leads list --limit 25 --search "acme" --fields id,name
+bizyeet leads get lead_opaque_id --fields id,name
 ```
+
+Customer and lead reads use `customers.read` and the same canonical provider
+routing as the dashboard. Both list and exact reads support `--fields` (at most
+20 field names); the server applies the authorized projection. Lead create,
+update and promotion commands are not yet exposed.
 
 List pages are capped at 100 records. Resource IDs and cursors are opaque;
 never replace them with URLs, database IDs, or tenant identifiers. All command
@@ -221,6 +228,10 @@ Anything after the separator is an ID, not a help, JSON, or profile option.
 For an opaque cursor beginning with `--`, use `--cursor=<value>`, for example
 `bizyeet customers list --cursor=--next-page`. The equals form preserves the
 entire value, including additional equals signs, without treating it as a flag.
+These option and separator rules apply to lead reads too. Reuse a cursor only
+with the same resource, search, fields and profile; start a fresh list when the
+server reports an expired or incompatible cursor. The CLI never switches
+providers or follows pages automatically.
 
 ## Preview and approve a customer update
 

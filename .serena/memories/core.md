@@ -1,5 +1,8 @@
 # Core
 
+- Customer and lead CLI reads share OAuth invocation, profile locking, canonical transport and protected exports. Exact reads pass ReadOptions.fields just like lists; never add provider routing in the CLI. Keep the literal ID after `--` separate from projection/profile/export flags and preserve opaque cursors unchanged.
+- Bearer middleware can deny a read with HTTP401 and OAuth `{error:"invalid_token"}` rather than a business envelope. Preserve that authentication status without reflecting descriptions; it must reach the existing single-refresh boundary, not become retryable invalid_response.
+
 - Separate registration response shape/HTTP failures from assigned-auth policy validation. Successful responses assigning non-public methods must still fail closed, but use the fixed administrator-facing assignment diagnostic rather than the generic registration failure.
 
 - Keep the fixed credential-free registration-assignment diagnostic in the CLI safe-message allowlist. Cover both browser/device command paths so administrator guidance is not replaced by a generic login failure; arbitrary remote error text must remain filtered.

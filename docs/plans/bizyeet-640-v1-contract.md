@@ -61,6 +61,7 @@ service does not allow it.
 | CLI command | MCP tool | Scope | Class | Execution rule |
 | --- | --- | --- | --- | --- |
 | `customers list/get` | `customers.list/get` | `customers.read` | read | direct |
+| `leads list/get` | `leads.list/get` | `customers.read` | read | direct |
 | `quotes list/get` | `quotes.list/get` | `customers.read` | read | direct |
 | `services list/get` | `services.list/get` | `customers.read` | read | direct |
 | `payments list/get` | `payments.list/get` | `payments.read` | read | direct |
