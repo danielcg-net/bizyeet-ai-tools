@@ -1,5 +1,7 @@
 # Core
 
+- Preserve customer_provider_not_configured as an actionable, non-retryable read failure with fixed administrator guidance. HTTP503 alone must not suggest automatic retries or OAuth re-login for missing provider configuration. Keep recorded write-outcome vocabulary separate.
+
 - Customer and lead CLI reads share OAuth invocation, profile locking, canonical transport and protected exports. Exact reads pass ReadOptions.fields just like lists; never add provider routing in the CLI. Keep the literal ID after `--` separate from projection/profile/export flags and preserve opaque cursors unchanged.
 - Bearer middleware can deny a read with HTTP401 and OAuth `{error:"invalid_token"}` rather than a business envelope. Preserve that authentication status without reflecting descriptions; it must reach the existing single-refresh boundary, not become retryable invalid_response.
 

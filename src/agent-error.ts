@@ -10,7 +10,7 @@ const codes = new Set([
   "authentication_required", "authorization_required", "authorization_denied", "invalid_request",
   "not_found", "conflict", "idempotency_conflict", "preview_expired", "approval_required",
   "invalid_cursor", "rate_limited", "internal_error", "provider_unavailable", "request_unavailable",
-  "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress",
+  "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress", "customer_provider_not_configured",
 ]);
 /** Shared safe wire-code vocabulary, including the existing server's legacy unsupported spelling. */
 export const canonicalErrorCode = (value: unknown): string | undefined =>
@@ -42,7 +42,7 @@ export const agentFailure = (status: number, body: unknown): AgentFailure => {
   const code = canonicalErrorCode(error.code) ?? "internal_error";
   const requestId = correlationReference(error.request_id);
   return Object.freeze({ kind: "agent_failure", code, status, requestId,
-    retryable: ["execution_ambiguous", "execution_in_progress"].includes(code) ? false
+    retryable: ["execution_ambiguous", "execution_in_progress", "customer_provider_not_configured"].includes(code) ? false
       : typeof error.retryable === "boolean" ? error.retryable : status === 429 || status >= 500 });
 };
 
@@ -63,6 +63,7 @@ export const agentFailureExitCode = (failure: AgentFailure): number => {
 
 /** Emits local safe recovery copy; never repeats an upstream error payload. */
 export const agentFailureMessage = (failure: AgentFailure): string => {
+  if (failure.code === "customer_provider_not_configured") return "Ask your tenant administrator to configure the customer provider in BizYeet settings, then retry. Signing in again will not fix provider configuration.";
   if (["execution_ambiguous", "execution_in_progress"].includes(failure.code)) return "Read the outcome with customers update status using the original preview ID and idempotency key. Do not retry with a new idempotency key or create a replacement write.";
   if (agentFailureExitCode(failure) === 3) return "Run auth login to reconnect this profile.";
   if (failure.code === "invalid_cursor") return "Start a fresh list request without the expired or incompatible cursor.";
