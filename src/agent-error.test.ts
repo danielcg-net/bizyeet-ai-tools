@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { agentFailure, agentFailureExitCode, agentFailureMessage, correlationReference } from "./agent-error.js";
+import { agentFailure, agentFailureExitCode, agentFailureMessage, correlationReference, isAgentFailure, recordedFailureCode } from "./agent-error.js";
+
+await Promise.all([undefined, false, true].map((retryable) => test(`customer configuration failure is actionable and never auto-retryable: ${String(retryable)}`, () => {
+  const failure = agentFailure(503, { error: { code: "customer_provider_not_configured", retryable,
+    message: "secret-provider-config", details: { token: "secret-token" } } });
+  assert.equal(failure.code, "customer_provider_not_configured");
+  assert.equal(failure.retryable, false);
+  assert.equal(isAgentFailure(failure), true);
+  assert.equal(agentFailureExitCode(failure), 1);
+  assert.match(agentFailureMessage(failure), /tenant administrator.*customer provider/u);
+  assert.doesNotMatch(JSON.stringify(failure) + agentFailureMessage(failure), /secret-provider-config|secret-token/u);
+  assert.equal(recordedFailureCode(failure.code), undefined);
+})));
 
 await Promise.all(["req_abc", "opaque:request-1", "x".repeat(128), "référence:😀"].map((id) => test(`preserves opaque correlation ${id.slice(0, 20)}`, () => {
   assert.equal(agentFailure(400, { error: { code: "invalid_request", request_id: id } }).requestId, id);
