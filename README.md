@@ -262,6 +262,34 @@ The same read contract is exposed by `bizyeet_payments_list` and
 with an explicit `customer` or `service` field for relationships; these tools
 advertise both `payments.read` and `customers.read`. Financial writes are not exposed by this increment.
 
+## Received-payment summaries
+
+Servers with the received-summary contract deployed support:
+
+```sh
+bizyeet payments received-summary --range month
+bizyeet payments received-summary --range custom --start-date 2026-03-01 --end-date 2026-03-31 --export
+```
+
+This requires `payments.read` and the user's live payment permission. The result
+is **gross collected incoming receipts**, not net revenue or profit. Currency
+groups remain separate; legacy missing-currency rows retain their labelled
+tenant-default group. The CLI never computes currency conversions or totals.
+
+Ranges are `today`, `month` (month to date), `last_month`, `ytd`, and `custom`.
+Custom start/end dates are inclusive in the server-resolved tenant timezone;
+the response reports inclusive-start/exclusive-end UTC boundaries. Neither
+timezone nor fallback currency can be supplied by the caller.
+
+`source.readCompletedAt` is the time the read completed, not a synchronization
+or snapshot guarantee. `period.requestedStartDate` and `requestedEndDate` echo
+the validated custom dates (null for named ranges); the CLI rejects responses
+whose requested range or dates differ from the command.
+Unsupported providers return an error rather
+than inactive-provider data. The matching MCP tool is
+`bizyeet_payments_received_summary`; it advertises the same `payments.read` scope.
+`--export` uses the existing private local export mechanism.
+
 ## Preview and approve a customer update
 
 This draft CLI includes customer update commands; the matching server endpoints
