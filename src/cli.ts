@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
-import { validOAuthScope } from "./oauth-scope.js";
+import { canonicalRegistrationScope } from "./oauth.js";
 import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
 import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
@@ -135,6 +135,7 @@ const profileInputMessages = new Set([
 ]);
 const safeValidationMessages = new Set([
   ...profileInputMessages,
+  "OAuth registration did not assign exactly the requested scopes. Contact your tenant administrator before retrying.",
   "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.",
   "Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.",
   "Write input is invalid, oversized, cancelled or expired.",
@@ -227,9 +228,9 @@ const loginOptions = (args: readonly string[]): Readonly<{ name: string; issuer:
   try {
     const name = profileFrom(args);
     const issuer = oneOption(args, "--issuer");
-    const scope = oneOption(args, "--scope", "customers.read");
+    const scope = canonicalRegistrationScope(oneOption(args, "--scope", "customers.read"));
     // RFC 6749 section 3.3: scope-token *(SP scope-token), no quote/backslash.
-    if (!validOAuthScope(scope)) return invalidInput("Use nonempty OAuth scope tokens separated by one space, without quotes, backslashes or non-ASCII characters.");
+    if (scope === null) return invalidInput("Use at most 1024 ASCII characters of nonempty OAuth scope tokens separated by one space, without quotes or backslashes.");
     if (!issuer) return invalidInput("auth login requires --issuer.");
     return { name, issuer: issuerOrigin(issuer).origin, scope };
   } catch (error) {
@@ -247,7 +248,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
     const previousCredentials = credentials[profileNameValue];
     const previousProfile = previousCredentials?.profile;
     const existingClientId = previousProfile?.issuer === issuer && previousProfile.deviceGrantVerified === true
-      && previousProfile.deviceRegistrationVersion === 1
+      && previousProfile.deviceRegistrationVersion === 2 && canonicalRegistrationScope(previousProfile.registeredScope) === scope
       ? previousProfile.clientId : undefined;
     if (previousCredentials?.refreshToken) {
       if (!previousProfile) return result(3, errorEnvelope("authentication_required", "This legacy profile has no bound issuer. Revoke its access in dashboard settings and run auth logout before replacing it."), "stderr");
@@ -258,7 +259,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
       }
     }
     const completed = args.includes("--device")
-      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 1 as const } : {}), issuer, scope }, onVerification)
+      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 2, registeredScope: scope } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });
     try {
       await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });

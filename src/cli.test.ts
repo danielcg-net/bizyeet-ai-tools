@@ -47,8 +47,10 @@ void test("oversized Unicode searches return actionable CLI validation errors wi
   assert.equal(fetcher.mock.callCount(), 0);
 });
 
-await Promise.all([false, true].map((device) => test(`registration assignment diagnostics survive CLI filtering (device: ${String(device)})`, async () => {
-  const message = "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.";
+await Promise.all([false, true].flatMap((device) => [
+  "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.",
+  "OAuth registration did not assign exactly the requested scopes. Contact your tenant administrator before retrying.",
+].map((message) => test(`registration assignment diagnostics survive CLI filtering (device: ${String(device)}): ${message}`, async () => {
   const forbidden = (): never => { throw new Error("Unexpected storage or business operation"); };
   const rejectLogin = (): Promise<never> => Promise.reject(new Error(message));
   const result = await run(["auth", "login", "--issuer", "https://example.test", ...(device ? ["--device"] : [])], {
@@ -61,7 +63,7 @@ await Promise.all([false, true].map((device) => test(`registration assignment di
   assert.equal(result.stream, "stderr");
   assert.ok(result.message.includes(JSON.stringify(message)));
   assert.match(result.message, /"code":"authentication_required"/u);
-})));
+}))));
 
 await Promise.all(["status", "logout"].map((command) => test(`auth ${command} distinguishes configuration from storage failures`, async () => {
   await Promise.all([
@@ -358,6 +360,8 @@ await Promise.all([
   { issuer: "https://other.test", deviceGrantVerified: true, deviceRegistrationVersion: 1 },
   { issuer: "https://example.test", deviceGrantVerified: false, deviceRegistrationVersion: 1 },
   { issuer: "https://example.test", deviceGrantVerified: true, deviceRegistrationVersion: 2 },
+  { issuer: "https://example.test", deviceGrantVerified: true, deviceRegistrationVersion: 2, registeredScope: "customers.read" },
+  { issuer: "https://example.test", deviceGrantVerified: true, deviceRegistrationVersion: 2, registeredScope: "customers.read customers.write" },
 ].map((previous) => test(`device login reuses only a proven same-issuer client: ${JSON.stringify(previous)}`, async () => {
   const stored = { profile: { clientId: "previous-client", ...previous }, accessToken: "old-access",
     expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "old-refresh", scope: "customers.read" };
@@ -369,9 +373,10 @@ await Promise.all([
   }, { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden,
     revoke: (input) => { assert.deepEqual(input.credentials, stored); assert.deepEqual(input.profile, stored.profile); return Promise.resolve(); },
     loginDevice: (input) => {
-      const reusable = previous.issuer === profile.issuer && previous.deviceGrantVerified === true && previous.deviceRegistrationVersion === 1;
+      const reusable = previous.issuer === profile.issuer && previous.deviceGrantVerified === true && previous.deviceRegistrationVersion === 2 && previous.registeredScope === "customers.read";
       assert.equal(input.clientId, reusable ? "previous-client" : undefined);
-      assert.equal(input.deviceRegistrationVersion, reusable ? 1 : undefined);
+      assert.equal(input.deviceRegistrationVersion, reusable ? 2 : undefined);
+      assert.equal(input.registeredScope, reusable ? "customers.read" : undefined);
       return Promise.resolve({ credentials: { ...stored, profile }, profile });
     },
   });
@@ -422,13 +427,33 @@ void test("replacement refuses an unbound legacy refresh credential before netwo
   assert.equal(forbidden.mock.callCount(), 0);
 });
 
-await Promise.all(["customers.read ", " customers.read", "customers.read  customers.write", "read\twrite", "read\n", "réad", 'read"write', "read\\write"].map((scope) => test(`invalid scope is rejected before storage, locking or revocation: ${JSON.stringify(scope)}`, async (context): Promise<void> => {
+await Promise.all([false, true].flatMap((device) => ["customers.read ", " customers.read", "customers.read  customers.write", "read\twrite", "read\n", "réad", 'read"write', "read\\write", "a".repeat(1025)].map((scope) => test(`invalid scope is rejected before storage, locking or revocation: device=${String(device)} ${JSON.stringify(scope)}`, async (context): Promise<void> => {
   const forbidden = context.mock.fn((): Promise<never> => Promise.reject(new Error("Unexpected side effect")));
-  const response = await run(["auth", "login", "--issuer", "https://example.test", "--scope", scope], {
+  const response = await run(["auth", "login", "--issuer", "https://example.test", "--scope", scope, ...(device ? ["--device"] : [])], {
     withProfileLock: forbidden, readCredentials: forbidden, saveCredentials: forbidden, removeCredentials: forbidden,
   }, { revoke: forbidden, loginBrowser: forbidden, loginDevice: forbidden, getCustomer: forbidden, listCustomers: forbidden });
   assert.equal(response.exitCode, 2);
   assert.equal(forbidden.mock.callCount(), 0);
+}))));
+
+await Promise.all(["customers.write customers.read", "customers.read customers.write customers.read"].map((scope) => test(`device cache reuses equivalent scope sets: ${scope}`, async () => {
+  const profile = { clientId: "cached-client", issuer: "https://example.test", deviceGrantVerified: true,
+    deviceRegistrationVersion: 2, registeredScope: "customers.read customers.write" };
+  const credentials = { profile, accessToken: "old-access", refreshToken: "old-refresh",
+    expiresAt: "2099-01-01T00:00:00.000Z", scope: profile.registeredScope };
+  const forbidden = (): Promise<never> => Promise.reject(new Error("Unexpected command"));
+  const result = await run(["auth", "login", "--device", "--issuer", profile.issuer, "--scope", scope], {
+    readCredentials: () => Promise.resolve({ default: credentials }), removeCredentials: forbidden,
+    saveCredentials: () => Promise.resolve(),
+  }, { getCustomer: forbidden, listCustomers: forbidden, loginBrowser: forbidden,
+    revoke: () => Promise.resolve(), loginDevice: (input) => {
+      assert.equal(input.clientId, profile.clientId);
+      assert.equal(input.scope, profile.registeredScope);
+      assert.equal(input.registeredScope, profile.registeredScope);
+      return Promise.resolve({ credentials, profile });
+    },
+  });
+  assert.equal(result.exitCode, 0);
 })));
 
 await Promise.all([false, true].flatMap((device) => [false, true].map((cleanupFails) => test(`failed credential save revokes the completed grant: device=${String(device)}, cleanupFails=${String(cleanupFails)}`, async (context): Promise<void> => {
