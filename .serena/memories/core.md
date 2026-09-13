@@ -1,5 +1,8 @@
 # Core
 
+- Payment reads reuse the canonical client, OAuth invocation, profile lock and protected exports. Keep payment provider selection server-owned and separate from CRM routing. Public payment fields/filters are closed; customer/service references require an additional live customers.read grant. Preserve currency and opaque IDs/cursors; never auto-page or aggregate currencies.
+- Normalize documented payment read errors through the safe alias map, not arbitrary upstream messages. Read aliases must not widen the recorded customer write-outcome vocabulary. The authenticated cross-repository MCP test checks exact public/server payment schemas.
+
 - Preserve customer_provider_not_configured as an actionable, non-retryable read failure with fixed administrator guidance. HTTP503 alone must not suggest automatic retries or OAuth re-login for missing provider configuration. Keep recorded write-outcome vocabulary separate.
 
 - Customer and lead CLI reads share OAuth invocation, profile locking, canonical transport and protected exports. Exact reads pass ReadOptions.fields just like lists; never add provider routing in the CLI. Keep the literal ID after `--` separate from projection/profile/export flags and preserve opaque cursors unchanged.

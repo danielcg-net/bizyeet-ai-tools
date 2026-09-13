@@ -233,6 +233,32 @@ with the same resource, search, fields and profile; start a fresh list when the
 server reports an expired or incompatible cursor. The CLI never switches
 providers or follows pages automatically.
 
+## Read payments
+
+Payment reads require a server with the payment-read contract deployed, an OAuth
+grant containing `payments.read`, and the user's current payment permission.
+They use the canonical payment provider independently of the CRM provider.
+
+```sh
+bizyeet payments list --limit 25 --status sent --sort amount --dir asc --fields id,amount,currency
+bizyeet payments list --date-field received_at --start 2026-09-01T00:00:00Z --end 2026-10-01T00:00:00Z
+bizyeet payments get payment_opaque_id --fields id,amount,currency --export
+```
+
+Status filters are `sent` or `received`. Date fields are `created_at`, `sent_at`,
+`received_at`, or `due_at`; boundaries use UTC timestamps with inclusive start
+and exclusive end. Sort fields are `created_at`, `sent_at`, `received_at`,
+`status`, and `amount`, with `asc` or `desc` direction. Search is capped at 120
+characters and searches public payment facts, not private customer information.
+
+`--fields customer,service` opts into canonical relationship references and
+additionally requires `customers.read`. Unavailable or missing relationships
+are explicit, not replaced by inactive-provider data. Payment IDs and cursors
+remain opaque; continue with identical filters, projection, ordering and profile.
+Amounts retain their currency: these commands do not aggregate or convert them.
+The same read contract is exposed by `bizyeet_payments_list` and
+`bizyeet_payments_get` MCP tools. Financial writes are not exposed by this increment.
+
 ## Preview and approve a customer update
 
 This draft CLI includes customer update commands; the matching server endpoints
