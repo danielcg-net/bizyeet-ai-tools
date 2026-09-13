@@ -1,4 +1,6 @@
 /** Public payment-read schema. Provider routing and authorization remain server-owned. */
+/** Canonical UTC instants with real Gregorian dates, including century leap-year rules. */
+export const paymentTimestampPattern = "^(?:\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|02-(?:0[1-9]|1\\d|2[0-8]))|(?:\\d{2}(?:0[48]|[2468][048]|[13579][26])|(?:[02468][048]|[13579][26])00)-02-29)T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{3})?Z$";
 export const paymentReadFields = Object.freeze([
   "id", "direction", "status", "amount", "currency", "subtotal_minor", "tax_total_minor", "total_minor", "tax_mode",
   "created_at", "updated_at", "due_at", "requested_at", "sent_at", "received_at", "customer", "service",
@@ -17,7 +19,7 @@ type PaymentQuery = Readonly<{ fields?: readonly string[]; search?: string; stat
 const member = (values: readonly string[], value: string | undefined): boolean => value === undefined || values.includes(value);
 const timestamp = (value: string | undefined): boolean => {
   if (value === undefined) return true;
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(value)) return false;
+  if (!new RegExp(paymentTimestampPattern, "u").test(value)) return false;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === (value.length === 20 ? value.replace("Z", ".000Z") : value);
 };

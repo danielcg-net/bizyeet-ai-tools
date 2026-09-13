@@ -1,5 +1,5 @@
 import { CRM_SEARCH_MAX_LENGTH } from "./search-contract.js";
-import { paymentDateFields, paymentReadFields, paymentSortFields } from "./payment-contract.js";
+import { paymentDateFields, paymentReadFields, paymentSortFields, paymentTimestampPattern } from "./payment-contract.js";
 
 export type McpTool = Readonly<{
   annotations: Readonly<{
@@ -61,8 +61,8 @@ const paymentPageSchema = Object.freeze({ ...pageSchema, properties: Object.free
   sort: Object.freeze({ type: "string", enum: paymentSortFields }),
   status: Object.freeze({ type: "string", enum: Object.freeze(["sent", "received"]) }),
   date_field: Object.freeze({ type: "string", enum: paymentDateFields }),
-  start: Object.freeze({ type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$", description: "Inclusive UTC timestamp, e.g. 2026-09-01T00:00:00Z." }),
-  end: Object.freeze({ type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$", description: "Exclusive UTC timestamp, later than start." }),
+  start: Object.freeze({ type: "string", pattern: paymentTimestampPattern, description: "Inclusive UTC timestamp, e.g. 2026-09-01T00:00:00Z." }),
+  end: Object.freeze({ type: "string", pattern: paymentTimestampPattern, description: "Exclusive UTC timestamp, later than start." }),
 }) });
 const listOutputSchema = Object.freeze({ type: "object", properties: Object.freeze({ data: Object.freeze({ type: "object", properties: Object.freeze({ items: Object.freeze({ type: "array", items: Object.freeze({ type: "object" }) }), total: Object.freeze({ type: "integer", minimum: 0 }) }), required: Object.freeze(["items", "total"]) }), meta: Object.freeze({ type: "object", properties: Object.freeze({ contract_version: Object.freeze({ const: "v1", type: "string" }), next_cursor: Object.freeze({ type: ["string", "null"] }) }), required: Object.freeze(["contract_version", "next_cursor"]) }) }), required: Object.freeze(["data", "meta"]) });
 const resourceOutputSchema = Object.freeze({ type: "object", properties: Object.freeze({ data: Object.freeze({ type: "object" }), meta: Object.freeze({ type: "object", properties: Object.freeze({ contract_version: Object.freeze({ const: "v1", type: "string" }) }), required: Object.freeze(["contract_version"]) }) }), required: Object.freeze(["data", "meta"]) });
