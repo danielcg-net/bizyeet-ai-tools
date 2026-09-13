@@ -12,10 +12,17 @@ const codes = new Set([
   "invalid_cursor", "rate_limited", "internal_error", "provider_unavailable", "request_unavailable",
   "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress", "customer_provider_not_configured",
 ]);
-/** Shared safe wire-code vocabulary, including the existing server's legacy unsupported spelling. */
+const aliases: Readonly<Record<string, string>> = Object.freeze({
+  crm_operation_unsupported: "unsupported_operation",
+  payment_operation_unsupported: "unsupported_operation",
+  payment_provider_unsupported: "unsupported_operation",
+  payment_provider_unavailable: "provider_unavailable",
+  payment_provider_invalid_response: "invalid_response",
+  provider_configuration_changed: "conflict",
+});
+/** Normalize documented domain errors without interpreting provider routing. */
 export const canonicalErrorCode = (value: unknown): string | undefined =>
-  value === "crm_operation_unsupported" ? "unsupported_operation"
-    : typeof value === "string" && codes.has(value) ? value : undefined;
+  typeof value === "string" ? Object.hasOwn(aliases, value) ? aliases[value] : codes.has(value) ? value : undefined : undefined;
 
 const recordedFailureCodes = new Set([
   "authentication_required", "authorization_denied", "invalid_request", "not_found", "conflict",
@@ -24,7 +31,9 @@ const recordedFailureCodes = new Set([
 ]);
 /** Recorded server outcomes exclude client transport and response-validation failures. */
 export const recordedFailureCode = (value: unknown): string | undefined => {
-  const code = canonicalErrorCode(value);
+  // Read-domain aliases must not widen the existing customer write journal.
+  const code = value === "crm_operation_unsupported" ? "unsupported_operation"
+    : typeof value === "string" && codes.has(value) ? value : undefined;
   return code !== undefined && recordedFailureCodes.has(code) ? code : undefined;
 };
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>

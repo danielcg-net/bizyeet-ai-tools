@@ -8,7 +8,8 @@ import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { canonicalRegistrationScope } from "./oauth.js";
 import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
-import { checkIdentity, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
+import { validPaymentQuery } from "./payment-contract.js";
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
@@ -34,6 +35,8 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  getPayment?: (input: Omit<Parameters<typeof getAgentPayment>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  listPayments?: (input: Omit<Parameters<typeof listAgentPayments>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   exportReadResponse?: typeof exportReadResponse;
   previewCustomerUpdate?: (input: Omit<Parameters<typeof previewCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeCustomerUpdate?: (input: Omit<Parameters<typeof executeCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -58,6 +61,8 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  getPayment: async (input) => getAgentPayment({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  listPayments: async (input) => listAgentPayments({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getLead: async (input) => getAgentLead({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listLeads: async (input) => listAgentLeads({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   readChanges,
@@ -92,6 +97,8 @@ const helpMessage = [
   "       bizyeet customers get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet leads list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet leads get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet payments list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <sent|received>] [--date-field <field>] [--start <UTC>] [--end <UTC>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
+  "       bizyeet payments get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "Read commands accept --export for a private local JSON file; responses above 32 KiB export automatically. No output-path argument or automatic pagination is supported.",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
   "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
@@ -155,8 +162,11 @@ const safeValidationMessages = new Set([
   "Credential fallback file must not be a symbolic link.",
   "customers list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
   "leads list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
+  "Payment read options are invalid.",
+  "Payment ID is invalid.",
+  "Unsupported payment list option.",
   "customers get requires one opaque ID and optional --profile.",
-  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key"].map((option) => `Use ${option} once with a value.`),
+  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key", "--status", "--date-field", "--start", "--end", "--sort", "--dir"].map((option) => `Use ${option} once with a value.`),
 ]);
 const safeLocalMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && safeValidationMessages.has(error.message) ? error.message : fallback;
@@ -346,16 +356,33 @@ const readOutput = async (outcome: AgentResult, explicit: boolean, execution: Cl
   }
 };
 
-const crmListOptions = (resource: "customers" | "leads", args: readonly string[]): CustomerListOptions => {
-  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search"], ["--export"])) throw new Error(`${resource} list accepts --cursor, --fields, --limit, --profile, --search, and --export only.`);
+const crmListOptions = (resource: "customers" | "leads" | "payments", args: readonly string[]): PaymentListOptions => {
+  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search", ...(resource === "payments" ? ["--status", "--date-field", "--start", "--end", "--sort", "--dir"] : [])], ["--export"])) throw new Error(resource === "payments" ? "Unsupported payment list option." : `${resource} list accepts --cursor, --fields, --limit, --profile, --search, and --export only.`);
   const rawLimit = oneOption(args, "--limit", "25");
   const fields = oneOption(args, "--fields", "").split(",").filter(Boolean);
-  return {
+  const options = {
     ...(oneOption(args, "--cursor", "") ? { cursor: oneOption(args, "--cursor", "") } : {}),
     ...(fields.length ? { fields } : {}),
     limit: Number(rawLimit),
     ...(oneOption(args, "--search", "") ? { search: oneOption(args, "--search", "") } : {}),
   };
+  if (resource !== "payments") return options;
+  const status = oneOption(args, "--status", "");
+  const dateField = oneOption(args, "--date-field", "");
+  const start = oneOption(args, "--start", "");
+  const end = oneOption(args, "--end", "");
+  const sort = oneOption(args, "--sort", "");
+  const dir = oneOption(args, "--dir", "");
+  const payment = { ...options,
+    ...(status ? { status } : {}),
+    ...(dateField ? { date_field: dateField } : {}),
+    ...(start ? { start } : {}),
+    ...(end ? { end } : {}),
+    ...(sort ? { sort } : {}),
+    ...(dir ? { dir } : {}),
+  };
+  if (!validPaymentQuery(payment)) throw new Error("Payment read options are invalid.");
+  return payment;
 };
 
 const beforeSeparator = (args: readonly string[]): readonly string[] =>
@@ -373,7 +400,7 @@ const resourceTarget = (args: readonly string[], valueOptions: readonly string[]
   return { id, options };
 };
 
-const crmRead = async (resource: "customers" | "leads", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+const crmRead = async (resource: "customers" | "leads" | "payments", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
   if (resource === "customers" && command === "update") return customerUpdate(options, dependencies, execution);
   try {
@@ -383,12 +410,13 @@ const crmRead = async (resource: "customers" | "leads", args: readonly string[],
     if (command === "get" && !target) return invalidInput(`${resource} get requires one opaque ID and optional --profile, --fields or --export.`);
     if (command !== "list" && command !== "get") return unsupportedCommand(`${resource} ${command ?? ""}`.trim());
     const fields = command === "get" ? oneOption(target?.options ?? [], "--fields", "").split(",").filter(Boolean) : [];
+    if (resource === "payments" && !validPaymentQuery({ fields })) return invalidInput("Payment read options are invalid.");
     const authenticated = await authenticatedProfile(target?.options ?? options, dependencies);
     if ("exitCode" in authenticated) return authenticated;
     const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
     const explicit = beforeSeparator(options).includes("--export");
-    const list = resource === "customers" ? execution.listCustomers : execution.listLeads;
-    const get = resource === "customers" ? execution.getCustomer : execution.getLead;
+    const list = resource === "customers" ? execution.listCustomers : resource === "leads" ? execution.listLeads : execution.listPayments;
+    const get = resource === "customers" ? execution.getCustomer : resource === "leads" ? execution.getLead : execution.getPayment;
     if (listOptions && list) return await readOutput(await list({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }), explicit, execution);
     if (!get || listOptions) return unsupportedCommand(`${resource} ${command}`);
     return await readOutput(await get({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: target?.id ?? "", ...(fields.length ? { options: { fields } } : {}) }), explicit, execution);
@@ -440,7 +468,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (first === "diagnostics") return args.length === 1 ? output(diagnostics()) : invalidInput("diagnostics accepts no arguments other than --json.");
   if (args.length === 0 || optionArgs.includes("--help") || optionArgs.includes("-h")) return result(0, helpMessage, "stdout");
-  if (dependencies.withProfileLock && (first === "customers" || first === "leads" || first === "auth")) {
+  if (dependencies.withProfileLock && (first === "customers" || first === "leads" || first === "payments" || first === "auth")) {
     try {
       if (first === "auth" && second === "login") {
         const parsed = loginOptions(args.slice(2));
@@ -455,7 +483,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
       return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
     }
   }
-  if (first === "customers" || first === "leads") return crmRead(first, args.slice(1), dependencies, execution);
+  if (first === "customers" || first === "leads" || first === "payments") return crmRead(first, args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
   if (second === "status") return status(args.slice(2), dependencies);

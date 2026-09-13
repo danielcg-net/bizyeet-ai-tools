@@ -2,6 +2,25 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { agentFailure, agentFailureExitCode, agentFailureMessage, correlationReference, isAgentFailure, recordedFailureCode } from "./agent-error.js";
 
+await Promise.all([
+  ["payment_operation_unsupported", "unsupported_operation", 2],
+  ["payment_provider_unsupported", "unsupported_operation", 2],
+  ["payment_provider_unavailable", "provider_unavailable", 1],
+  ["payment_provider_invalid_response", "invalid_response", 1],
+  ["provider_configuration_changed", "conflict", 6],
+].map(([wire, code, exit]) => test(`normalizes canonical payment failure ${String(wire)}`, () => {
+  const failure = agentFailure(503, { error: { code: wire, retryable: false, message: "private-provider-message" } });
+  assert.equal(failure.code, code);
+  assert.equal(agentFailureExitCode(failure), exit);
+  assert.equal(isAgentFailure(failure), true);
+  assert.equal(recordedFailureCode(wire), undefined);
+  assert.doesNotMatch(JSON.stringify(failure) + agentFailureMessage(failure), /private-provider-message/u);
+})));
+
+await Promise.all(["__proto__", "constructor", "toString"].map((code) => test(`error aliases reject inherited property ${code}`, () => {
+  assert.equal(agentFailure(503, { error: { code } }).code, "internal_error");
+})));
+
 await Promise.all([undefined, false, true].map((retryable) => test(`customer configuration failure is actionable and never auto-retryable: ${String(retryable)}`, () => {
   const failure = agentFailure(503, { error: { code: "customer_provider_not_configured", retryable,
     message: "secret-provider-config", details: { token: "secret-token" } } });
