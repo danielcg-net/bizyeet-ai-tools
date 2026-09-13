@@ -100,6 +100,10 @@ Device authorization lifetimes are limited to fifteen minutes; longer advertised
 lifetimes are rejected before polling. Token exchanges reject empty or
 whitespace-bearing access tokens before reporting a successful login.
 Device registration explicitly requests the device-code and refresh grants.
+Both login flows register only their requested scopes (default `customers.read`)
+and require the server to return exactly that scope set before authorization.
+Deploy the scope-aware server before this client; older servers without an
+explicit scope assignment fail closed with administrator guidance.
 Registration must explicitly assign the selected login flow and refresh-token
 grant with secretless authentication. A missing or insufficient assignment stops
 login with an administrator-facing diagnostic; requested grants are not assumed
@@ -107,7 +111,9 @@ to have been granted. Browser login also requires the code response type (the
 default when omitted).
 Switching from a browser or legacy profile registers a device-capable client;
 later device logins reuse it only after a successful device exchange has been
-recorded in that same issuer's protected profile.
+recorded in that same issuer's protected profile with registration version 2 and
+an exact matching registered scope set. Legacy or differently scoped clients
+register again rather than reusing broader eligibility.
 Verification links must use HTTPS on the selected issuer origin, without
 credentials or fragments; unsafe links are rejected before being displayed.
 The device flow prints its verification URI and user code

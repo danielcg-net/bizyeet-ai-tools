@@ -135,6 +135,7 @@ const profileInputMessages = new Set([
 ]);
 const safeValidationMessages = new Set([
   ...profileInputMessages,
+  "OAuth registration did not assign exactly the requested scopes. Contact your tenant administrator before retrying.",
   "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.",
   "Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.",
   "Write input is invalid, oversized, cancelled or expired.",
@@ -247,7 +248,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
     const previousCredentials = credentials[profileNameValue];
     const previousProfile = previousCredentials?.profile;
     const existingClientId = previousProfile?.issuer === issuer && previousProfile.deviceGrantVerified === true
-      && previousProfile.deviceRegistrationVersion === 1
+      && previousProfile.deviceRegistrationVersion === 2 && previousProfile.registeredScope === scope
       ? previousProfile.clientId : undefined;
     if (previousCredentials?.refreshToken) {
       if (!previousProfile) return result(3, errorEnvelope("authentication_required", "This legacy profile has no bound issuer. Revoke its access in dashboard settings and run auth logout before replacing it."), "stderr");
@@ -258,7 +259,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
       }
     }
     const completed = args.includes("--device")
-      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 1 as const } : {}), issuer, scope }, onVerification)
+      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 2, registeredScope: scope } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });
     try {
       await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });

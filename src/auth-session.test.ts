@@ -5,7 +5,7 @@ import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { openLoopbackCallback, type LoopbackCallback } from "./loopback.js";
 
 const response = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
-  Promise.resolve(new Response(JSON.stringify(value)));
+  Promise.resolve(new Response(JSON.stringify({ ...(typeof value.client_id === "string" ? { scope: "customers.read" } : {}), ...value })));
 
 void test("persistent browser and device login reject missing or unusable refresh tokens", async () => {
   await Promise.all([false, true].flatMap((device) => [undefined, "", " ", "bad token", "bad\u009btoken", "bad\u202etoken", "bad\uD800token"].map(async (refreshToken) => {
@@ -25,7 +25,13 @@ void test("persistent browser and device login reject missing or unusable refres
   })));
 });
 
-await Promise.all([false, true].map((verified) => test(`saved device registration requires current assignment proof: ${String(verified)}`, async () => {
+await Promise.all([
+  { version: undefined, scope: undefined, reusable: false },
+  { version: 1, scope: "customers.read", reusable: false },
+  { version: 2, scope: undefined, reusable: false },
+  { version: 2, scope: "customers.read customers.write", reusable: false },
+  { version: 2, scope: "customers.read", reusable: true },
+].map((proof) => test(`saved device registration requires current assignment proof: ${String(proof.version)}/${String(proof.scope)}`, async () => {
   const fetcher = mock.fn((url: string): Promise<Response> => {
     if (url.endsWith("oauth-authorization-server")) return response({ issuer: "https://example.test", authorization_endpoint: "https://example.test/authorize",
       code_challenge_methods_supported: ["S256"], device_authorization_endpoint: "https://example.test/device",
@@ -37,11 +43,12 @@ await Promise.all([false, true].map((verified) => test(`saved device registratio
   });
   const onVerification = mock.fn((): void => undefined);
   const login = loginWithDevice({ clientId: "saved-client", issuer: "https://example.test", scope: "customers.read",
-    ...(verified ? { deviceRegistrationVersion: 1 as const } : {}) }, { fetcher, now: Date.now, onVerification });
-  if (verified) {
+    ...(proof.version === undefined ? {} : { deviceRegistrationVersion: proof.version }),
+    ...(proof.scope === undefined ? {} : { registeredScope: proof.scope }) }, { fetcher, now: Date.now, onVerification });
+  if (proof.reusable) {
     const completed = await login;
     assert.equal(completed.profile.clientId, "saved-client");
-    assert.equal(completed.profile.deviceRegistrationVersion, 1);
+    assert.equal(completed.profile.deviceRegistrationVersion, 2);
     assert.equal(onVerification.mock.callCount(), 1);
     assert.deepEqual(fetcher.mock.calls.map(({ arguments: [url] }) => new URL(url).pathname), ["/.well-known/oauth-authorization-server", "/device", "/token"]);
   } else {
@@ -95,7 +102,8 @@ void test("stores the device-flow result without exposing tokens through the ver
 
   assert.equal(result.profile.clientId, "public-client");
   assert.equal(result.profile.deviceGrantVerified, true);
-  assert.equal(result.profile.deviceRegistrationVersion, 1);
+  assert.equal(result.profile.deviceRegistrationVersion, 2);
+  assert.equal(result.profile.registeredScope, "customers.read");
   assert.equal(result.credentials.expiresAt, "1970-01-01T00:05:01.000Z");
   assert.equal(result.credentials.accessToken, "access-secret");
   assert.deepEqual(result.credentials.profile, result.profile);

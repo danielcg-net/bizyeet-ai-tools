@@ -11,7 +11,7 @@ await Promise.all(["browser", "device"].flatMap((mode) => [undefined, "customers
         authorization_endpoint: "https://example.test/authorize", code_challenge_methods_supported: ["S256"],
         registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token",
         device_authorization_endpoint: "https://example.test/device" }));
-      if (url.endsWith("/register")) return Promise.resolve(Response.json({ client_id: "synthetic-client", token_endpoint_auth_method: "none",
+      if (url.endsWith("/register")) return Promise.resolve(Response.json({ client_id: "synthetic-client", token_endpoint_auth_method: "none", scope: requestedScope,
         grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"], response_types: ["code"] }));
       if (url.endsWith("/device")) return Promise.resolve(Response.json({ device_code: "synthetic", expires_in: 900, interval: 5,
         user_code: "ABCD-EFGH", verification_uri: "https://example.test/verify" }));
