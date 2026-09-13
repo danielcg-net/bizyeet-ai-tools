@@ -10,6 +10,7 @@ import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch } from "./search-contract.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
+import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -233,6 +234,20 @@ type WriteSession = Readonly<{
   persistCredentials: PersistCredentials;
   profile: Profile;
 }>;
+
+/** Read expenses through the shared OAuth refresh and persistence boundary. */
+export const listExpenses = async (input: WriteSession & Readonly<{ options: ExpenseListOptions }>): Promise<AgentResult> => {
+  if (!validExpenseListOptions(input.options)) throw new Error("Expense read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("expenses", input.options) });
+};
+
+/** Keep expense identity opaque; canonical API enforces live scope and role. */
+export const getExpense = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  const options = input.options ?? {};
+  if (!validResourceId(input.resourceId) || !validExpenseListOptions(options)
+    || Object.keys(options).some((key) => key !== "fields")) throw new Error("Expense read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("expenses", input.resourceId, options) });
+};
 
 /** Refresh before preview; canonical server owns validation, routing and approval policy. */
 export const previewCustomerUpdate = (input: WriteSession & Readonly<{ proposal: CustomerUpdatePreview }>): Promise<AgentResult> =>
