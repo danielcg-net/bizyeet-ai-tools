@@ -13,7 +13,7 @@ const currency = (value: unknown): value is Readonly<{ currency: string; payment
   && typeof value.usedDefaultCurrency === "boolean";
 
 /** Return only documented summary fields; malformed responses must not look like zero totals. */
-export const paymentSummaryResponse = (value: unknown): Readonly<Record<string, unknown>> | undefined => {
+export const paymentSummaryResponse = (value: unknown, requestedRange: typeof paymentSummaryRanges[number]): Readonly<Record<string, unknown>> | undefined => {
   if (!record(value) || !record(value.meta) || value.meta.contract_version !== "v1" || !record(value.data)) return undefined;
   const data = value.data;
   if (data.label !== "gross collected receipts" || !record(data.period) || !record(data.source)
@@ -21,7 +21,7 @@ export const paymentSummaryResponse = (value: unknown): Readonly<Record<string, 
   const period = data.period;
   const source = data.source;
   if (!instant(period.start) || !instant(period.end) || period.start >= period.end || data.start !== period.start || data.end !== period.end
-    || typeof period.range !== "string" || !(paymentSummaryRanges as readonly string[]).includes(period.range)
+    || typeof period.range !== "string" || !(paymentSummaryRanges as readonly string[]).includes(period.range) || period.range !== requestedRange
     || !label(period.timeZone) || !label(source.provider) || !instant(source.readCompletedAt)) return undefined;
   return Object.freeze({ data: Object.freeze({
     label: data.label, start: period.start, end: period.end,

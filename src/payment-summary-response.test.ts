@@ -12,7 +12,7 @@ const data = Object.freeze({ label: "gross collected receipts", start: period.st
 const envelope = (value: unknown): unknown => ({ data: value, meta: { contract_version: "v1" } });
 
 await test("preserves distinct currency and legacy groups without exposing extra fields", () => {
-  const result = paymentSummaryResponse(envelope({ ...data, tenant_id: "private", currencies: currencies.map((row) => ({ ...row, private_cost: 99 })) }));
+  const result = paymentSummaryResponse(envelope({ ...data, tenant_id: "private", currencies: currencies.map((row) => ({ ...row, private_cost: 99 })) }), "custom");
   assert.ok(result);
   assert.deepEqual(result.data, data);
   assert.doesNotMatch(JSON.stringify(result), /private/u);
@@ -27,5 +27,5 @@ await Promise.all([
   { ...data, period: { ...period, end: period.start } },
   { ...data, source: { provider: "d1" } },
 ].map((value, index) => test(`rejects malformed summary ${String(index)}`, () => {
-  assert.equal(paymentSummaryResponse(envelope(value)), undefined);
+  assert.equal(paymentSummaryResponse(envelope(value), "custom"), undefined);
 })));

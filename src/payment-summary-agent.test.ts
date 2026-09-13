@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { receivedPaymentSummary } from "./agent-client.js";
 import { createCanonicalCrmClient } from "./canonical-crm-client.js";
+import { paymentSummaryRanges, type PaymentSummaryOptions } from "./payment-summary-contract.js";
 
 const profile = Object.freeze({ issuer: "https://example.test", clientId: "public-client" });
 const credentials = Object.freeze({ profile, accessToken: "old-access", refreshToken: "old-refresh", scope: "payments.read", expiresAt: "2099-01-01T00:00:00Z" });
@@ -10,6 +11,21 @@ const period = Object.freeze({ range: "today", timeZone: "UTC", start: "2026-09-
 const data = Object.freeze({ label: "gross collected receipts", start: period.start, end: period.end, period, currencies: [], source: { provider: "d1", readCompletedAt: "2026-09-13T12:00:00.000Z" } });
 const now = (): number => 1000;
 const requestId = "123e4567-e89b-42d3-a456-426614174000";
+
+await Promise.all([undefined, ...paymentSummaryRanges].flatMap((requestedRange) => paymentSummaryRanges.map((returnedRange) =>
+  test(`summary binds requested ${requestedRange ?? "default month"} to returned ${returnedRange}`, async () => {
+    const options: PaymentSummaryOptions = requestedRange === "custom"
+      ? { range: "custom", start_date: "2026-09-13", end_date: "2026-09-13" }
+      : requestedRange === undefined ? {} : { range: requestedRange };
+    const client = createCanonicalCrmClient({ origin: profile.issuer, getAccessToken: (): Promise<string> => Promise.resolve("token"),
+      request: (): Promise<Response> => Promise.resolve(Response.json({
+        data: { ...data, period: { ...period, range: returnedRange } }, meta: { contract_version: "v1" },
+      })),
+    });
+    const result = await client.receivedPaymentSummary(options);
+    assert.equal(result.status, returnedRange === (requestedRange ?? "month") ? 200 : 502);
+    if (result.status === 502) assert.doesNotMatch(JSON.stringify(result.body), /gross collected receipts/u);
+  }))));
 
 await Promise.all([false, true].map((revoked) => test(`summary refreshes once before returning projected data, revoked=${String(revoked)}`, async () => {
   const persistCredentials = mock.fn((): Promise<void> => Promise.resolve());
