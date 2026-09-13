@@ -10,6 +10,28 @@ const metadata = { authorization_endpoint: "https://example.test/authorize", tok
 const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
 
+void test("OAuth bearer denials refresh lead reads once and revoked grants require sign-in", async () => {
+  await Promise.all([true, false].map(async (revoked) => {
+    const persist = mock.fn((): Promise<void> => Promise.resolve());
+    const fetcher = mock.fn((url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/token")) return Promise.resolve(revoked
+        ? Response.json({ error: "invalid_grant" }, { status: 400 })
+        : Response.json({ access_token: "rotated-access", refresh_token: "rotated-refresh", expires_in: 300, token_type: "Bearer" }));
+      assert.equal(new URL(url).pathname, "/api/agent/leads/synthetic-id");
+      if (header(init, "Authorization") === "Bearer access-token") return Promise.resolve(Response.json({ error: "invalid_token" }, { status: 401 }));
+      assert.equal(header(init, "Authorization"), "Bearer rotated-access");
+      assert.equal(persist.mock.callCount(), 1);
+      return Promise.resolve(Response.json({ data: { id: "synthetic-id" }, meta: { contract_version: "v1" } }));
+    });
+    const request = getLead({ credentials: validCredentials, profile, metadata, now: () => 1000, fetcher,
+      persistCredentials: persist, resourceId: "synthetic-id" });
+    if (revoked) await assert.rejects(request, /OAuth refresh/u);
+    else assert.deepEqual((await request).response, { data: { id: "synthetic-id" }, meta: { contract_version: "v1" } });
+    assert.equal(persist.mock.callCount(), revoked ? 0 : 1);
+    assert.equal(fetcher.mock.callCount(), revoked ? 2 : 3);
+  }));
+});
+
 void test("CRM exact reads preserve opaque IDs and field projections through canonical endpoints", async () => {
   await Promise.all([{ resource: "customers", read: getCustomer }, { resource: "leads", read: getLead }].map(async ({ resource, read }) => {
     const fetcher = mock.fn((url: string): Promise<Response> => {

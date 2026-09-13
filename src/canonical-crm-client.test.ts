@@ -19,6 +19,15 @@ await Promise.all(["list", "get"].flatMap((method) => ["safe-reference", "bad\u0
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await Promise.all((["customers", "leads"] as const).flatMap((resource) => ["list", "get"].map((method) =>
+  test(`${resource} ${method} preserves OAuth invalid-token denial without a transport replay`, async () => {
+    const request = mock.fn(() => Promise.resolve(Response.json({ error: "invalid_token", error_description: "untrusted-secret" }, { status: 401 })));
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+    const result = method === "list" ? await client.list(resource) : await client.get(resource, "synthetic-id");
+    assert.deepEqual(result, { status: 401, body: { error: { code: "authorization_required" } } });
+    assert.equal(request.mock.callCount(), 1);
+  }))));
+
 await Promise.all(["bad\uD800id", "bad\uDC00id", "\uD800\uD800", "\uDC00\uD800", "paired😀id"].map((id, index) => test(`opaque ID scalar validation case ${String(index)}`, async () => {
   const request = mock.fn((url: string) => Promise.resolve(Response.json(url.includes("/customers?")
     ? { ...emptyPage, data: { items: [{ id }], total: 1 } }
