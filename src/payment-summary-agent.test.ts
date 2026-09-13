@@ -7,7 +7,7 @@ import { paymentSummaryRanges, type PaymentSummaryOptions } from "./payment-summ
 const profile = Object.freeze({ issuer: "https://example.test", clientId: "public-client" });
 const credentials = Object.freeze({ profile, accessToken: "old-access", refreshToken: "old-refresh", scope: "payments.read", expiresAt: "2099-01-01T00:00:00Z" });
 const metadata = Object.freeze({ authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" });
-const period = Object.freeze({ range: "today", timeZone: "UTC", start: "2026-09-13T00:00:00.000Z", end: "2026-09-14T00:00:00.000Z" });
+const period = Object.freeze({ range: "today", timeZone: "UTC", start: "2026-09-13T00:00:00.000Z", end: "2026-09-14T00:00:00.000Z", requestedStartDate: null, requestedEndDate: null });
 const data = Object.freeze({ label: "gross collected receipts", start: period.start, end: period.end, period, currencies: [], source: { provider: "d1", readCompletedAt: "2026-09-13T12:00:00.000Z" } });
 const now = (): number => 1000;
 const requestId = "123e4567-e89b-42d3-a456-426614174000";
@@ -19,13 +19,29 @@ await Promise.all([undefined, ...paymentSummaryRanges].flatMap((requestedRange) 
       : requestedRange === undefined ? {} : { range: requestedRange };
     const client = createCanonicalCrmClient({ origin: profile.issuer, getAccessToken: (): Promise<string> => Promise.resolve("token"),
       request: (): Promise<Response> => Promise.resolve(Response.json({
-        data: { ...data, period: { ...period, range: returnedRange } }, meta: { contract_version: "v1" },
+        data: { ...data, period: { ...period, range: returnedRange, requestedStartDate: options.start_date ?? null, requestedEndDate: options.end_date ?? null } }, meta: { contract_version: "v1" },
       })),
     });
     const result = await client.receivedPaymentSummary(options);
     assert.equal(result.status, returnedRange === (requestedRange ?? "month") ? 200 : 502);
     if (result.status === 502) assert.doesNotMatch(JSON.stringify(result.body), /gross collected receipts/u);
   }))));
+
+await Promise.all([
+  { start: "2026-03-08", end: "2026-03-08", accepted: true },
+  { start: "2026-03-07", end: "2026-03-08", accepted: false },
+  { start: "2026-03-08", end: "2026-03-09", accepted: false },
+  { start: null, end: null, accepted: false },
+  { start: undefined, end: undefined, accepted: false },
+].map(({ start, end, accepted }) => test(`custom summary binds exact calendar input ${String(start)} to ${String(end)}`, async () => {
+  const client = createCanonicalCrmClient({ origin: profile.issuer, getAccessToken: (): Promise<string> => Promise.resolve("token"),
+    request: (): Promise<Response> => Promise.resolve(Response.json({ data: { ...data,
+      start: "2026-03-08T07:00:00.000Z", end: "2026-03-09T06:00:00.000Z",
+      period: { range: "custom", timeZone: "America/Edmonton", start: "2026-03-08T07:00:00.000Z", end: "2026-03-09T06:00:00.000Z", requestedStartDate: start, requestedEndDate: end },
+    }, meta: { contract_version: "v1" } })),
+  });
+  assert.equal((await client.receivedPaymentSummary({ range: "custom", start_date: "2026-03-08", end_date: "2026-03-08" })).status, accepted ? 200 : 502);
+})));
 
 await Promise.all([false, true].map((revoked) => test(`summary refreshes once before returning projected data, revoked=${String(revoked)}`, async () => {
   const persistCredentials = mock.fn((): Promise<void> => Promise.resolve());

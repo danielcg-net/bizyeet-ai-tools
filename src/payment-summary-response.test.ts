@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { paymentSummaryResponse } from "./payment-summary-response.js";
 
-const period = Object.freeze({ range: "custom", timeZone: "America/Edmonton", start: "2026-03-08T07:00:00.000Z", end: "2026-03-09T06:00:00.000Z" });
+const period = Object.freeze({ range: "custom", timeZone: "America/Edmonton", start: "2026-03-08T07:00:00.000Z", end: "2026-03-09T06:00:00.000Z", requestedStartDate: "2026-03-08", requestedEndDate: "2026-03-08" });
+const requested = Object.freeze({ range: "custom" as const, start_date: "2026-03-08", end_date: "2026-03-08" });
 const currencies = Object.freeze([
   Object.freeze({ currency: "CAD", amount: 5, paymentCount: 1, usedDefaultCurrency: false }),
   Object.freeze({ currency: "CAD", amount: 3, paymentCount: 1, usedDefaultCurrency: true }),
@@ -12,7 +13,7 @@ const data = Object.freeze({ label: "gross collected receipts", start: period.st
 const envelope = (value: unknown): unknown => ({ data: value, meta: { contract_version: "v1" } });
 
 await test("preserves distinct currency and legacy groups without exposing extra fields", () => {
-  const result = paymentSummaryResponse(envelope({ ...data, tenant_id: "private", currencies: currencies.map((row) => ({ ...row, private_cost: 99 })) }), "custom");
+  const result = paymentSummaryResponse(envelope({ ...data, tenant_id: "private", currencies: currencies.map((row) => ({ ...row, private_cost: 99 })) }), requested);
   assert.ok(result);
   assert.deepEqual(result.data, data);
   assert.doesNotMatch(JSON.stringify(result), /private/u);
@@ -27,5 +28,5 @@ await Promise.all([
   { ...data, period: { ...period, end: period.start } },
   { ...data, source: { provider: "d1" } },
 ].map((value, index) => test(`rejects malformed summary ${String(index)}`, () => {
-  assert.equal(paymentSummaryResponse(envelope(value), "custom"), undefined);
+  assert.equal(paymentSummaryResponse(envelope(value), requested), undefined);
 })));

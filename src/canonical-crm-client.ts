@@ -189,7 +189,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       if (response.status === 401 && record(body) && body.error === "invalid_token") return failure(401, "authorization_required");
       if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
         ? { status: response.status, body } : failure(502, "invalid_response");
-      const projected = paymentSummaryResponse(body, options.range ?? "month");
+      const projected = paymentSummaryResponse(body, options);
       return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
     } catch { return failure(503, "request_unavailable"); }
   };

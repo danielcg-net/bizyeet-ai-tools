@@ -2,6 +2,7 @@
 import { paymentSummaryRanges, paymentSummaryDatePattern } from "./payment-summary-contract.js";
 
 const date = Object.freeze({ type: "string", pattern: paymentSummaryDatePattern });
+const requestedDate = Object.freeze({ type: Object.freeze(["string", "null"]), pattern: paymentSummaryDatePattern });
 const properties = Object.freeze({
   api_version: Object.freeze({ type: "string", const: "v1" }),
   range: Object.freeze({ type: "string", enum: paymentSummaryRanges, default: "month" }),
@@ -20,7 +21,10 @@ export const paymentSummaryMcpTool = Object.freeze({
     })]),
   }),
   outputSchema: Object.freeze({ type: "object", properties: Object.freeze({
-    data: Object.freeze({ type: "object", required: Object.freeze(["label", "currencies", "period", "source", "start", "end"]) }),
+    data: Object.freeze({ type: "object", required: Object.freeze(["label", "currencies", "period", "source", "start", "end"]),
+      properties: Object.freeze({ period: Object.freeze({ type: "object", required: Object.freeze(["requestedStartDate", "requestedEndDate"]),
+        properties: Object.freeze({ requestedStartDate: requestedDate, requestedEndDate: requestedDate }) }) }),
+    }),
     meta: Object.freeze({ type: "object", properties: Object.freeze({ contract_version: Object.freeze({ type: "string", const: "v1" }) }), required: Object.freeze(["contract_version"]) }),
   }), required: Object.freeze(["data", "meta"]) }),
   securitySchemes: Object.freeze([Object.freeze({ type: "oauth2" as const, scopes: Object.freeze(["payments.read"] as const) })]),

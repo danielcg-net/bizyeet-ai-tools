@@ -282,7 +282,10 @@ the response reports inclusive-start/exclusive-end UTC boundaries. Neither
 timezone nor fallback currency can be supplied by the caller.
 
 `source.readCompletedAt` is the time the read completed, not a synchronization
-guarantee or transaction snapshot. Unsupported providers return an error rather
+or snapshot guarantee. `period.requestedStartDate` and `requestedEndDate` echo
+the validated custom dates (null for named ranges); the CLI rejects responses
+whose requested range or dates differ from the command.
+Unsupported providers return an error rather
 than inactive-provider data. The matching MCP tool is
 `bizyeet_payments_received_summary`; it advertises the same `payments.read` scope.
 `--export` uses the existing private local export mechanism.

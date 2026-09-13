@@ -32,6 +32,9 @@ Servers with the received-summary increment deployed additionally advertise
 `bizyeet_payments_received_summary` with `payments.read`.
 
 The summary reports gross collected receipts, not net revenue. It preserves
+the requested custom dates in `period.requestedStartDate` and
+`period.requestedEndDate` (null for named ranges), allowing request binding
+without client-side timezone calculations. It preserves
 separate currency and labelled legacy-default groups. Named ranges are `today`,
 `month`, `last_month`, and `ytd`; `custom` requires inclusive `start_date` and
 `end_date` in `YYYY-MM-DD` form. The server resolves timezone and currency;

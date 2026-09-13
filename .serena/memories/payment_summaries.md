@@ -5,3 +5,4 @@
 - MCP `bizyeet_payments_received_summary` must exactly match the private server descriptor; keep dedicated MCP guide, README and installed cross-repo tests aligned. Availability depends on server deployment.
 - `readCompletedAt` is not a snapshot or provider-sync claim. CLI export uses the existing protected export path; no arbitrary output paths or credentials in output.
 - Bind response `period.range` to the requested range (default `month`). A valid envelope for a different range is `invalid_response`, never accepted financial output. Calendar boundary calculation stays server-owned.
+- Also require `period.requestedStartDate` and `requestedEndDate` to match the caller's exact custom dates (null for named ranges). These come from the same canonical query that resolves the UTC period. Missing or mismatched dates fail closed; do not reproduce timezone policy in the CLI.
