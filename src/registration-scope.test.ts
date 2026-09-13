@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 import { registerPublicClient } from "./oauth.js";
 
 const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token", registration_endpoint: "https://example.test/register" };
@@ -23,3 +23,19 @@ await Promise.all([undefined, null, "", "customers.write", "customers.read custo
     await assert.rejects(registerPublicClient({ metadata, scope: "customers.read", redirectUri: "http://127.0.0.1:1234/callback",
       fetcher: () => Promise.resolve(assigned(scope)) }), /exactly the requested scopes/u);
   })));
+
+await Promise.all(["", " customers.read", "customers.read ", "customers.read  payments.read",
+  "customers.read\tpayments.read", "customers.read\n", "customers.read\r", "customers.\u0000read",
+  "customers.\"read", "customers.\\read", "customers.\u00e9read", "a".repeat(1025),
+].map((scope, index) => test(`rejects malformed registration scope before network access ${String(index)}`, async () => {
+  const fetcher = mock.fn(() => Promise.resolve(assigned("customers.read")));
+  await assert.rejects(registerPublicClient({ metadata, scope, redirectUri: "http://127.0.0.1:1234/callback", fetcher }),
+    /Invalid OAuth registration scope/u);
+  assert.equal(fetcher.mock.callCount(), 0);
+})));
+
+void test("rejects a narrower assigned scope set before reporting registration success", async () => {
+  await assert.rejects(registerPublicClient({ metadata, scope: "customers.read payments.read",
+    redirectUri: "http://127.0.0.1:1234/callback", fetcher: () => Promise.resolve(assigned("customers.read")) }),
+  /exactly the requested scopes/u);
+});
