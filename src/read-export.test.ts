@@ -4,7 +4,28 @@ import * as files from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { exportReadResponse } from "./read-export.js";
-import { secureWindowsExport } from "./export-security.js";
+import { secureWindowsExport, windowsExportProcessOptions } from "./export-security.js";
+
+void test("Windows ACL execution has a bounded cold-start allowance", () => {
+  assert.deepEqual(windowsExportProcessOptions, { timeout: 30_000, maxBuffer: 16_384, windowsHide: true });
+  assert.ok(Object.isFrozen(windowsExportProcessOptions));
+});
+
+void test("Windows ACL timeout is not retried and no response file is opened", async (context) => {
+  const root = await files.mkdtemp(join(tmpdir(), "export-acl-timeout-test-"));
+  const open = context.mock.fn(files.open);
+  const execute = context.mock.fn((): Promise<string> => Promise.reject(
+    Object.assign(new Error("synthetic timeout"), { killed: true, signal: "SIGTERM", code: null })));
+  try {
+    await assert.rejects(exportReadResponse("synthetic-private-response", {
+      platform: "win32", temporaryRoot: root, operations: { ...files, open },
+      secureWindows: (path, mode) => secureWindowsExport(path, mode, execute, { SystemRoot: tmpdir() }),
+    }), /No response data was printed/u);
+    assert.equal(execute.mock.callCount(), 1);
+    assert.equal(open.mock.callCount(), 0);
+    assert.deepEqual(await files.readdir(root), []);
+  } finally { await files.rm(root, { recursive: true, force: true }); }
+});
 
 void test("Windows native export ACL protects the directory and its new file", { skip: process.platform !== "win32" }, async (context) => {
   const directory = await files.mkdtemp(join(tmpdir(), "export-native-acl-test-"));
