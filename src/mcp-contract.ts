@@ -1,4 +1,5 @@
 import { CRM_SEARCH_MAX_LENGTH } from "./search-contract.js";
+import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
 
 export type McpTool = Readonly<{
   annotations: Readonly<{
@@ -11,7 +12,7 @@ export type McpTool = Readonly<{
   inputSchema: Readonly<Record<string, unknown>>;
   name: string;
   outputSchema: Readonly<Record<string, unknown>>;
-  securitySchemes: readonly Readonly<{ scopes: readonly ["customers.read"]; type: "oauth2" }>[];
+  securitySchemes: readonly Readonly<{ scopes: readonly ("customers.read" | "payments.read")[]; type: "oauth2" }>[];
   title: string;
 }>;
 
@@ -77,4 +78,5 @@ export const mcpReadTools = Object.freeze([
     title: "List leads",
   }),
   Object.freeze({ annotations: readAnnotations, description: "Return one privacy-safe lead by its opaque BizYeet ID.", inputSchema: exactSchema, name: "bizyeet_leads_get", outputSchema: resourceOutputSchema, securitySchemes: oauthReadSecurity, title: "Get lead" }),
+  paymentSummaryMcpTool,
 ]) satisfies readonly McpTool[];

@@ -2,6 +2,8 @@ import { readBoundedJson as boundedResponse } from "./bounded-json.js";
 import { canonicalErrorCode, correlationReference, recordedFailureCode } from "./agent-error.js";
 import { isUuid as uuid } from "./uuid.js";
 import { validCursor } from "./cursor.js";
+import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
+import { paymentSummaryResponse } from "./payment-summary-response.js";
 
 export type CrmResource = "customers" | "leads";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
@@ -24,6 +26,7 @@ export type ClientDependencies = Readonly<{
   wait?: (milliseconds: number) => Promise<void>;
 }>;
 export type CanonicalCrmClient = Readonly<{
+  receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
   list: (resource: CrmResource, options?: ListOptions) => Promise<CanonicalResult>;
   get: (resource: CrmResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
   previewCustomerUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
@@ -156,6 +159,28 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return failure(503, "request_unavailable");
     }
   };
+  const receivedPaymentSummary = async (options: PaymentSummaryOptions = {}): Promise<CanonicalResult> => {
+    if (!validPaymentSummaryOptions(options)) return failure(400, "invalid_request");
+    const parameters = new URLSearchParams([["api_version", "v1"],
+      ...(options.range === undefined ? [] : [["range", options.range]]),
+      ...(options.start_date === undefined ? [] : [["start_date", options.start_date]]),
+      ...(options.end_date === undefined ? [] : [["end_date", options.end_date]]),
+    ]);
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await requestRead(`${origin}/api/agent/payments/received-summary?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 1_048_576);
+      if (response.status === 401 && record(body) && body.error === "invalid_token") return failure(401, "authorization_required");
+      if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
+        ? { status: response.status, body } : failure(502, "invalid_response");
+      const projected = paymentSummaryResponse(body);
+      return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
   const write = async (input: CustomerUpdatePreview | CustomerUpdateExecution, preview: boolean): Promise<CanonicalResult> => {
     if (!record(input)) return failure(400, "invalid_request");
     const keys = preview ? ["resource_id", "changes"] : ["preview_id", "approval_receipt", "idempotency_key"];
@@ -210,6 +235,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     } catch { return failure(503, "request_unavailable"); }
   };
   return Object.freeze({
+    receivedPaymentSummary,
     list: (resource: CrmResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
     get: (resource: CrmResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
     previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true),

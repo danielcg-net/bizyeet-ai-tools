@@ -3,14 +3,14 @@ import test from "node:test";
 import { mcpInstructions, mcpReadTools } from "./mcp-contract.js";
 
 void test("publishes only bounded, read-only MCP tools", () => {
-  assert.deepEqual(mcpReadTools.map((tool) => tool.name), ["bizyeet_customers_list", "bizyeet_customers_get", "bizyeet_leads_list", "bizyeet_leads_get"]);
+  assert.deepEqual(mcpReadTools.map((tool) => tool.name), ["bizyeet_customers_list", "bizyeet_customers_get", "bizyeet_leads_list", "bizyeet_leads_get", "bizyeet_payments_received_summary"]);
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.annotations)));
   assert.deepEqual(mcpReadTools[0]?.annotations, { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: true });
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.inputSchema)));
   assert.ok(mcpReadTools.every((tool) => "api_version" in tool.inputSchema.properties));
-  assert.ok(mcpReadTools.every((tool) => "fields" in tool.inputSchema.properties));
+  assert.ok(mcpReadTools.filter((tool) => tool.name !== "bizyeet_payments_received_summary").every((tool) => "fields" in tool.inputSchema.properties));
   assert.ok(mcpReadTools.every((tool) => tool.inputSchema.required.includes("api_version")));
-  assert.ok(mcpReadTools.every((tool) => tool.securitySchemes[0]?.scopes.includes("customers.read")));
+  assert.ok(mcpReadTools.every((tool) => tool.securitySchemes[0]?.scopes[0] === (tool.name === "bizyeet_payments_received_summary" ? "payments.read" : "customers.read")));
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.outputSchema)));
   assert.match(JSON.stringify(mcpReadTools), /"page_size"/u);
 });

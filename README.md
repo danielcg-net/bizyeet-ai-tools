@@ -233,6 +233,31 @@ with the same resource, search, fields and profile; start a fresh list when the
 server reports an expired or incompatible cursor. The CLI never switches
 providers or follows pages automatically.
 
+## Received-payment summaries
+
+Servers with the received-summary contract deployed support:
+
+```sh
+bizyeet payments received-summary --range month
+bizyeet payments received-summary --range custom --start-date 2026-03-01 --end-date 2026-03-31 --export
+```
+
+This requires `payments.read` and the user's live payment permission. The result
+is **gross collected incoming receipts**, not net revenue or profit. Currency
+groups remain separate; legacy missing-currency rows retain their labelled
+tenant-default group. The CLI never computes currency conversions or totals.
+
+Ranges are `today`, `month` (month to date), `last_month`, `ytd`, and `custom`.
+Custom start/end dates are inclusive in the server-resolved tenant timezone;
+the response reports inclusive-start/exclusive-end UTC boundaries. Neither
+timezone nor fallback currency can be supplied by the caller.
+
+`source.readCompletedAt` is the time the read completed, not a synchronization
+guarantee or transaction snapshot. Unsupported providers return an error rather
+than inactive-provider data. The matching MCP tool is
+`bizyeet_payments_received_summary`; it advertises the same `payments.read` scope.
+`--export` uses the existing private local export mechanism.
+
 ## Preview and approve a customer update
 
 This draft CLI includes customer update commands; the matching server endpoints
