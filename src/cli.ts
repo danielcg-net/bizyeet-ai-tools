@@ -15,6 +15,8 @@ import { credentialStore, isCommittedCredentialCleanupFailure } from "./credenti
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validResourceId } from "./canonical-crm-client.js";
 import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
+import { receivedPaymentSummary } from "./agent-client.js";
+import { validPaymentSummaryOptions } from "./payment-summary-contract.js";
 import { exportReadResponse, READ_OUTPUT_BYTE_LIMIT } from "./read-export.js";
 import { escapeDisplayJson } from "./display-json.js";
 import { isUuid } from "./uuid.js";
@@ -35,6 +37,7 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  receivedPaymentSummary?: (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getPayment?: (input: Omit<Parameters<typeof getAgentPayment>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listPayments?: (input: Omit<Parameters<typeof listAgentPayments>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   exportReadResponse?: typeof exportReadResponse;
@@ -61,6 +64,7 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  receivedPaymentSummary: async (input) => receivedPaymentSummary({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getPayment: async (input) => getAgentPayment({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listPayments: async (input) => listAgentPayments({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getLead: async (input) => getAgentLead({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -106,6 +110,8 @@ const helpMessage = [
   "Preview reads a bounded JSON changes object from stdin; review its approval_path in your signed-in dashboard.",
   "Execution prompts for a hidden approval receipt. Harnesses use a private pipe with --receipt-stdin; never put receipts in commands, shell history or chat.",
   "Generate and retain one UUID idempotency key for this execution. Never replace it to recover an uncertain outcome.",
+  "       bizyeet payments received-summary [--range <today|month|last_month|ytd|custom>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--profile <name>] [--export]",
+  "Summary custom dates are inclusive in the tenant timezone; currency groups are never combined. This is gross collected receipts, not net revenue.",
   "       bizyeet --version",
   "       bizyeet diagnostics (local runtime and manual-update guidance; no network or credentials)",
   "Authentication uses OAuth with PKCE or Device Authorization; API keys, personal access tokens, and passwords are not accepted.",
@@ -147,6 +153,8 @@ const profileInputMessages = new Set([
   "Use --profile once with a valid profile name.", "Profile names use lowercase letters, digits, and hyphens only.",
 ]);
 const safeValidationMessages = new Set([
+  "Payment summary options are invalid.",
+  ...["--range", "--start-date", "--end-date"].map((option) => `Use ${option} once with a value.`),
   ...profileInputMessages,
   "OAuth registration did not assign exactly the requested scopes. Contact your tenant administrator before retrying.",
   "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.",
@@ -400,6 +408,23 @@ const resourceTarget = (args: readonly string[], valueOptions: readonly string[]
   return { id, options };
 };
 
+const summaryRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    if (!hasOnlyOptions(args, ["--range", "--start-date", "--end-date", "--profile"], ["--export"])
+      || args.filter((arg) => arg === "--export").length > 1) return invalidInput("Payment summary options are invalid.");
+    const range = oneOption(args, "--range", "month");
+    const start = oneOption(args, "--start-date", "");
+    const end = oneOption(args, "--end-date", "");
+    const options = { range, ...(start ? { start_date: start } : {}), ...(end ? { end_date: end } : {}) };
+    if (!validPaymentSummaryOptions(options)) return invalidInput("Payment summary options are invalid.");
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.receivedPaymentSummary) return unsupportedCommand("payments received-summary");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.receivedPaymentSummary({ credentials: authenticated.credentials, profile: authenticated.profile, options, persistCredentials }), args.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
 const crmRead = async (resource: "customers" | "leads" | "payments", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
   if (resource === "customers" && command === "update") return customerUpdate(options, dependencies, execution);
@@ -483,6 +508,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
       return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
     }
   }
+  if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);
   if (first === "customers" || first === "leads" || first === "payments") return crmRead(first, args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);

@@ -8,6 +8,7 @@ import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch } from "./search-contract.js";
 import { validCursor } from "./cursor.js";
+import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 
 export type CustomerListOptions = Readonly<{
@@ -144,6 +145,20 @@ export const checkIdentity = (input: Readonly<{
     authenticated: true, verification: "server", tenant: body.tenant_id, scope: body.scope,
   }, meta: { contract_version: "v1", request_id: crypto.randomUUID() } } };
 } });
+
+/** Read canonical receipt totals through the shared OAuth refresh and persistence flow. */
+export const receivedPaymentSummary = async (input: Readonly<{
+  credentials: StoredCredentials;
+  fetcher: FetchLike;
+  metadata: MetadataSource;
+  now: () => number;
+  options: PaymentSummaryOptions;
+  persistCredentials: PersistCredentials;
+  profile: Profile;
+}>): Promise<AgentResult> => {
+  if (!validPaymentSummaryOptions(input.options)) throw new Error("Payment summary options are invalid.");
+  return invoke({ ...input, operation: (client) => client.receivedPaymentSummary(input.options) });
+};
 
 /** Lists at most 100 contract-defined customer records without accepting arbitrary paths or query keys. */
 export const listCustomers = async (input: Readonly<{
