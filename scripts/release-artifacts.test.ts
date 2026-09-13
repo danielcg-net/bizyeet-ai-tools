@@ -3,7 +3,14 @@ import test from "node:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildArtifactBundle, declaredBinTarget, packedFileName, rebuildForRelease, validateSbom } from "./release-artifacts.js";
+import { buildArtifactBundle, declaredBinTarget, packedFileName, rebuildForRelease, releaseNpmTimeout, validateSbom } from "./release-artifacts.js";
+
+void test("full release validation has its own bounded deadline without extending packaging or installation", () => {
+  assert.equal(releaseNpmTimeout(Object.freeze(["run", "check"])), 600_000);
+  [[], ["check"], ["run", "check:docs"], ["run", "check", "--", "other"],
+    ["pack", "--json"], ["install", "artifact.tgz"], ["sbom"], ["exec", "--offline", "--no", "--", "bizyeet", "--help"],
+  ].forEach((args) => { assert.equal(releaseNpmTimeout(args), 120_000); });
+});
 
 void test("removes stale generated files before building without changing source", async (): Promise<void> => {
   const root = await mkdtemp(join(tmpdir(), "bizyeet-clean-build-"));
