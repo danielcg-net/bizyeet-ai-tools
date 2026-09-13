@@ -14,8 +14,21 @@ Then complete the browser-based authorization flow:
 codex mcp login bizyeet
 ```
 
-The V1 adapter includes bounded customer and lead read tools. Servers with the
-received-summary increment deployed additionally advertise
+The V1 read contract includes bounded customer and lead list/get tools using
+`customers.read`. Servers with the payment-read increment deployed also expose:
+
+- `bizyeet_payments_list` and `bizyeet_payments_get`: require `payments.read` and
+  return payment-only fields.
+- `bizyeet_payments_list_with_relationships` and
+  `bizyeet_payments_get_with_relationships`: require both `payments.read` and
+  `customers.read`, with an explicit `customer` or `service` field selection.
+
+Payment list filters include bounded pagination, status, sorting and canonical
+UTC start/end timestamps. Provider routing and live permissions remain
+server-owned; unsupported operations fail explicitly. Never combine currencies
+implicitly. The authenticated server's tool list determines deployed availability.
+
+Servers with the received-summary increment deployed additionally advertise
 `bizyeet_payments_received_summary` with `payments.read`.
 
 The summary reports gross collected receipts, not net revenue. It preserves

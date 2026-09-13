@@ -4,8 +4,10 @@ import { isUuid as uuid } from "./uuid.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
 import { paymentSummaryResponse } from "./payment-summary-response.js";
+import { validPaymentQuery } from "./payment-contract.js";
 
 export type CrmResource = "customers" | "leads";
+export type ReadResource = CrmResource | "payments";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
 export type ListOptions = ReadOptions & Readonly<{
   page_size?: number;
@@ -13,6 +15,10 @@ export type ListOptions = ReadOptions & Readonly<{
   search?: string;
   sort?: string;
   dir?: "asc" | "desc";
+  status?: string;
+  date_field?: string;
+  start?: string;
+  end?: string;
 }>;
 export type CanonicalResult = Readonly<{ status: number; body: unknown }>;
 export type CustomerUpdatePreview = Readonly<{ resource_id: string; changes: Readonly<Record<string, string>> }>;
@@ -27,8 +33,8 @@ export type ClientDependencies = Readonly<{
 }>;
 export type CanonicalCrmClient = Readonly<{
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
-  list: (resource: CrmResource, options?: ListOptions) => Promise<CanonicalResult>;
-  get: (resource: CrmResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
+  list: (resource: ReadResource, options?: ListOptions) => Promise<CanonicalResult>;
+  get: (resource: ReadResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
   previewCustomerUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
   executeCustomerUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   customerUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
@@ -36,7 +42,7 @@ export type CanonicalCrmClient = Readonly<{
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const validResource = (value: unknown): value is CrmResource => value === "customers" || value === "leads";
+const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments";
 /** Preserve opaque IDs while rejecting route substitutions and unbounded input. */
 export const validResourceId = (value: unknown): value is string => typeof value === "string"
   && value.length >= 1 && value.length <= 1024 && Array.from(value).length <= 512 && !/^(?:\.|%2e){1,2}$/iu.test(value)
@@ -105,6 +111,10 @@ const query = (options: ListOptions): string => new URLSearchParams([
   ...(options.sort === undefined ? [] : [["sort", options.sort]]),
   ...(options.dir === undefined ? [] : [["dir", options.dir]]),
   ...(options.fields === undefined ? [] : [["fields", options.fields.join(",")]]),
+  ...(options.status === undefined ? [] : [["status", options.status]]),
+  ...(options.date_field === undefined ? [] : [["date_field", options.date_field]]),
+  ...(options.start === undefined ? [] : [["start", options.start]]),
+  ...(options.end === undefined ? [] : [["end", options.end]]),
 ]).toString();
 const validEnvelope = (body: unknown, id: string | null, pageSize: number): boolean => {
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return false;
@@ -131,8 +141,10 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return request(url, init);
     }
   };
-  const read = async (resource: CrmResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
+  const read = async (resource: ReadResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
+    if (resource === "payments" ? !validPaymentQuery(options)
+      : [options.status, options.date_field, options.start, options.end].some((value) => value !== undefined)) return failure(400, "invalid_request");
     if (id !== null && !validResourceId(id)) return failure(400, "invalid_request");
     if (options.cursor !== undefined && !validCursor(options.cursor)) return failure(400, "invalid_request");
     const pageSize = options.page_size ?? 25;
@@ -236,8 +248,8 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   return Object.freeze({
     receivedPaymentSummary,
-    list: (resource: CrmResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
-    get: (resource: CrmResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
+    list: (resource: ReadResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
+    get: (resource: ReadResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
     previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true),
     executeCustomerUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => write(input, false),
     customerUpdateStatus,

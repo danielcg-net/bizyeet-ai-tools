@@ -9,6 +9,7 @@ import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch } from "./search-contract.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
+import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -16,6 +17,7 @@ export type CustomerListOptions = Readonly<{
   limit?: number;
   search?: string;
 }>;
+export type PaymentListOptions = CustomerListOptions & PaymentFilters;
 
 export type AgentResult = Readonly<{ credentials: StoredCredentials; response: unknown }>;
 export type PersistCredentials = (credentials: StoredCredentials) => Promise<void>;
@@ -199,6 +201,28 @@ export const getLead = async (input: Parameters<typeof getCustomer>[0]): Promise
   if (!validResourceId(input.resourceId)) throw new Error("Lead ID is invalid.");
   const options = boundedReadOptions(input.options ?? {});
   return invoke({ ...input, operation: (client) => client.get("leads", input.resourceId, options) });
+};
+
+/** Read payment facts using the same refresh/persistence boundary and canonical API. */
+export const listPayments = async (input: Omit<Parameters<typeof listCustomers>[0], "options"> & Readonly<{ options: PaymentListOptions }>): Promise<AgentResult> => {
+  if (!validPaymentQuery(input.options)) throw new Error("Payment read options are invalid.");
+  const options: ListOptions = { ...boundedOptions(input.options),
+    ...(input.options.status === undefined ? {} : { status: input.options.status }),
+    ...(input.options.date_field === undefined ? {} : { date_field: input.options.date_field }),
+    ...(input.options.start === undefined ? {} : { start: input.options.start }),
+    ...(input.options.end === undefined ? {} : { end: input.options.end }),
+    ...(input.options.sort === undefined ? {} : { sort: input.options.sort }),
+    ...(input.options.dir === undefined ? {} : { dir: input.options.dir }),
+  };
+  return invoke({ ...input, operation: (client) => client.list("payments", options) });
+};
+
+/** Read one opaque payment ID; never decode provider identity in the client. */
+export const getPayment = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Payment ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  if (!validPaymentQuery(options)) throw new Error("Payment read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("payments", input.resourceId, options) });
 };
 
 type WriteSession = Readonly<{
