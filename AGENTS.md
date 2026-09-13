@@ -7,8 +7,9 @@
 - Public pull-request workflows must use GitHub-hosted runners, explicit
   least-privilege permissions, and immutable action SHAs. Do not use
   `pull_request_target` or self-hosted runners.
-- Preserve the CLI/MCP rule that OAuth with PKCE is the only end-user
-  authentication model; do not introduce API-key or password authentication.
+- End-user authentication is exclusively OAuth: authorization-code login requires
+  PKCE S256, and the approved Device Authorization flow supports headless login.
+  Never introduce API-key, shared-password, or embedded-client-secret authentication.
 - BizYeet YouTrack is the delivery system of record. Branches use
   `bizyeet-123/concise-description`; PR titles and non-merge commits use the
   matching canonical and lowercase identifiers. Do not use GitHub Issues.

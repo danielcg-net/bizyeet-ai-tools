@@ -1,0 +1,264 @@
+# Credential platform boundaries
+
+Native saves can commit before obsolete fallback removal fails. Report that
+cleanup failure without revoking the now-authoritative grant; do not swallow the
+error or treat it as successful cleanup. Pre-commit failures still revoke a newly
+issued grant. Device user codes must be nonempty, bounded and display-safe before
+returning device authorization to terminal progress output.
+
+Choose the operation-lock profile only from arguments before the `--` separator.
+Opaque record IDs such as `--profile=other` must not change the lock or storage
+profile. Successful canonical read request IDs use the same bounded printable
+correlation helper as errors and writes; preserve absent optional IDs.
+
+Bound-profile logout must retain credentials and return a safe nonzero error if
+discovery or revocation fails. Delete only after confirmed server revocation;
+local_only is for records without a usable issuer/client binding, not a swallowed
+network failure. Tests verify no deletion on failure and a later successful retry.
+
+Load @napi-rs/keyring only when a native operation is selected, never during CLI
+module startup. Missing optional platform bindings must not break version,
+diagnostics or explicit POSIX file mode. Loader errors remain errors for native
+operations: do not classify arbitrary binding failures as permission to downgrade.
+The installed-package regression uses --omit=optional, proves direct binding
+import fails, then verifies credential-independent commands and explicit file mode.
+
+Browser awaitCode has a five-minute timeout, cancels its delay on every completion,
+and closes the real listener. Every shutdown grants active connections one second
+then force-closes them, with delay cancellation on earlier close. Device intervals must be at least one second
+and fit the timer; missing intervals still default to five seconds. Wire and
+direct-exchange inputs share this bound; accepted fractional milliseconds round up.
+
+Fallback credential read/modify/replace and removal transactions hold an exclusive
+owner-only .credentials.lock directory, with at most50 contention retries100ms
+apart. Only the acquiring operation removes its empty lock in finally; never
+automatically remove a pre-existing/stale lock. Operator recovery requires stopping
+all owners first. Cross-process tests preserve independently saved profiles and
+removals; this does not serialize the network refresh operation for one profile.
+
+Token exchange validation rejects positive finite expires_in values whose absolute
+expiration cannot fit a JavaScript Date, before login/refresh consumers serialize
+the timestamp. The same predicate protects authorization-code, refresh and device
+token responses; malformed responses fail opaquely without retry or token output.
+This cannot undo a server-side refresh rotation already performed by a malformed
+issuer. Do not claim client validation recovers an already consumed refresh token.
+
+Reject an explicitly configured empty or relative XDG_CONFIG_HOME before fallback
+I/O; never place plaintext credentials beneath the process workspace by accident.
+Browser login cleanup covers dynamic registration, PKCE generation and launching;
+once awaitCode starts it owns callback shutdown. Registration-failure tests open
+the real loopback listener and verify it no longer accepts connections.
+
+Issuer/client identity is authoritative only inside the protected StoredCredentials
+record alongside access/refresh tokens. Login performs one saveCredentials call,
+not separate public profile and secret writes. All CLI status/check/read/write/
+logout routing and device client reuse use that protected binding. profiles.json
+is legacy non-authoritative metadata; never migrate token destinations from it.
+Unbound legacy entries parse only for explicit re-login/replacement or local-only
+logout and must not trigger token-bearing requests. Refresh retains the binding;
+the agent boundary rejects missing/mismatched issuer/client before token use.
+Installed tests poison profiles.json and still exercise the proper issuer on
+native Windows and POSIX fallback. Partial fallback-save regression preserves the
+original identity and tokens together. These are local-process trust protections,
+not a defense against an attacker already running as the same OS user.
+
+Prefer the native OAuth credential manager. POSIX headless fallback uses
+owner-only mode checks. Windows chmod does not distinguish owner/group/others;
+refuse plaintext fallback rather than pretending0600 is protection. Missing
+fallback cleanup must be a no-op, especially after successful native storage.
+
+POSIX auto mode uses permission-checked credential-authority.json and a separate
+.credential-authority.lock transaction around store operations. A UUIDv4 pending
+generation is persisted before native/fallback secret writes; the identical
+storageGeneration is saved inside the protected credential. Committed ownership
+selects only its matching record. Pending recovery accepts only exact-generation
+records, never older native or fallback values. Missing/mismatched records and
+ambiguous legacy stores yield no authenticated credential so re-login can replace
+them. Legacy unversioned native/fallback records are usable only when unambiguous;
+an unavailable native service plus legacy fallback requires explicit file mode or
+re-login. No timestamps determine ordering. Native ownership is committed before
+old fallback cleanup, preventing cleanup failures from reviving stale tokens.
+Removal must confirm native deletion and remove fallback before recording removed
+ownership; never swallow native-unavailable errors or claim successful logout.
+Windows is native-only and does not use POSIX authority files. Explicit file mode
+remains an independent operator choice as documented below, not an automatic
+migration between stores. Metadata carries no tokens or issuer/client bindings.
+
+POSIX fallback checks the immediate config directory with lstat (owned by the
+current uid, no group/other permissions, not a symlink). Credential reads use
+O_NOFOLLOW plus O_NONBLOCK and validate the open descriptor: regular file,
+single hard link, current uid, owner-only mode. Read via that same descriptor
+and always close it. This removes a pathname stat/read race and avoids blocking
+on special files. Ancestor directories must remain trusted; this is not a
+defense against another process already running as the same OS user. Atomic
+temporary writes acquire an exclusive file handle before entering cleanup, then
+write/chmod through it, close before rename, and unlink the owned temporary path
+on partial-write/chmod/close/rename failure. Never unlink after failed exclusive
+open: EEXIST may identify a pre-existing file not owned by this operation.
+Cleanup errors other than ENOENT remain visible. Injected failures must preserve
+existing saved credentials and leave no temporary secret when cleanup succeeds.
+Malformed JSON must produce a fixed error without parser excerpts or causes.
+
+Never classify every error mentioning keyring as an unavailable backend. Only
+an explicit, anchored unavailable/unsupported backend statement permits file
+fallback. Denied, locked (any capitalization), ambiguous, corrupt, and unknown
+errors must preserve failure for reads, writes and logout cleanup. Published
+@napi-rs/keyring 2.0.0 returns undefined only for NoEntry; other native errors
+propagate. Its Linux builder tries Secret Service then keyutils. A container
+failure alone is not permission to classify an inaccessible store as absent.
+
+Headless POSIX operators can explicitly select BIZYEET_CREDENTIAL_STORE=file
+in the trusted harness environment. All credential operations then use the
+existing owner-only file implementation without probing/copying/removing native
+entries. Use a dedicated profile and stable private configuration directory;
+switching stores is not migration or logout from the other store. Defaults
+remain auto/native-first and denied native access still fails closed. Reject
+file mode on Windows and reject unknown mode values without echoing them.
+Installed POSIX fixture environments explicitly choose file mode, while Windows
+continues to exercise native storage. Unit tests preserve default denial gates.
+
+Installed package tests use unique synthetic profiles. Windows fixtures use
+the native credential manager and remove their entries afterward; POSIX fixtures
+exercise the permission-checked file path. Never seed a real user's profile.
+
+Launch npm via process.execPath plus npm_execpath, and installed commands via
+offline npm exec, not direct spawn of Windows cmd files. When constructing a
+child environment, consolidate PATH/Path casing so the system search path is
+retained. Release verification streams full test output so late failures are
+not truncated inside an execFile error's stdout property.
+
+Let the CLI event loop drain instead of forcing process.exit after native async
+credential work. The sole process.exitCode assignment is a documented external
+I/O boundary exception; application variables and data remain immutable and
+the global ESLint rules stay enabled. Installed tests verify nonzero exit codes.
+
+Browser launch uses pinned open11.0.2, not cmd.exe /c start. Validate HTTPS-only
+targets and pass URL data to the opener; its Windows path uses encoded PowerShell
+with literal escaping (including typographic quote delimiters). This is not a
+claim that no PowerShell process exists. Windows tests launch a temporary capture
+app, not a browser/network destination, to verify metacharacter URL preservation.
+Authorization Code requires PKCE S256; separately approved Device Authorization
+is retained for headless use under639/643. Do not remove device login by conflating
+the authorization-code proof with the distinct OAuth device grant.
+
+Profile replacement retires the selected old bound refresh grant before new
+authorization starts. Revocation failure retains the old record and starts no
+new login; reuse the old issuer/client binding for revocation, never the requested
+replacement issuer. A cancelled replacement cannot restore a successfully retired
+grant. Unbound legacy refresh records require explicit dashboard revocation/local
+logout instead of silently overwriting an unrevocable token.
+
+CLI profile operations acquire a separate .profile-<name>.lock before reads,
+authorization, refresh and writes. Never nest the existing authority/file locks
+around their own public read/save methods. Profile locks contain no credentials,
+use bounded exclusive mkdir contention and release in finally; Windows tokens
+remain native-only. Invalid OAuth scope syntax fails before locking/storage or
+revocation. Failed new-credential persistence attempts grant revocation; combined
+storage/revocation failure is explicit and requires dashboard cleanup, never a
+successful login or secret-bearing diagnostic. Multi-process synthetic CLI tests
+verify that every displaced login grant is retired.
+
+Refresh rotation follows the same persistence boundary: on a pre-commit save
+failure, revoke the newly rotated refresh token before reporting failure. If
+revocation is unavailable or fails, explicitly require dashboard revocation;
+never claim the active family was retired. Tagged post-commit cleanup failures
+retain the authoritative grant and report cleanup trouble without business
+dispatch. Requested and returned OAuth scopes share the RFC 6749 validator.
+
+Storage-lock cleanup is also post-completion. The shared credential-cleanup
+helper marks cleanup failures only after the whole operation succeeds, or
+preserves an existing committed marker when both operation and cleanup fail.
+Do not mark an arbitrary authority metadata write as a credential commit:
+pending metadata can be written before any new token exists. Real temporary
+filesystem tests cover native-authority and explicit-file login/refresh saves,
+failed lock removal, and retained reads after explicit test-owned lock recovery.
+Identity-check scopes must each be one valid OAuth token, not a whole scope list.
+
+Atomic JSON writes only unlink the owned temporary path on failure before a
+successful rename. Rename consumes that path; do not run another unlink after
+commit or a cleanup error can falsely report that saved credentials were lost.
+Tests cover protected credential and authority files as well as partial-write,
+chmod, close and rename failure cleanup.
+
+The operation/cleanup boundary normalizes synchronous throws as well as rejected
+promises. Both must release the acquired storage lock and remain pre-commit
+failures; regression tests assert cleanup runs exactly once.
+
+Persistent browser/device login requires a nonempty usable refresh token before
+returning credentials to storage. Access-only responses are not persistent login
+success. Auth-check tenant identifiers are bounded to 512 code units, nonblank,
+and exclude Unicode controls/formatting/surrogates/line separators before output.
+
+Outer profile locks return a typed result plus cleanup status. Completed CLI
+responses and exit codes survive cleanup failure; a separate stderr warning
+requires lock recovery and explicitly forbids repeating a completed mutation.
+Do not throw away canonical success/audit or denial results because rmdir failed.
+
+A native or fallback save can persist the pending generation and then reject.
+Inspect authority and both stores inside the already-held authority transaction;
+only exact generation and credential identity establish recoverable persistence.
+Preserve that grant and report cleanup trouble instead of revoking it. Missing,
+mismatched, conflicting or unreadable pending records do not prove commitment.
+Never nest public credential reads inside the authority lock or treat the initial
+pending metadata write alone as proof that tokens were saved.
+
+Before compensating revocation after inconclusive read-back, persist removed
+authority for that generation so a later successful read cannot revive the
+revoked token. If retirement also fails, preserve a distinct uncertain outcome
+through lock cleanup: do not claim saved/revoked credentials or dispatch a
+business operation. Require dashboard revocation and storage repair explicitly;
+do not automatically revoke a potentially still-selected generation.
+
+The approved643 amendment permits bounded local read-response exports. Only the
+canonical response envelope enters the exporter, never AgentResult credentials.
+Explicit --export or read JSON above32KiB produces a generated private file and
+compact path/bytes/cursor output, never automatic pagination or arbitrary paths.
+POSIX checks owned700directory/600regular single-link file and exclusive creation;
+Windows sets/verifies current-SID-only native ACLs before payload writes. Constant
+PowerShell interop receives paths as environment data, not executable source.
+Write/sync/close failures clean the newly owned directory; cleanup failure is
+explicit. Tests use synthetic data and remove their test-owned export directories.
+
+Every token exchange validates access_token against RFC6750 section2.1 b64token
+before returning credentials. Reject controls, Unicode, separators and misplaced
+padding; accept the full allowed alphabet and trailing equals padding. Require
+the actual end of input so a terminal newline cannot bypass a regex dollar anchor.
+
+Windows export ACL helpers launch Windows PowerShell through Node. Remove all
+case variants of inherited PSModulePath from the child environment: a PS7 parent
+cannot perform its normal compatibility cleanup across this intermediate process.
+Import the inbox Security module by its fixed PSHOME-relative manifest, not a
+search-resolved user/PS7 module. Native synthetic tests retain stage diagnostics;
+public CLI errors remain redacted and no customer data enters PowerShell.
+Hosted diagnostic run34554915345 failed while autoloading Set-Acl, before the
+file-owner stage; do not misreport that observation as an ownership failure.
+
+After module isolation, hosted run34556089266 reached the file stage and rejected
+its default owner. Directory ownership is not inherited by new files. Establish
+an explicit protected current-SID-only file ACL/owner while the exclusive file
+is still empty; verify before payload writes. Never normalize an existing
+nonempty file or accept a broad default owner as a substitute for protection.
+
+Escape Unicode display controls in agent-visible serialized JSON, including
+opaque continuation cursors, using JSON Unicode escapes that preserve decoded
+values (including supplementary formatting characters). Do not reject or alter
+opaque cursor values. Measure the escaped inline read output against32KiB; if
+escaping pushes it over, export the original bounded canonical envelope.
+
+Opaque cursors must also survive argv and URL encoding. Reject NUL or ill-formed
+UTF-16 (lone surrogates) at canonical response and outbound option boundaries;
+JSON escaping alone cannot make them reusable. Keep valid paired Unicode and
+other opaque punctuation/control/format values, escaping only their display.
+
+Use the same usable-refresh-token predicate for present token-endpoint refresh
+credentials and persistent login: nonempty, well-formed and free of whitespace
+or control/format characters. Validate rotations before persistence/business
+dispatch, not only initial login. A malformed consumed rotation requires re-login;
+never persist its non-round-trippable token. Omitted refresh tokens remain an
+optional low-level OAuth field; persistent login/rotation callers require them.
+Device verification URLs are returned in validated canonical URL form and CLI
+verification stderr uses the same display-safe JSON serializer as stdout.
+
+Returned registration client IDs and device codes must likewise be nonempty and
+well-formed before use: URLSearchParams silently changes lone surrogates. Keep
+valid paired Unicode/punctuation opaque; do not impose a JWT/token alphabet.

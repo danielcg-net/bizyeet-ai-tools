@@ -1,3 +1,5 @@
+import { CRM_SEARCH_MAX_LENGTH } from "./search-contract.js";
+
 export type McpTool = Readonly<{
   annotations: Readonly<{
     destructiveHint: false;
@@ -28,7 +30,7 @@ const pageSchema = Object.freeze({
     dir: Object.freeze({ enum: Object.freeze(["asc", "desc"]), type: "string" }),
     fields: Object.freeze({ items: Object.freeze({ maxLength: 64, type: "string" }), maxItems: 20, type: "array" }),
     page_size: Object.freeze({ maximum: 100, minimum: 1, type: "integer" }),
-    search: Object.freeze({ maxLength: 200, type: "string" }),
+    search: Object.freeze({ maxLength: CRM_SEARCH_MAX_LENGTH, type: "string" }),
     sort: Object.freeze({ type: "string" }),
   }),
   required: Object.freeze(["api_version"]),

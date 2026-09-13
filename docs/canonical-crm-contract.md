@@ -26,6 +26,13 @@ owns validation, tenant identity, live permission checks, field redaction and
 provider routing. `get(resource, id, options)` sends the opaque ID unchanged
 apart from URL encoding. Never extract provider IDs or construct replacement IDs.
 
+Customer and lead searches accept at most 200 Unicode code points (an emoji counts
+as one code point, not two UTF-16 units). The raw input bound applies before the
+server trims surrounding whitespace. Oversized searches are rejected, never
+silently truncated. CLI validation and MCP `maxLength` advertise the same bound;
+the canonical server remains authoritative. Pagination cursors bind the complete
+normalized search, including text beyond the former 120-unit limit.
+
 A successful list returns `data.items`, a nonnegative integer `data.total`, and
 `meta.contract_version: "v1"` with `meta.next_cursor`. Total describes the filtered
 collection; it is not a count of new records in a period. Resource responses return
@@ -42,6 +49,13 @@ server. Consumers must start a fresh query when told a cursor is invalid.
 The public guard in `npm run check` rejects private repository/provider imports
 and noncanonical HTTP paths. Its negative fixtures and the shared transport tests
 must pass together with typecheck and immutable TypeScript lint.
+
+The read transport retries a network exception at most once after 250 ms, using
+the same OAuth binding and original 15-second deadline. HTTP responses (including
+denials, rate limits and provider failures) are not automatically retried. OAuth
+token exchanges, registration and revocation have independent 15-second
+deadlines, reject redirects, and never use this read-retry path. Future mutation
+commands must not inherit automatic read retries.
 
 Delivery dependency: these response/schema additions accompany the private
 BIZYEET-801 server migration, which follows BIZYEET-800. They do not claim that

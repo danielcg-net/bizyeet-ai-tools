@@ -1,0 +1,97 @@
+import { createServer } from "node:http";
+import type { Server } from "node:http";
+import timers from "node:timers/promises";
+
+export type LoopbackCallback = Readonly<{
+  awaitCode: () => Promise<string>;
+  close: () => Promise<void>;
+  redirectUri: string;
+}>;
+
+const closeServer = async (server: Server): Promise<void> => {
+  const cancellation = new AbortController();
+  const closed = new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+  const forced = timers.setTimeout(1000, undefined, { signal: cancellation.signal }).then(async (): Promise<void> => {
+    server.closeAllConnections();
+    await closed;
+  });
+  try { await Promise.race([closed, forced]); }
+  finally { cancellation.abort(); }
+};
+
+const callbackResponse = (status: number, body: string): Readonly<{ body: string; headers: Readonly<Record<string, string>>; status: number }> => ({
+  body,
+  headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+  status,
+});
+
+const parseCallbackTarget = (target: string): URL | undefined => {
+  try { return new URL(target, "http://127.0.0.1"); }
+  catch { return undefined; }
+};
+
+/** Opens one IPv4 loopback callback listener and resolves only a matching OAuth authorization response. */
+export const openLoopbackCallback = async (state: string, issuer: string): Promise<LoopbackCallback> => {
+  const result = await new Promise<Readonly<{ code: Promise<string>; server: Server }>>((resolve, reject) => {
+    const code = new Promise<string>((resolveCode, rejectCode) => {
+      const server = createServer((request, response) => {
+        const url = parseCallbackTarget(request.url ?? "/");
+        if (!url) {
+          const outcome = callbackResponse(400, "<p>BizYeet authorization could not be completed. Return to the CLI.</p>");
+          response.writeHead(outcome.status, outcome.headers).end(outcome.body);
+          rejectCode(new Error("OAuth authorization callback did not match this login."));
+          return;
+        }
+        const authorizationCode = url.searchParams.get("code");
+        const callbackState = url.searchParams.get("state");
+        const error = url.searchParams.get("error");
+        const matches = request.method === "GET" && url.pathname === "/callback"
+          && url.searchParams.getAll("state").length === 1 && callbackState === state
+          && url.searchParams.getAll("iss").length === 1 && url.searchParams.get("iss") === issuer
+          && url.searchParams.getAll("code").length <= 1 && url.searchParams.getAll("error").length <= 1
+          && !(authorizationCode && error);
+        const outcome = !matches || error || !authorizationCode
+          ? callbackResponse(400, "<p>BizYeet authorization could not be completed. Return to the CLI.</p>")
+          : callbackResponse(200, "<p>BizYeet authorization is complete. You can return to the CLI.</p>");
+        response.writeHead(outcome.status, outcome.headers).end(outcome.body);
+        if (!matches || (!authorizationCode && !error)) rejectCode(new Error("OAuth authorization callback did not match this login."));
+        else if (error) rejectCode(new Error("OAuth authorization was denied."));
+        else if (!authorizationCode) rejectCode(new Error("OAuth authorization callback did not match this login."));
+        else resolveCode(authorizationCode);
+      });
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        resolve({ code, server });
+      });
+    });
+    // Registration/browser startup may still be pending when the callback fails.
+    // Mark rejection as observed now; awaitCode still receives the original error.
+    void code.catch(() => undefined);
+  });
+  const address = result.server.address();
+  if (!address || typeof address === "string") {
+    await closeServer(result.server);
+    throw new Error("OAuth loopback callback did not receive a local port.");
+  }
+  return {
+    awaitCode: async (): Promise<string> => {
+      const cancellation = new AbortController();
+      const timeout = timers.setTimeout(300_000, undefined, { signal: cancellation.signal }).then((): never => {
+        throw new Error("OAuth browser authorization timed out; run auth login again.");
+      });
+      try {
+        return await Promise.race([result.code, timeout]);
+      } finally {
+        cancellation.abort();
+        await closeServer(result.server);
+      }
+    },
+    close: (): Promise<void> => closeServer(result.server),
+    redirectUri: `http://127.0.0.1:${String(address.port)}/callback`,
+  };
+};

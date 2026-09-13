@@ -1,0 +1,326 @@
+import assert from "node:assert/strict";
+import test, { mock } from "node:test";
+
+import { checkIdentity, getCustomer, listCustomers, executeCustomerUpdate, refreshPersistenceMessages } from "./agent-client.js";
+import { run } from "./cli.js";
+import { isAgentFailure } from "./agent-error.js";
+
+const profile = { clientId: "public-client", issuer: "https://example.test" };
+const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
+const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
+const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
+
+void test("malformed rotated refresh credentials never persist or dispatch a business read", async () => {
+  await Promise.all(["", "next\ud800token", "next\udffftoken"].map(async (refreshToken) => {
+    const persist = mock.fn((): Promise<void> => Promise.resolve());
+    const fetcher = mock.fn((url: string): Promise<Response> => {
+      assert.equal(url, metadata.token_endpoint);
+      return Promise.resolve(Response.json({ access_token: "new-synthetic-access", refresh_token: refreshToken, expires_in: 300, token_type: "Bearer" }));
+    });
+    await assert.rejects(getCustomer({ credentials: { ...validCredentials, expiresAt: new Date(0).toISOString() }, profile,
+      metadata, now: () => 1000, fetcher, persistCredentials: persist, resourceId: "synthetic-customer",
+    }), /OAuth refresh failed; run auth login again/u);
+    assert.equal(fetcher.mock.callCount(), 1);
+    assert.equal(persist.mock.callCount(), 0);
+  }));
+});
+
+void test("failed rotation persistence revokes once or gives explicit dashboard recovery without business dispatch", async () => {
+  await Promise.all(["revoked", "denied", "network", "missing"].map(async (mode) => {
+    const expired = { ...validCredentials, expiresAt: new Date(0).toISOString() };
+    const fetcher = mock.fn((url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/token")) return Promise.resolve(Response.json({ access_token: "new-access-secret", refresh_token: "new-refresh-secret", token_type: "Bearer", expires_in: 300 }));
+      assert.equal(url, "https://example.test/revoke");
+      assert.ok(init?.body instanceof URLSearchParams);
+      assert.equal(init.body.get("token"), "new-refresh-secret");
+      if (mode === "network") return Promise.reject(new Error("private-network-secret"));
+      return Promise.resolve(new Response(null, { status: mode === "denied" ? 503 : 200 }));
+    });
+    const persist = mock.fn(() => Promise.reject(new Error("private-storage-secret")));
+    const result = await run(["customers", "get", "customer-1"], {
+      readCredentials: () => Promise.resolve({ default: expired }), saveCredentials: persist,
+      removeCredentials: () => Promise.reject(new Error("Unexpected deletion")),
+    }, {
+      getCustomer: (input) => getCustomer({ ...input, now: () => 1000, fetcher,
+        metadata: { ...metadata, ...(mode === "missing" ? {} : { revocation_endpoint: "https://example.test/revoke" }) } }),
+      listCustomers: () => Promise.reject(new Error("Unexpected list")),
+      loginBrowser: () => Promise.reject(new Error("Unexpected login")),
+      loginDevice: () => Promise.reject(new Error("Unexpected login")),
+      revoke: () => Promise.reject(new Error("Unexpected CLI revocation")),
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(result.message.includes(mode === "revoked" ? refreshPersistenceMessages.revoked : refreshPersistenceMessages.unconfirmed));
+    assert.doesNotMatch(result.message, /new-access-secret|new-refresh-secret|private-storage-secret|private-network-secret/u);
+    assert.equal(persist.mock.callCount(), 1);
+    assert.equal(fetcher.mock.callCount(), mode === "missing" ? 1 : 2);
+  }));
+});
+
+void test("valid credentials reach the resource without OAuth discovery", async () => {
+  const discovery = mock.fn(() => Promise.reject(new Error("Discovery unavailable")));
+  const result = await getCustomer({ credentials: validCredentials, metadata: discovery, now: () => 1000, profile,
+    resourceId: "customer-1", persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    fetcher: () => Promise.resolve(Response.json({ data: { id: "customer-1" }, meta: { contract_version: "v1" } })),
+  });
+  assert.equal(discovery.mock.callCount(), 0);
+  assert.deepEqual(result.credentials, validCredentials);
+});
+
+void test("expired credentials discover once and persist rotation before resource access", async () => {
+  const discovery = mock.fn(() => Promise.resolve(metadata));
+  const persist = mock.fn(() => Promise.resolve());
+  await getCustomer({ credentials: { ...validCredentials, expiresAt: new Date(0).toISOString() }, metadata: discovery,
+    now: () => 1000, profile, resourceId: "customer-1", persistCredentials: persist,
+    fetcher: (url) => {
+      assert.equal(discovery.mock.callCount(), 1);
+      if (url.endsWith("/token")) return Promise.resolve(Response.json({ access_token: "rotated", refresh_token: "rotated-refresh", token_type: "Bearer", expires_in: 300 }));
+      assert.equal(persist.mock.callCount(), 1);
+      return Promise.resolve(Response.json({ data: { id: "customer-1" }, meta: { contract_version: "v1" } }));
+    },
+  });
+  assert.equal(discovery.mock.callCount(), 1);
+});
+
+void test("identity rejects oversized success and denial bodies without exposing their contents", async () => {
+  await Promise.all([200, 403].map(async (status) => {
+    const response = Response.json({ tenant_id: "synthetic-tenant", client_id: profile.clientId, scope: ["customers.read"],
+      padding: "credential-excerpt".repeat(5000), error: { code: "forbidden" } }, { status });
+    const fetcher = mock.fn(() => Promise.resolve(response));
+    await assert.rejects(checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,
+      persistCredentials: () => Promise.reject(new Error("Must not refresh")),
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && !JSON.stringify(error.cause).includes("credential-excerpt"));
+    assert.equal(fetcher.mock.callCount(), 1);
+    assert.equal(response.body?.locked, false);
+  }));
+});
+
+void test("execution does not refresh and replay after an HTTP denial", async () => {
+  const fetcher = mock.fn(() => Promise.resolve(Response.json({ error: { code: "authorization_required" } }, { status: 401 })));
+  await assert.rejects(executeCustomerUpdate({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,
+    persistCredentials: () => Promise.reject(new Error("Must not refresh after dispatch")),
+    approval: { preview_id: "11111111-1111-4111-8111-111111111111", approval_receipt: "r".repeat(43), idempotency_key: "22222222-2222-4222-8222-222222222222" },
+  }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.status === 401);
+  assert.equal(fetcher.mock.callCount(), 1);
+});
+
+void test("checks server identity without accessing CRM or exposing tokens and user identifiers", async () => {
+  const fetcher = mock.fn((url: string, init?: RequestInit) => {
+    assert.equal(url, "https://example.test/api/agent/me");
+    assert.equal(init?.redirect, "error");
+    assert.equal(header(init, "Authorization"), "Bearer access-token");
+    return Promise.resolve(Response.json({ tenant_id: "synthetic-tenant", client_id: profile.clientId,
+      user_id: "private-user", scope: ["customers.read"], unexpected: "secret-value" }));
+  });
+  const result = await checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,
+    persistCredentials: () => Promise.reject(new Error("Unexpected write")),
+  });
+  const serialized = JSON.stringify(result.response);
+  assert.match(serialized, /"verification":"server"/u);
+  assert.match(serialized, /synthetic-tenant/u);
+  assert.doesNotMatch(serialized, /private-user|secret-value|access-token|refresh-token/u);
+  assert.equal(fetcher.mock.callCount(), 1);
+});
+
+void test("identity probe rejects a mismatched OAuth client and malformed scopes", async () => {
+  await Promise.all([
+    { tenant_id: "tenant", client_id: "different-client", scope: [] },
+    { tenant_id: "tenant", client_id: profile.clientId, scope: [123] },
+    ...["", " ", "customers.read customers.write", "customers.read\u009b", "customers.read\u001b", "customers.read\u202e", "customers.read\\", 'customers.read"'].map((scope) => ({ tenant_id: "tenant", client_id: profile.clientId, scope: [scope] })),
+  ].map(async (body) => {
+    await assert.rejects(checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      fetcher: () => Promise.resolve(Response.json(body)), persistCredentials: () => Promise.resolve(),
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === "invalid_response");
+  }));
+});
+
+void test("identity probe rejects blank, oversized or display-unsafe tenant identifiers", async () => {
+  await Promise.all(["", " ", "x".repeat(513), "tenant\u009b", "tenant\u001b", "tenant\u202e", "tenant\uD800", "tenant\u2028", "tenant\u2029"].map(async (tenantId) => {
+    await assert.rejects(checkIdentity({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      fetcher: () => Promise.resolve(Response.json({ tenant_id: tenantId, client_id: profile.clientId, scope: ["customers.read"] })),
+      persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === "invalid_response");
+  }));
+});
+
+void test("passes long opaque identifiers unchanged through the canonical transport", async (): Promise<void> => {
+  const id = `crm1.${"a".repeat(489)}.customers.1234567`;
+  assert.equal(id.length, 512);
+  const response = { data: { id }, meta: { contract_version: "v1" } };
+  const outcome = await getCustomer({ credentials: validCredentials, metadata, now: () => 1000, profile, resourceId: id,
+    persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    fetcher: (url) => {
+      assert.equal(new URL(url).pathname, `/api/agent/customers/${id}`);
+      return Promise.resolve(Response.json(response));
+    },
+  });
+  assert.deepEqual(outcome.response, response);
+});
+
+void test("exact reads preserve opaque identifiers outside a token grammar", async (): Promise<void> => {
+  await Promise.all(["customer:123", "opaque~id", "name with space", "opaque%2Fid", "customer&name=one"].map(async (id): Promise<void> => {
+    const response = { data: { id }, meta: { contract_version: "v1" } };
+    const result = await getCustomer({ credentials: validCredentials, metadata, now: () => 1000, profile, resourceId: id,
+      persistCredentials: () => Promise.reject(new Error("Unexpected persistence")), fetcher: (url) => {
+        assert.equal(new URL(url).pathname, `/api/agent/customers/${encodeURIComponent(id)}`);
+        assert.equal(new URL(url).search, "?api_version=v1");
+        return Promise.resolve(Response.json(response));
+      },
+    });
+    assert.deepEqual(result.response, response);
+  }));
+});
+
+void test("does not turn provider failures, stale cursors or invalid envelopes into empty success", async (): Promise<void> => {
+  await Promise.all([
+    { status: 503, body: { error: { code: "provider_unavailable" } }, expected: { code: "provider_unavailable" } },
+    { status: 400, body: { error: { code: "invalid_cursor" } }, expected: { code: "invalid_cursor" } },
+    { status: 200, body: { data: { items: [] }, meta: { contract_version: "v1" } }, expected: { code: "invalid_response" } },
+  ].map(async ({ status, body, expected }) => {
+    const fetcher = mock.fn(() => Promise.resolve(Response.json(body, { status })));
+    await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      options: {}, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === expected.code);
+    assert.equal(fetcher.mock.callCount(), 1);
+  }));
+});
+
+void test("uses only bounded customer-list query parameters", async (): Promise<void> => {
+  const result = await listCustomers({
+    credentials: validCredentials,
+    fetcher: (url, request): Promise<Response> => {
+      const target = new URL(url);
+      assert.equal(target.pathname, "/api/agent/customers");
+      assert.equal(target.searchParams.get("limit"), "25");
+      assert.equal(request?.redirect, "error");
+      assert.equal(header(request, "Authorization"), "Bearer access-token");
+      return Promise.resolve(new Response(JSON.stringify({ data: { items: [], total: 0 }, meta: { contract_version: "v1", request_id: "req", next_cursor: null } })));
+    },
+    metadata,
+    now: () => 1000,
+    options: { limit: 25, search: "acme" },
+    persistCredentials: () => Promise.reject(new Error("Valid credentials must not be rewritten.")),
+    profile,
+  });
+
+  assert.deepEqual(result.response, { data: { items: [], total: 0 }, meta: { contract_version: "v1", request_id: "req", next_cursor: null } });
+});
+
+void test("preserves the complete advertised Unicode search without client-side truncation", async () => {
+  await Promise.all(["a".repeat(200), "😀".repeat(200), `${"a".repeat(120)}suffix`, " acme_% "].map(async (search) => {
+    const fetcher = mock.fn((url: string) => {
+      assert.equal(new URL(url).searchParams.get("search"), search);
+      return Promise.resolve(Response.json({ data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } }));
+    });
+    await listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      options: { search }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    });
+    assert.equal(fetcher.mock.callCount(), 1);
+  }));
+});
+
+void test("rejects oversized raw searches before any request", async () => {
+  await Promise.all(["a".repeat(201), "😀".repeat(201), ` ${"a".repeat(200)}`, " ".repeat(10000), `${"a".repeat(120)}\uD800`, "\uDC00", "\uD800a", "\uDC00\uD800"].map(async (search) => {
+    const fetcher = mock.fn(() => Promise.reject(new Error("Must not request")));
+    await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      options: { search }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    }), /200 Unicode characters/u);
+    assert.equal(fetcher.mock.callCount(), 0);
+  }));
+});
+
+void test("round-trips opaque server cursors without imposing a token grammar", async (): Promise<void> => {
+  await Promise.all(["opaque", "v2:page/2?filter=a+b&x=1#next", "c".repeat(4096), "opaque\u009b\u202e🎉\u{e0001}"].map(async (cursor): Promise<void> => {
+    const fetcher = mock.fn((url: string): Promise<Response> => {
+      const target = new URL(url);
+      assert.equal(target.searchParams.get("cursor"), cursor);
+      assert.equal(target.searchParams.get("x"), null);
+      assert.equal(target.hash, "");
+      return Promise.resolve(Response.json({ data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: cursor } }));
+    });
+    const result = await listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+      options: { cursor }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    });
+    assert.deepEqual(result.response, { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: cursor } });
+    assert.equal(fetcher.mock.callCount(), 1);
+  }));
+});
+
+void test("rejects oversized cursors before network or credential refresh", async (): Promise<void> => {
+  const fetcher = mock.fn((): Promise<Response> => Promise.reject(new Error("Unexpected request")));
+  await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => 1000, profile,
+    options: { cursor: "c".repeat(4097) }, fetcher,
+    persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+  }), /Cursor is invalid\./u);
+  assert.equal(fetcher.mock.callCount(), 0);
+});
+
+void test("rejects non-round-trippable cursors before network or credential refresh", async (): Promise<void> => {
+  await Promise.all(["cursor\0value", "cursor\ud800", "\udfffvalue"].map(async (cursor): Promise<void> => {
+    const fetcher = mock.fn((): Promise<Response> => Promise.reject(new Error("Unexpected request")));
+    await assert.rejects(listCustomers({ credentials: validCredentials, metadata, now: () => Number.MAX_SAFE_INTEGER, profile,
+      options: { cursor }, fetcher, persistCredentials: () => Promise.reject(new Error("Unexpected persistence")),
+    }), /Cursor is invalid\./u);
+    assert.equal(fetcher.mock.callCount(), 0);
+  }));
+});
+
+void test("refreshes once after an expired access token and preserves no generic retry loop", async (): Promise<void> => {
+  const responses = (function* (): Generator<Promise<Response>, undefined, undefined> {
+    yield Promise.resolve(new Response(JSON.stringify({ access_token: "fresh-access", expires_in: 300, refresh_token: "fresh-refresh", scope: "customers.read", token_type: "Bearer" })));
+    yield Promise.resolve(new Response(JSON.stringify({ data: { id: "customer-1" }, meta: { contract_version: "v1", request_id: "req" } })));
+  })();
+  const result = await getCustomer({
+    credentials: { ...validCredentials, expiresAt: "1970-01-01T00:00:00.000Z" },
+    fetcher: (url, request): Promise<Response> => {
+      assert.equal(header(request, "Authorization"), url.endsWith("/token") ? null : "Bearer fresh-access");
+      return responses.next().value ?? Promise.reject(new Error("Unexpected request."));
+    },
+    metadata,
+    now: () => 1000,
+    persistCredentials: (credentials) => { assert.equal(credentials.refreshToken, "fresh-refresh"); assert.deepEqual(credentials.profile, profile); return Promise.resolve(); },
+    profile,
+    resourceId: "customer-1",
+  });
+
+  assert.equal(result.credentials.refreshToken, "fresh-refresh");
+  assert.deepEqual(result.credentials.profile, profile);
+});
+
+void test("rejects unbounded limits and route-like customer identifiers before making a request", async (): Promise<void> => {
+  const noRequest = (): Promise<Response> => Promise.reject(new Error("Network should not run."));
+  const persistCredentials = (): Promise<void> => Promise.reject(new Error("Storage should not run."));
+  await assert.rejects(listCustomers({ credentials: validCredentials, fetcher: noRequest, metadata, now: () => 1000, options: { limit: 101 }, persistCredentials, profile }));
+  await assert.rejects(getCustomer({ credentials: validCredentials, fetcher: noRequest, metadata, now: () => 1000, persistCredentials, profile, resourceId: "../other-tenant" }));
+});
+
+void test("persists rotation before a failed resource request, including a 401-triggered refresh", async (): Promise<void> => {
+  await Promise.all([true, false].map(async (expired): Promise<void> => {
+    const persistCredentials = mock.fn((): Promise<void> => Promise.resolve());
+    const fetcher = mock.fn((url: string, request?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/token")) return Promise.resolve(new Response(JSON.stringify({ access_token: "fresh-access", expires_in: 300, refresh_token: "fresh-refresh", token_type: "Bearer" })));
+      if (header(request, "Authorization") === "Bearer access-token") return Promise.resolve(Response.json({ error: { code: "authorization_required" } }, { status: 401 }));
+      assert.equal(persistCredentials.mock.callCount(), 1);
+      return Promise.reject(new Error("Resource connection failed"));
+    });
+    await assert.rejects(getCustomer({
+      credentials: { ...validCredentials, expiresAt: expired ? "1970-01-01T00:00:00.000Z" : validCredentials.expiresAt },
+      fetcher, metadata, now: () => 1000, persistCredentials, profile, resourceId: "customer-1",
+    }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.code === "request_unavailable");
+    assert.equal(persistCredentials.mock.callCount(), 1);
+    assert.equal(fetcher.mock.callCount(), expired ? 3 : 4);
+  }));
+});
+
+void test("does not call the resource if rotated credentials cannot be persisted", async (): Promise<void> => {
+  const fetcher = mock.fn((url: string): Promise<Response> => {
+    assert.equal(url, metadata.token_endpoint);
+    return Promise.resolve(new Response(JSON.stringify({ access_token: "fresh-access", expires_in: 300, refresh_token: "fresh-refresh", token_type: "Bearer" })));
+  });
+  await assert.rejects(getCustomer({
+    credentials: { ...validCredentials, expiresAt: "1970-01-01T00:00:00.000Z" },
+    fetcher, metadata, now: () => 1000,
+    persistCredentials: () => Promise.reject(new Error("Credential store unavailable")),
+    profile, resourceId: "customer-1",
+  }), (error: unknown) => error instanceof Error && error.message === refreshPersistenceMessages.unconfirmed);
+  assert.equal(fetcher.mock.callCount(), 1);
+});

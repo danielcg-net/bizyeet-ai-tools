@@ -42,7 +42,14 @@ const hashFile = async (path: string): Promise<string> => {
 const npm = async (args: readonly string[], cwd: string): Promise<string> => {
   const cli = process.env.npm_execpath;
   if (!cli) throw new Error("Run artifact verification through npm run release:verify.");
-  return (await execute(process.execPath, [cli, ...args], { cwd, timeout: 120_000, maxBuffer: 8 * 1024 * 1024 })).stdout;
+  const execution = execute(process.execPath, [cli, ...args], { cwd, timeout: 120_000, maxBuffer: 8 * 1024 * 1024 });
+  // Keep the complete test failure visible; Node's inspection of a rejected
+  // execFile promise truncates its stdout property before late test failures.
+  if (args[0] === "run" && args[1] === "check") {
+    execution.child.stdout?.pipe(process.stdout);
+    execution.child.stderr?.pipe(process.stderr);
+  }
+  return (await execution).stdout;
 };
 
 /** Remove only generated build output before running the supplied fresh-build gate. */
