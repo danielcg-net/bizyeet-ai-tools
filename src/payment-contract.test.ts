@@ -4,6 +4,7 @@ import { validPaymentQuery } from "./payment-contract.js";
 
 await Promise.all([
   {},
+  { search: "😀".repeat(120) },
   { status: "received", sort: "amount", dir: "desc" },
   { date_field: "received_at", start: "2026-09-01T00:00:00Z", end: "2026-10-01T00:00:00.000Z" },
   { fields: ["id", "amount", "customer", "service"], search: "CAD" },
@@ -20,6 +21,7 @@ await Promise.all([
   { start: "2026-09-01T00:00:00Z", end: "2026-09-01T00:00:00.000Z" },
   { fields: ["customer_email"] }, { fields: ["provider_ref"] },
   { search: "x".repeat(121) },
+  { search: "😀".repeat(121) }, { search: "\uD800" },
 ].map((query, index) => test(`rejects invalid or private payment query ${String(index)}`, () => {
   assert.equal(validPaymentQuery(query), false);
 })));

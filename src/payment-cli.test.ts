@@ -9,6 +9,14 @@ const credentials = { profile: { issuer: "https://example.test", clientId: "publ
 const storage = { readCredentials: (): Promise<Readonly<{ default: typeof credentials }>> => Promise.resolve({ default: credentials }), saveCredentials: forbidden, removeCredentials: forbidden };
 const runtime = { loginBrowser: forbidden, loginDevice: forbidden, listCustomers: forbidden, getCustomer: forbidden, revoke: forbidden };
 
+await Promise.all(["--status", "--date-field", "--start", "--end", "--sort", "--dir"].map((option) => test(`repeated payment ${option} is invalid input`, async () => {
+  const readCredentials = mock.fn(forbidden);
+  const result = await run(["payments", "list", option, "value", option, "value"], { ...storage, readCredentials }, runtime);
+  assert.equal(result.exitCode, 2);
+  assert.match(result.message, /invalid_request/u);
+  assert.equal(readCredentials.mock.callCount(), 0);
+})));
+
 await test("payment list forwards explicit filters without choosing a provider", async () => {
   const listPayments = mock.fn((input: Readonly<{ options: PaymentListOptions }>): Promise<AgentResult> => {
     assert.deepEqual(input.options, { limit: 2, fields: ["id", "amount"], status: "received", date_field: "received_at", start: "2026-09-01T00:00:00Z", end: "2026-10-01T00:00:00Z", sort: "amount", dir: "asc" });

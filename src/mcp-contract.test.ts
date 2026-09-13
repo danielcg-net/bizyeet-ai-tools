@@ -3,7 +3,7 @@ import test from "node:test";
 import { mcpInstructions, mcpReadTools } from "./mcp-contract.js";
 
 void test("publishes only bounded, read-only MCP tools", () => {
-  assert.deepEqual(mcpReadTools.map((tool) => tool.name), ["bizyeet_customers_list", "bizyeet_customers_get", "bizyeet_leads_list", "bizyeet_leads_get", "bizyeet_payments_list", "bizyeet_payments_get"]);
+  assert.deepEqual(mcpReadTools.map((tool) => tool.name), ["bizyeet_customers_list", "bizyeet_customers_get", "bizyeet_leads_list", "bizyeet_leads_get", "bizyeet_payments_list", "bizyeet_payments_get", "bizyeet_payments_list_with_relationships", "bizyeet_payments_get_with_relationships"]);
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.annotations)));
   assert.deepEqual(mcpReadTools[0].annotations, { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: true });
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.inputSchema)));
@@ -22,9 +22,18 @@ void test("payment MCP schema bounds fields and keeps relationship authorization
   assert.equal(list.inputSchema.properties.search.maxLength, 120);
   assert.deepEqual(list.inputSchema.properties.sort.enum, ["created_at", "sent_at", "received_at", "status", "amount"]);
   assert.deepEqual(list.inputSchema.properties.status.enum, ["sent", "received"]);
-  assert.ok(list.inputSchema.properties.fields.items.enum.includes("customer"));
+  assert.equal(new RegExp(list.inputSchema.properties.start.pattern, "u").test("yesterday"), false);
+  assert.equal(new RegExp(list.inputSchema.properties.end.pattern, "u").test("2026-09-01"), false);
+  assert.equal(new RegExp(list.inputSchema.properties.start.pattern, "u").test("2026-09-01T00:00:00Z"), true);
+  assert.equal(new RegExp(list.inputSchema.properties.end.pattern, "u").test("2026-09-01T00:00:00.123Z"), true);
+  assert.equal(list.inputSchema.properties.fields.items.enum.some((field) => field === ("customer" as string)), false);
   assert.doesNotMatch(JSON.stringify(list.inputSchema), /customer_email|customer_business|provider_ref|tenant_id/u);
-  assert.match(list.description, /additionally require customers.read/u);
+  assert.match(list.description, /relationship tool/u);
+  assert.deepEqual(mcpReadTools[6].securitySchemes[0]?.scopes, ["payments.read", "customers.read"]);
+  assert.deepEqual(mcpReadTools[7].securitySchemes[0]?.scopes, ["payments.read", "customers.read"]);
+  assert.deepEqual(mcpReadTools[6].inputSchema.required, ["api_version", "fields"]);
+  assert.deepEqual(mcpReadTools[7].inputSchema.required, ["api_version", "id", "fields"]);
+  assert.deepEqual(mcpReadTools[6].inputSchema.properties.fields.contains.enum, ["customer", "service"]);
   assert.deepEqual(mcpReadTools[5].inputSchema.required, ["api_version", "id"]);
 });
 

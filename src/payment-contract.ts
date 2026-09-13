@@ -28,5 +28,5 @@ export const validPaymentQuery = (query: PaymentQuery): query is PaymentFilters 
   && member(paymentSortFields, query.sort) && member(["asc", "desc"], query.dir)
   && timestamp(query.start) && timestamp(query.end)
   && (query.start === undefined || query.end === undefined || Date.parse(query.start) < Date.parse(query.end))
-  && (query.search === undefined || query.search.length <= 120)
+  && (query.search === undefined || (query.search.length <= 240 && !/[\uD800-\uDFFF]/u.test(query.search) && Array.from(query.search).length <= 120))
   && (query.fields === undefined || (query.fields.length <= paymentReadFields.length && query.fields.every((field) => (paymentReadFields as readonly string[]).includes(field))));

@@ -257,7 +257,10 @@ are explicit, not replaced by inactive-provider data. Payment IDs and cursors
 remain opaque; continue with identical filters, projection, ordering and profile.
 Amounts retain their currency: these commands do not aggregate or convert them.
 The same read contract is exposed by `bizyeet_payments_list` and
-`bizyeet_payments_get` MCP tools. Financial writes are not exposed by this increment.
+`bizyeet_payments_get` MCP tools for payment-only fields. Use
+`bizyeet_payments_list_with_relationships` or `bizyeet_payments_get_with_relationships`
+with an explicit `customer` or `service` field for relationships; these tools
+advertise both `payments.read` and `customers.read`. Financial writes are not exposed by this increment.
 
 ## Preview and approve a customer update
 

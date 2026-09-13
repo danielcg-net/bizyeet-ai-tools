@@ -166,7 +166,7 @@ const safeValidationMessages = new Set([
   "Payment ID is invalid.",
   "Unsupported payment list option.",
   "customers get requires one opaque ID and optional --profile.",
-  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key"].map((option) => `Use ${option} once with a value.`),
+  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key", "--status", "--date-field", "--start", "--end", "--sort", "--dir"].map((option) => `Use ${option} once with a value.`),
 ]);
 const safeLocalMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && safeValidationMessages.has(error.message) ? error.message : fallback;
