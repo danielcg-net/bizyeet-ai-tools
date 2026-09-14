@@ -82,7 +82,7 @@ export const taxReportResponse = (value: unknown, requested: TaxReportOptions): 
   if (!integer(meta.page, 1) || !integer(meta.page_size, 1) || meta.page_size !== (requested.page_size ?? 25)
     || !integer(meta.total_pages, 1) || meta.page !== Math.min(requested.page ?? 1, meta.total_pages)
     || !integer(data.total, 0) || meta.total_pages !== Math.max(1, Math.ceil(data.total / meta.page_size))
-    || !Array.isArray(data.items) || data.items.length > meta.page_size || data.total < data.items.length
+    || !Array.isArray(data.items) || data.items.length !== Math.min(meta.page_size, Math.max(0, data.total - (meta.page - 1) * meta.page_size))
     || meta.returned !== data.items.length || !Array.isArray(data.totals)) return undefined;
   const fields = Object.freeze(["id", ...(requested.fields ?? taxReportDefaultFields).filter((field) => field !== "id")]);
   const filters = (["currency", "authority", "entry_type", "province"] as const).filter((field) => requested[field] !== undefined);

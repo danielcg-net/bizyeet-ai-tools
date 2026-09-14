@@ -3,14 +3,27 @@ import { test } from "node:test";
 import { taxReportResponse } from "./tax-report-response.js";
 
 const group = (currency: string, amount: number): Readonly<Record<string, string | number>> => ({ currency, taxable_sales_minor: 1000, collected_tax_minor: amount, reversals_minor: 0, adjustments_minor: 0, net_collected_minor: amount, entry_count: 1 });
-const template = { data: { total: 2, items: [{ id: "opaque-tax-id", entry_type: "collected", authority: "GST_HST", taxable_base_minor: 1000,
-  amount_minor: 50, currency: "CAD", received_at: "2026-01-15T12:00:00Z", reason: "private", customer_name: "private customer" }], totals: [group("CAD", 50), group("USD", 30)] },
+const template = { data: { total: 1, items: [{ id: "opaque-tax-id", entry_type: "collected", authority: "GST_HST", taxable_base_minor: 1000,
+  amount_minor: 50, currency: "CAD", received_at: "2026-01-15T12:00:00Z", reason: "private", customer_name: "private customer" }], totals: [group("CAD", 50)] },
 meta: { contract_version: "v1", request_id: "00000000-0000-4000-8000-000000000000", page: 1, page_size: 25, total_pages: 1, returned: 1, filing_ready: false,
   period: { range: "custom", timeZone: "UTC", start: "2026-01-01T00:00:00.000Z", end: "2026-02-01T00:00:00.000Z", startDate: "2026-01-01", endDate: "2026-01-31", endDateExclusive: "2026-02-01", todayDate: "2026-01-15", startInclusive: true, endInclusive: false },
   source: { provider: "d1", view: "immutable_tax_ledger", readCompletedAt: "2026-01-15T12:00:00.000Z", secret: "never expose" } } };
 const fixture = (): typeof template => template;
 const calendarFixture = (): typeof template => ({ ...template, data: { items: [], totals: [], total: 0 }, meta: { ...template.meta, returned: 0 } });
 const requested = { range: "custom", start_date: "2026-01-01", end_date: "2026-01-31" } as const;
+
+await Promise.all(([
+  [0, 1, 0, true], [2, 1, 1, false], [3, 1, 2, true], [3, 1, 1, false],
+  [3, 2, 1, true], [3, 2, 0, false], [3, 2, 2, false], [4, 2, 2, true],
+  [4, 2, 1, false], [3, 99, 1, true],
+] as const).map(([total, page, returned, accepted]) => test(`validates exact page population ${String(total)}/${String(page)}/${String(returned)}`, () => {
+  const totalPages = Math.max(1, Math.ceil(total / 2));
+  const input = { ...fixture(), data: { total,
+    items: Array.from({ length: returned }, (_, index) => ({ ...fixture().data.items[0], id: `tax-row-${String(index)}` })),
+    totals: total === 0 ? [] : [{ ...group("CAD", 50), entry_count: total }] },
+  meta: { ...fixture().meta, page: Math.min(page, totalPages), page_size: 2, total_pages: totalPages, returned } };
+  assert.equal(taxReportResponse(input, { ...requested, page, page_size: 2 }) !== undefined, accepted);
+})));
 
 await Promise.all(([
   ["currency", "USD"], ["authority", "BC_PST"], ["entry_type", "reversal"], ["province", "AB"],
@@ -21,7 +34,7 @@ void test("validates filter evidence but strips it from explicitly selected outp
   const input = { ...fixture(), data: { ...fixture().data, total: 1, totals: [group("CAD", 50)] } };
   const result = taxReportResponse(input, { ...requested, currency: "CAD", authority: "GST_HST", entry_type: "collected", fields: ["reason"] });
   assert.deepEqual((result?.data as Readonly<{ items: unknown }>).items, [{ id: "opaque-tax-id", reason: "private" }]);
-  assert.equal(taxReportResponse(fixture(), { ...requested, currency: "CAD" }), undefined);
+  assert.equal(taxReportResponse({ ...fixture(), data: { ...fixture().data, totals: [group("USD", 30)] } }, { ...requested, currency: "CAD" }), undefined);
 });
 
 await Promise.all(([
@@ -88,15 +101,18 @@ await Promise.all(([
 })));
 
 void test("preserves currency totals and strips unrequested private fields", () => {
-  const result = taxReportResponse(fixture(), requested);
+  const input = { ...fixture(), data: { ...fixture().data, total: 2,
+    items: [...fixture().data.items, { ...fixture().data.items[0], id: "second-tax-id", currency: "USD" }],
+    totals: [group("CAD", 50), group("USD", 30)] }, meta: { ...fixture().meta, returned: 2 } };
+  const result = taxReportResponse(input, requested);
   assert.ok(result);
   assert.equal(JSON.stringify(result).includes("private"), false);
   assert.equal(JSON.stringify(result).includes("never expose"), false);
-  assert.deepEqual((result.data as Readonly<{ totals: unknown }>).totals, fixture().data.totals);
+  assert.deepEqual((result.data as Readonly<{ totals: unknown }>).totals, input.data.totals);
   assert.ok(Object.isFrozen(result));
 });
 void test("rejects duplicated ledger identities and inconsistent currency counts", () => {
-  assert.equal(taxReportResponse({ ...fixture(), data: { ...fixture().data, items: [fixture().data.items[0], fixture().data.items[0]] },
+  assert.equal(taxReportResponse({ ...fixture(), data: { ...fixture().data, total: 2, totals: [{ ...group("CAD", 50), entry_count: 2 }], items: [fixture().data.items[0], fixture().data.items[0]] },
     meta: { ...fixture().meta, returned: 2 } }, requested), undefined);
   assert.equal(taxReportResponse({ ...fixture(), data: { ...fixture().data, total: 3 } }, requested), undefined);
 });
