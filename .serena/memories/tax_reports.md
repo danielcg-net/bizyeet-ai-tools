@@ -4,3 +4,4 @@
 - `month` means month-to-date; `30d` and `7d` are explicit rolling tenant-calendar windows. Custom start/end labels are inclusive; returned UTC instants use inclusive-start/exclusive-end semantics.
 - Default fields exclude private reason/registration and customer/payment relationships. Never derive provider-native IDs or recompute totals across currencies.
 - Initial contract foundation only: response validation, OAuth client/CLI wiring, MCP descriptor parity and installed integration tests remain required. No publication or production availability is implied.
+- `taxReportResponse` now validates and allowlists the canonical envelope, requested custom dates, page size, D1 immutable-ledger source, safe integer monetary fields and separated unique currency groups. It strips unrequested reason/registration and all unknown fields without recomputing financial totals. It is not yet wired into a command; installed parity and complete command coverage remain required.
