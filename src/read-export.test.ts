@@ -1,10 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import * as files from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { exportReadResponse } from "./read-export.js";
 import { secureWindowsExport, windowsExportProcessOptions } from "./export-security.js";
+
+const executeDiagnostic = promisify(execFile);
+const diagnosticStages = Object.freeze([
+  ["Import-Module -Name", "module"], ["$path =", "identity"], ["$item = Get-Item", "item"],
+  ["  Set-Acl -LiteralPath", "set-acl"], ["$actual = Get-Acl", "get-acl"], ["$rules =", "verify"],
+] as const);
+const instrumentAcl = (script: string): string => [
+  "[Console]::Error.WriteLine('acl-stage:start')",
+  ...script.split("\n").flatMap((line) => {
+    const stage = diagnosticStages.find(([prefix]) => line.startsWith(prefix));
+    return stage ? [`[Console]::Error.WriteLine('acl-stage:${stage[1]}')`, line] : [line];
+  }),
+].join("\n");
+
+void test("ACL diagnostics add fixed stage labels without changing script operations", () => {
+  const original = diagnosticStages.map(([prefix]) => `${prefix} synthetic-operation`).join("\n");
+  const instrumented = instrumentAcl(original);
+  assert.equal(instrumented.split("\n").filter((line) => !line.startsWith("[Console]::Error.WriteLine('acl-stage:")).join("\n"), original);
+  assert.equal(instrumented.split("\n").filter((line) => line.startsWith("[Console]::Error.WriteLine('acl-stage:")).length, 7);
+});
 
 void test("Windows ACL execution has a bounded cold-start allowance", () => {
   assert.deepEqual(windowsExportProcessOptions, { timeout: 30_000, maxBuffer: 16_384, windowsHide: true });
@@ -28,23 +50,37 @@ void test("Windows ACL timeout is not retried and no response file is opened", a
 });
 
 void test("Windows native export ACL protects the directory and its new file", { skip: process.platform !== "win32" }, async (context) => {
+  const secure = (path: string, mode: "directory" | "file" | "verify"): Promise<void> => secureWindowsExport(path, mode, async (executable, args, environment) => {
+    const script = instrumentAcl(Buffer.from(args.at(-1) ?? "", "base64").toString("utf16le"));
+    const started = performance.now();
+    try {
+      const result = await executeDiagnostic(executable, [...args.slice(0, -1), Buffer.from(script, "utf16le").toString("base64")], { env: environment, ...windowsExportProcessOptions });
+      context.diagnostic(`ACL ${mode} completed in ${String(Math.round(performance.now() - started))}ms`);
+      return result.stdout;
+    } catch (error) {
+      const stderr = error instanceof Error && "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
+      const stages = stderr.split(/\r?\n/u).filter((line) => /^acl-stage:(?:start|module|identity|item|set-acl|get-acl|verify)$/u.test(line));
+      context.diagnostic(`ACL ${mode} failed after ${String(Math.round(performance.now() - started))}ms; stages: ${stages.join(",") || "none"}`);
+      throw error;
+    }
+  });
   const directory = await files.mkdtemp(join(tmpdir(), "export-native-acl-test-"));
   try {
     context.diagnostic("Establishing current-user directory ACL");
-    await secureWindowsExport(directory, "directory");
+    await secure(directory, "directory");
     context.diagnostic("Directory ACL verified; creating empty synthetic file");
     const path = join(directory, "synthetic.json");
     const handle = await files.open(path, "wx", 0o600);
     try {
       context.diagnostic("Establishing current-user file owner and ACL before writing synthetic data");
-      await secureWindowsExport(path, "file");
-      await secureWindowsExport(path, "verify");
+      await secure(path, "file");
+      await secure(path, "verify");
       await handle.writeFile("{}\n", "utf8");
       await handle.sync();
     } finally { await handle.close(); }
     assert.equal(await files.readFile(path, "utf8"), "{}\n");
-    await assert.rejects(secureWindowsExport(path, "file"), /Expected empty file/u);
-    await secureWindowsExport(path, "verify");
+    await assert.rejects(secure(path, "file"), /Expected empty file/u);
+    await secure(path, "verify");
   } finally { await files.rm(directory, { recursive: true, force: true }); }
 });
 
