@@ -4,6 +4,8 @@ import { isUuid as uuid } from "./uuid.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
 import { paymentSummaryResponse } from "./payment-summary-response.js";
+import { validTaxReportOptions, taxReportDefaultFields, type TaxReportOptions } from "./tax-report-contract.js";
+import { taxReportResponse } from "./tax-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
@@ -46,6 +48,7 @@ export type ClientDependencies = Readonly<{
 }>;
 export type CanonicalCrmClient = Readonly<{
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
+  taxReport: (options?: TaxReportOptions) => Promise<CanonicalResult>;
   list: (resource: ReadResource, options?: ListOptions) => Promise<CanonicalResult>;
   get: (resource: ReadResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
   previewCustomerUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
@@ -194,17 +197,11 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return failure(503, "request_unavailable");
     }
   };
-  const receivedPaymentSummary = async (options: PaymentSummaryOptions = {}): Promise<CanonicalResult> => {
-    if (!validPaymentSummaryOptions(options)) return failure(400, "invalid_request");
-    const parameters = new URLSearchParams([["api_version", "v1"],
-      ...(options.range === undefined ? [] : [["range", options.range]]),
-      ...(options.start_date === undefined ? [] : [["start_date", options.start_date]]),
-      ...(options.end_date === undefined ? [] : [["end_date", options.end_date]]),
-    ]);
+  const reportRead = async (path: string, parameters: URLSearchParams, project: (body: unknown) => Readonly<Record<string, unknown>> | undefined): Promise<CanonicalResult> => {
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
-      const response = await requestRead(`${origin}/api/agent/payments/received-summary?${parameters.toString()}`, {
+      const response = await requestRead(`${origin}${path}?${parameters.toString()}`, {
         method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         redirect: "error", signal: AbortSignal.timeout(15_000),
       });
@@ -212,9 +209,26 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       if (response.status === 401 && record(body) && body.error === "invalid_token") return failure(401, "authorization_required");
       if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
         ? { status: response.status, body } : failure(502, "invalid_response");
-      const projected = paymentSummaryResponse(body, options);
+      const projected = project(body);
       return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
     } catch { return failure(503, "request_unavailable"); }
+  };
+  const receivedPaymentSummary = async (options: PaymentSummaryOptions = {}): Promise<CanonicalResult> => {
+    if (!validPaymentSummaryOptions(options)) return failure(400, "invalid_request");
+    const parameters = new URLSearchParams([["api_version", "v1"],
+      ...(options.range === undefined ? [] : [["range", options.range]]),
+      ...(options.start_date === undefined ? [] : [["start_date", options.start_date]]),
+      ...(options.end_date === undefined ? [] : [["end_date", options.end_date]]),
+    ]);
+    return reportRead("/api/agent/payments/received-summary", parameters, (body) => paymentSummaryResponse(body, options));
+  };
+  const taxReport = async (options: TaxReportOptions = {}): Promise<CanonicalResult> => {
+    if (!validTaxReportOptions(options)) return failure(400, "invalid_request");
+    const evidence = (["currency", "authority", "entry_type", "province"] as const).filter((field) => options[field] !== undefined);
+    const transport = { ...options, fields: [...new Set([...(options.fields ?? taxReportDefaultFields), ...evidence, "received_at"])] };
+    const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(transport as Readonly<Record<string, unknown>>)
+      .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
+    return reportRead("/api/agent/reports/taxes", parameters, (body) => taxReportResponse(body, options));
   };
   const write = async (input: CustomerUpdatePreview | CustomerUpdateExecution, preview: boolean): Promise<CanonicalResult> => {
     if (!record(input)) return failure(400, "invalid_request");
@@ -271,6 +285,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   return Object.freeze({
     receivedPaymentSummary,
+    taxReport,
     list: (resource: ReadResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
     get: (resource: ReadResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
     previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true),

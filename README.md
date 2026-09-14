@@ -294,6 +294,31 @@ or evaluate due costs. Stored generation counters are history, not a freshness g
 Notes require explicit field selection. Opaque IDs, bounded cursors, profile locking and
 private exports follow the shared expense-read contract.
 
+## Tax collection reports
+
+Servers with the canonical tax-report contract deployed support:
+
+```sh
+bizyeet reports taxes --range 30d --currency CAD --limit 25
+bizyeet reports taxes --range custom --start-date 2026-03-01 --end-date 2026-03-31 --fields amount_minor,currency --export
+```
+
+Tax reads require `reports.read` and the user's live tenant-admin role. They
+return immutable ledger entries and separate currency totals in integer minor
+units, not a filing-ready tax return. `month` means month-to-date; `7d` and `30d`
+include today and the preceding calendar days. Custom date labels are inclusive
+in the tenant timezone; returned UTC instants are inclusive-start/exclusive-end.
+The caller cannot override the tenant, provider or timezone.
+
+Use `--page` and `--limit` for bounded pagination. Private `reason` and
+`registration_number` require explicit `--fields` selection. The CLI strips
+unknown output fields and does not calculate tax or combine currencies.
+`source.readCompletedAt` indicates read completion, not a snapshot guarantee.
+For rolling ranges, the calendar anchor must match that timestamp in the tenant
+timezone, allowing the request's 15-second timeout window to cross midnight.
+The CLI command does not imply that a server has deployed the corresponding
+endpoint; unsupported or unauthorized requests fail explicitly.
+
 ## Received-payment summaries
 
 Servers with the received-summary contract deployed support:

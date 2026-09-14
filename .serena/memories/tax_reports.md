@@ -1,0 +1,20 @@
+# Canonical tax-report client
+
+- BIZYEET-646: public tax filters are transport syntax only. Tenant timezone, payment-provider selection, admin checks and accounting totals stay server-owned.
+- `month` means month-to-date; `30d` and `7d` are explicit rolling tenant-calendar windows. Custom start/end labels are inclusive; returned UTC instants use inclusive-start/exclusive-end semantics.
+- Default fields exclude private reason/registration and customer/payment relationships. Never derive provider-native IDs or recompute totals across currencies.
+- `taxReportResponse` validates and allowlists the canonical envelope, requested custom dates, page size, D1 immutable-ledger source, safe integer monetary fields and separated unique currency groups. It strips unrequested reason/registration and all unknown fields without recomputing financial totals.
+- Canonical client `taxReport` uses the shared bounded report HTTP transport; `readTaxReport` uses the existing OAuth refresh/persist invocation. Invalid input fails before obtaining credentials, redirects are rejected, and malformed output fails closed.
+- `reports taxes` uses the shared client, profile lock, error handling and private export. Supports explicit range/date/authority/province/currency/entry-type/page/limit/fields filters and equals syntax. Duplicate/malformed/tenant-provider override arguments fail before credential reads.
+- `taxReportMcpTool` is registered with reports.read and read-only annotations. Local installed-package tests verify live descriptor equality, empty/populated CAD ledger data and period parity, private field selection, export and revocation over TLS/OAuth. Broader currency/role scenarios and required delivery checks remain; no package publication or production availability is implied.
+# PR41 response review hardening
+
+- Rolling range labels are now checked against server-supplied todayDate: today/six preceding days/29 preceding days/month-to-date/year-to-date/previous calendar month. Only response consistency is checked; CLI does not choose request periods, infer tenant settings, route providers or recompute money. Six range regressions plus full1133PASS2skip. Explicit range type guard retained for TypeScript narrowing.
+
+- Follow-up review: endDateExclusive must be the Gregorian successor of endDate, not merely a later date. Compare date-only labels at UTC midnight (not actual tenant instants), retaining DST-safe boundary checks. Added contradictory multi-year exclusive-end regression; full1127PASS2skip. Existing valid month-boundary and23-hour DST cases remain passing.
+
+- Second review: validate supplied UTC boundaries against their calendar labels in the reported timezone using Intl. Require the instant to start that local date (previous millisecond has another date); no replacement period calculation or 24-hour-day assumption. Wrong-year/midday/invalid-zone cases reject; 23-hour Edmonton DST day accepts. Full1126PASS2skip and installed local tax integration pass. This does not recompute amounts or provider routing.
+
+- Input schema now includes real Gregorian date patterns, custom-only date requirements, field enums, and currency/province syntax. Mirrored in the private descriptor. Full checks 1121 passed/two skips; installed local TLS/OAuth tax test passed with exact descriptor parity after both review fixes. Cross-field date ordering remains runtime-validated, not expressible by standard JSON Schema. Private changes are not deployed.
+
+- Tax projection now validates field-specific enums, optional province codes, Gregorian effective dates, UTC received timestamps, nonnegative rates, and clean text without unsafe control/unpaired-surrogate characters. Text retains the existing 1 MiB transport ceiling because ledger writers define no smaller business limit. Ten malformed-field regression cases added; full permitted check 1116 passed with two platform skips. Sandbox-only listener/cache failures are not code regressions. MCP schema review finding remains unresolved; this response fix is not the complete PR review resolution.
