@@ -1,6 +1,7 @@
 import { CRM_SEARCH_MAX_LENGTH } from "./search-contract.js";
 import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
 import { expenseMcpTools } from "./expense-mcp.js";
+import { expenseScheduleMcpTools } from "./expense-schedule-mcp.js";
 import { paymentDateFields, paymentReadFields, paymentSortFields, paymentTimestampPattern } from "./payment-contract.js";
 
 export type McpTool = Readonly<{
@@ -100,4 +101,5 @@ export const mcpReadTools = Object.freeze([
   Object.freeze({ annotations: readAnnotations, description: "Return one payment with explicitly selected customer/service relationships. Requires payments.read and customers.read.", inputSchema: Object.freeze({ ...exactSchema, properties: Object.freeze({ ...exactSchema.properties, fields: relationshipFieldsSchema }), required: Object.freeze(["api_version", "id", "fields"]) }), name: "bizyeet_payments_get_with_relationships", outputSchema: resourceOutputSchema, securitySchemes: oauthPaymentRelationshipSecurity, title: "Get payment with relationships" }),
   paymentSummaryMcpTool,
   ...expenseMcpTools,
+  ...expenseScheduleMcpTools,
 ] as const) satisfies readonly McpTool[];
