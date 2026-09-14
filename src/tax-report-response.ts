@@ -9,6 +9,22 @@ const integer = (value: unknown, minimum = Number.MIN_SAFE_INTEGER): value is nu
 const instant = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 const date = (value: unknown): value is string => typeof value === "string" && new RegExp(paymentSummaryDatePattern, "u").test(value);
+const calendarBoundary = (value: string, label: string, timeZone: string): boolean => {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-CA", { timeZone, calendar: "iso8601", numberingSystem: "latn",
+      year: "numeric", month: "2-digit", day: "2-digit" });
+    const localDate = (timestamp: number): string => {
+      const parts = formatter.formatToParts(timestamp);
+      return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value.padStart(type === "year" ? 4 : 2, "0") ?? "").join("-");
+    };
+    const timestamp = Date.parse(value);
+    // Check the supplied boundary, without calculating a replacement period or assuming 24-hour days.
+    return localDate(timestamp) === label && localDate(timestamp - 1) !== label;
+  } catch (error) {
+    if (error instanceof RangeError) return false;
+    throw error;
+  }
+};
 const totalFields = Object.freeze(["taxable_sales_minor", "collected_tax_minor", "reversals_minor", "adjustments_minor", "net_collected_minor", "entry_count"]);
 const fieldValue = (field: string, value: unknown): boolean => {
   if (field === "id") return validResourceId(value);
@@ -40,6 +56,8 @@ export const taxReportResponse = (value: unknown, requested: TaxReportOptions): 
     || !date(period.startDate) || !date(period.endDate) || !date(period.endDateExclusive) || !date(period.todayDate)
     || period.startDate > period.endDate || period.endDate >= period.endDateExclusive
     || period.startInclusive !== true || period.endInclusive !== false) return undefined;
+  if (!calendarBoundary(period.start, period.startDate, period.timeZone)
+    || !calendarBoundary(period.end, period.endDateExclusive, period.timeZone)) return undefined;
   if (requested.range === "custom" && (period.startDate !== requested.start_date || period.endDate !== requested.end_date)) return undefined;
   if (!integer(meta.page, 1) || !integer(meta.page_size, 1) || meta.page_size !== (requested.page_size ?? 25)
     || !integer(meta.total_pages, 1) || meta.page !== Math.min(requested.page ?? 1, meta.total_pages)
