@@ -1,5 +1,6 @@
 import { CRM_SEARCH_MAX_LENGTH } from "./search-contract.js";
 import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
+import { expenseMcpTools } from "./expense-mcp.js";
 import { paymentDateFields, paymentReadFields, paymentSortFields, paymentTimestampPattern } from "./payment-contract.js";
 
 export type McpTool = Readonly<{
@@ -13,7 +14,7 @@ export type McpTool = Readonly<{
   inputSchema: Readonly<Record<string, unknown>>;
   name: string;
   outputSchema: Readonly<Record<string, unknown>>;
-  securitySchemes: readonly Readonly<{ scopes: readonly ("customers.read" | "payments.read")[]; type: "oauth2" }>[];
+  securitySchemes: readonly Readonly<{ scopes: readonly ("customers.read" | "payments.read" | "expenses.read")[]; type: "oauth2" }>[];
   title: string;
 }>;
 
@@ -98,4 +99,5 @@ export const mcpReadTools = Object.freeze([
   Object.freeze({ annotations: readAnnotations, description: "Return a bounded payment page with explicitly selected customer/service relationships. Requires payments.read and customers.read. Never combine currencies implicitly.", inputSchema: Object.freeze({ ...paymentPageSchema, properties: Object.freeze({ ...paymentPageSchema.properties, fields: relationshipFieldsSchema }), required: Object.freeze(["api_version", "fields"]) }), name: "bizyeet_payments_list_with_relationships", outputSchema: listOutputSchema, securitySchemes: oauthPaymentRelationshipSecurity, title: "List payments with relationships" }),
   Object.freeze({ annotations: readAnnotations, description: "Return one payment with explicitly selected customer/service relationships. Requires payments.read and customers.read.", inputSchema: Object.freeze({ ...exactSchema, properties: Object.freeze({ ...exactSchema.properties, fields: relationshipFieldsSchema }), required: Object.freeze(["api_version", "id", "fields"]) }), name: "bizyeet_payments_get_with_relationships", outputSchema: resourceOutputSchema, securitySchemes: oauthPaymentRelationshipSecurity, title: "Get payment with relationships" }),
   paymentSummaryMcpTool,
+  ...expenseMcpTools,
 ] as const) satisfies readonly McpTool[];
