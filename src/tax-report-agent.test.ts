@@ -21,7 +21,7 @@ void test("tax query validation runs before credentials are requested", async ()
 
 void test("requests filter evidence even when the user selects only private reason", async () => {
   const request = mock.fn((url: string): Promise<Response> => {
-    assert.equal(new URL(url).searchParams.get("fields"), "reason,currency,authority,entry_type,province");
+    assert.equal(new URL(url).searchParams.get("fields"), "reason,currency,authority,entry_type,province,received_at");
     return Promise.resolve(Response.json(envelope));
   });
   const client = createCanonicalCrmClient({ origin: profile.issuer, getAccessToken: (): Promise<string> => Promise.resolve("token"), request });
@@ -35,7 +35,7 @@ await Promise.all([false, true].map((revoked) => test(`tax read preserves shared
     if (url.endsWith("/token")) return Promise.resolve(revoked ? Response.json({ error: "invalid_grant" }, { status: 400 })
       : Response.json({ access_token: "new-access", refresh_token: "new-refresh", token_type: "Bearer", expires_in: 300 }));
     assert.equal(new URL(url).pathname, "/api/agent/reports/taxes");
-    assert.deepEqual(Object.fromEntries(new URL(url).searchParams), { api_version: "v1", range: "today", fields: "amount_minor,currency" });
+    assert.deepEqual(Object.fromEntries(new URL(url).searchParams), { api_version: "v1", range: "today", fields: "amount_minor,currency,received_at" });
     assert.equal(init?.method, "GET");
     assert.equal(init.redirect, "error");
     if (new Headers(init.headers).get("Authorization") === "Bearer old-access") return Promise.resolve(Response.json({ error: "invalid_token" }, { status: 401 }));

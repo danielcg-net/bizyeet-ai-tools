@@ -225,7 +225,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   const taxReport = async (options: TaxReportOptions = {}): Promise<CanonicalResult> => {
     if (!validTaxReportOptions(options)) return failure(400, "invalid_request");
     const evidence = (["currency", "authority", "entry_type", "province"] as const).filter((field) => options[field] !== undefined);
-    const transport = evidence.length === 0 ? options : { ...options, fields: [...new Set([...(options.fields ?? taxReportDefaultFields), ...evidence])] };
+    const transport = { ...options, fields: [...new Set([...(options.fields ?? taxReportDefaultFields), ...evidence, "received_at"])] };
     const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(transport as Readonly<Record<string, unknown>>)
       .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
     return reportRead("/api/agent/reports/taxes", parameters, (body) => taxReportResponse(body, options));

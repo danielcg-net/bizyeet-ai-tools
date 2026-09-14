@@ -87,6 +87,10 @@ export const taxReportResponse = (value: unknown, requested: TaxReportOptions): 
   const fields = Object.freeze(["id", ...(requested.fields ?? taxReportDefaultFields).filter((field) => field !== "id")]);
   const filters = (["currency", "authority", "entry_type", "province"] as const).filter((field) => requested[field] !== undefined);
   if (data.items.some((item: unknown) => !record(item) || filters.some((field) => item[field] !== requested[field]))) return undefined;
+  const start = Date.parse(period.start);
+  const end = Date.parse(period.end);
+  if (data.items.some((item: unknown) => !record(item) || !fieldValue("received_at", item.received_at)
+    || typeof item.received_at !== "string" || Date.parse(item.received_at) < start || Date.parse(item.received_at) >= end)) return undefined;
   const items = data.items.map((item: unknown) => record(item) && fields.every((field) => (taxReportFields as readonly string[]).includes(field)
     && Object.hasOwn(item, field) && fieldValue(field, item[field])) ? Object.freeze(Object.fromEntries(fields.map((field) => [field, item[field]]))) : undefined);
   const totals = data.totals.map((group: unknown) => record(group) && typeof group.currency === "string" && /^[A-Z]{3}$/u.test(group.currency)
@@ -95,6 +99,8 @@ export const taxReportResponse = (value: unknown, requested: TaxReportOptions): 
   if (items.some((item) => item === undefined) || totals.some((group) => group === undefined
     || (requested.currency !== undefined && group.currency !== requested.currency))
     || new Set(totals.map((group) => group?.currency)).size !== totals.length) return undefined;
+  if (new Set(items.map((item) => item?.id)).size !== items.length
+    || totals.reduce((sum, group) => sum + Number((group as Readonly<Record<string, unknown>> | undefined)?.entry_count), 0) !== data.total) return undefined;
   return Object.freeze({ data: Object.freeze({ items: Object.freeze(items), totals: Object.freeze(totals), total: data.total }),
     meta: Object.freeze({ contract_version: "v1", request_id: correlationReference(meta.request_id), page: meta.page, page_size: meta.page_size,
       total_pages: meta.total_pages, returned: meta.returned, filing_ready: false,
