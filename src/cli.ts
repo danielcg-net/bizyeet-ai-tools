@@ -428,9 +428,9 @@ const expenseRead = async (input: readonly string[], dependencies: CliStorage, e
     if (!hasOnlyOptions(args, valueOptions, ["--export"])
       || valueOptions.some((key) => valuesFor(args, key).length > 1 || valuesFor(args, key).some((value) => !value))
       || args.filter((arg) => arg === "--export").length > 1) return invalidInput("Expense read options are invalid.");
-    const fields = args.includes("--fields") ? { fields: oneOption(args, "--fields", "").split(",") } : {};
+    const fields = valuesFor(args, "--fields").length > 0 ? { fields: oneOption(args, "--fields", "").split(",") } : {};
     const options = command === "get" ? fields : { ...fields, page_size: Number(oneOption(args, "--limit", "25")),
-      ...Object.fromEntries(filters.filter((key) => args.includes(`--${key}`)).map((key) => [key.replaceAll("-", "_"), oneOption(args, `--${key}`, "")])),
+      ...Object.fromEntries(filters.filter((key) => valuesFor(args, `--${key}`).length > 0).map((key) => [key.replaceAll("-", "_"), oneOption(args, `--${key}`, "")])),
     };
     if (!validExpenseListOptions(options)) return invalidInput("Expense read options are invalid.");
     const authenticated = await authenticatedProfile(args, dependencies);
