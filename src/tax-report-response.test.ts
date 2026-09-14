@@ -11,6 +11,22 @@ meta: { contract_version: "v1", request_id: "00000000-0000-4000-8000-00000000000
 const fixture = (): typeof template => template;
 const requested = { range: "custom", start_date: "2026-01-01", end_date: "2026-01-31" } as const;
 
+await Promise.all(([
+  ["today", "2026-03-08", "2026-03-08", "2026-03-09"],
+  ["7d", "2026-03-02", "2026-03-08", "2026-03-09"],
+  ["30d", "2026-02-07", "2026-03-08", "2026-03-09"],
+  ["month", "2026-03-01", "2026-03-08", "2026-03-09"],
+  ["ytd", "2026-01-01", "2026-03-08", "2026-03-09"],
+  ["last_month", "2026-02-01", "2026-02-28", "2026-03-01"],
+] as const).map(([range, startDate, endDate, exclusive]) => test(`validates ${range} labels against the server calendar anchor`, () => {
+  const period = { ...fixture().meta.period, range, startDate, endDate, endDateExclusive: exclusive,
+    todayDate: "2026-03-08", start: `${startDate}T00:00:00.000Z`, end: `${exclusive}T00:00:00.000Z` };
+  assert.ok(taxReportResponse({ ...fixture(), meta: { ...fixture().meta, period } }, { range }));
+  assert.equal(taxReportResponse({ ...fixture(), meta: { ...fixture().meta,
+    period: { ...period, startDate: "2020-01-01", start: "2020-01-01T00:00:00.000Z" },
+  } }, { range }), undefined);
+})));
+
 await Promise.all([
   { start: "2030-01-01T00:00:00.000Z", end: "2030-02-01T00:00:00.000Z" },
   { start: "2026-01-01T12:00:00.000Z" },

@@ -9,6 +9,19 @@ const integer = (value: unknown, minimum = Number.MIN_SAFE_INTEGER): value is nu
 const instant = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 const date = (value: unknown): value is string => typeof value === "string" && new RegExp(paymentSummaryDatePattern, "u").test(value);
+const rangeLabels = (range: string, start: string, end: string, exclusive: string, today: string): boolean => {
+  if (range === "custom") return true;
+  if (range === "last_month") {
+    const monthIndex = (value: string): number => Number(value.slice(0, 4)) * 12 + Number(value.slice(5, 7));
+    return start.endsWith("-01") && exclusive === `${today.slice(0, 7)}-01` && monthIndex(exclusive) - monthIndex(start) === 1;
+  }
+  if (end !== today) return false;
+  if (range === "today") return start === today;
+  if (range === "month") return start === `${today.slice(0, 7)}-01`;
+  if (range === "ytd") return start === `${today.slice(0, 4)}-01-01`;
+  const days = (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000;
+  return (range === "7d" && days === 6) || (range === "30d" && days === 29);
+};
 const calendarBoundary = (value: string, label: string, timeZone: string): boolean => {
   try {
     const formatter = new Intl.DateTimeFormat("en-CA", { timeZone, calendar: "iso8601", numberingSystem: "latn",
@@ -51,7 +64,7 @@ export const taxReportResponse = (value: unknown, requested: TaxReportOptions): 
   const { period, source } = meta;
   if (meta.contract_version !== "v1" || meta.filing_ready !== false || !record(period) || !record(source)
     || source.provider !== "d1" || source.view !== "immutable_tax_ledger" || !instant(source.readCompletedAt)
-    || period.range !== (requested.range ?? "month") || !instant(period.start) || !instant(period.end) || period.start >= period.end
+    || typeof period.range !== "string" || period.range !== (requested.range ?? "month") || !instant(period.start) || !instant(period.end) || period.start >= period.end
     || typeof period.timeZone !== "string" || period.timeZone.length < 1 || period.timeZone.length > 128
     || !date(period.startDate) || !date(period.endDate) || !date(period.endDateExclusive) || !date(period.todayDate)
     || period.startDate > period.endDate
@@ -59,6 +72,7 @@ export const taxReportResponse = (value: unknown, requested: TaxReportOptions): 
     || period.startInclusive !== true || period.endInclusive !== false) return undefined;
   if (!calendarBoundary(period.start, period.startDate, period.timeZone)
     || !calendarBoundary(period.end, period.endDateExclusive, period.timeZone)) return undefined;
+  if (!rangeLabels(period.range, period.startDate, period.endDate, period.endDateExclusive, period.todayDate)) return undefined;
   if (requested.range === "custom" && (period.startDate !== requested.start_date || period.endDate !== requested.end_date)) return undefined;
   if (!integer(meta.page, 1) || !integer(meta.page_size, 1) || meta.page_size !== (requested.page_size ?? 25)
     || !integer(meta.total_pages, 1) || meta.page !== Math.min(requested.page ?? 1, meta.total_pages)
