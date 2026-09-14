@@ -79,7 +79,7 @@ void test("Windows native export ACL protects the directory and its new file", {
       await handle.sync();
     } finally { await handle.close(); }
     assert.equal(await files.readFile(path, "utf8"), "{}\n");
-    await assert.rejects(secureWindowsExport(path, "file"), /Expected empty file/u);
+    await assert.rejects(secure(path, "file"), /Expected empty file/u);
     await secure(path, "verify");
   } finally { await files.rm(directory, { recursive: true, force: true }); }
 });
