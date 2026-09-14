@@ -314,6 +314,8 @@ Use `--page` and `--limit` for bounded pagination. Private `reason` and
 `registration_number` require explicit `--fields` selection. The CLI strips
 unknown output fields and does not calculate tax or combine currencies.
 `source.readCompletedAt` indicates read completion, not a snapshot guarantee.
+For rolling ranges, the calendar anchor must match that timestamp in the tenant
+timezone, allowing the request's 15-second timeout window to cross midnight.
 The CLI command does not imply that a server has deployed the corresponding
 endpoint; unsupported or unauthorized requests fail explicitly.
 

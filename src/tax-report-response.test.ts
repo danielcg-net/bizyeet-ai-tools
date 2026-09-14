@@ -21,10 +21,26 @@ await Promise.all(([
 ] as const).map(([range, startDate, endDate, exclusive]) => test(`validates ${range} labels against the server calendar anchor`, () => {
   const period = { ...fixture().meta.period, range, startDate, endDate, endDateExclusive: exclusive,
     todayDate: "2026-03-08", start: `${startDate}T00:00:00.000Z`, end: `${exclusive}T00:00:00.000Z` };
-  assert.ok(taxReportResponse({ ...fixture(), meta: { ...fixture().meta, period } }, { range }));
+  const source = { ...fixture().meta.source, readCompletedAt: "2026-03-08T12:00:00.000Z" };
+  assert.ok(taxReportResponse({ ...fixture(), meta: { ...fixture().meta, period, source } }, { range }));
+  assert.equal(taxReportResponse({ ...fixture(), meta: { ...fixture().meta, period } }, { range }), undefined);
   assert.equal(taxReportResponse({ ...fixture(), meta: { ...fixture().meta,
     period: { ...period, startDate: "2020-01-01", start: "2020-01-01T00:00:00.000Z" },
   } }, { range }), undefined);
+})));
+
+await Promise.all(([
+  ["2026-03-09T06:00:10.000Z", true],
+  ["2026-03-09T06:00:15.001Z", false],
+  ["2026-03-08T12:00:00.000Z", true],
+  ["2026-03-07T12:00:00.000Z", false],
+] as const).map(([completedAt, accepted]) => test(`validates tenant-local anchor at ${completedAt}`, () => {
+  const period = { ...fixture().meta.period, range: "today", timeZone: "America/Edmonton", todayDate: "2026-03-08",
+    startDate: "2026-03-08", endDate: "2026-03-08", endDateExclusive: "2026-03-09",
+    start: "2026-03-08T07:00:00.000Z", end: "2026-03-09T06:00:00.000Z" };
+  const result = taxReportResponse({ ...fixture(), meta: { ...fixture().meta, period,
+    source: { ...fixture().meta.source, readCompletedAt: completedAt } } }, { range: "today" });
+  assert.equal(result !== undefined, accepted);
 })));
 
 await Promise.all([

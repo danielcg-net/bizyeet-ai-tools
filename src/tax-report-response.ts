@@ -9,6 +9,16 @@ const integer = (value: unknown, minimum = Number.MIN_SAFE_INTEGER): value is nu
 const instant = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 const date = (value: unknown): value is string => typeof value === "string" && new RegExp(paymentSummaryDatePattern, "u").test(value);
+const localDate = (timestamp: number, timeZone: string): string => {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, calendar: "iso8601", numberingSystem: "latn",
+    year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(timestamp);
+  return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value.padStart(type === "year" ? 4 : 2, "0") ?? "").join("-");
+};
+const anchorMatchesCompletion = (anchor: string, completedAt: string, timeZone: string): boolean => {
+  const completed = Date.parse(completedAt);
+  // The bounded report request can cross midnight between period selection and completion.
+  return anchor === localDate(completed, timeZone) || anchor === localDate(completed - 15_000, timeZone);
+};
 const rangeLabels = (range: string, start: string, end: string, exclusive: string, today: string): boolean => {
   if (range === "custom") return true;
   if (range === "last_month") {
@@ -24,15 +34,9 @@ const rangeLabels = (range: string, start: string, end: string, exclusive: strin
 };
 const calendarBoundary = (value: string, label: string, timeZone: string): boolean => {
   try {
-    const formatter = new Intl.DateTimeFormat("en-CA", { timeZone, calendar: "iso8601", numberingSystem: "latn",
-      year: "numeric", month: "2-digit", day: "2-digit" });
-    const localDate = (timestamp: number): string => {
-      const parts = formatter.formatToParts(timestamp);
-      return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value.padStart(type === "year" ? 4 : 2, "0") ?? "").join("-");
-    };
     const timestamp = Date.parse(value);
     // Check the supplied boundary, without calculating a replacement period or assuming 24-hour days.
-    return localDate(timestamp) === label && localDate(timestamp - 1) !== label;
+    return localDate(timestamp, timeZone) === label && localDate(timestamp - 1, timeZone) !== label;
   } catch (error) {
     if (error instanceof RangeError) return false;
     throw error;
@@ -73,6 +77,7 @@ export const taxReportResponse = (value: unknown, requested: TaxReportOptions): 
   if (!calendarBoundary(period.start, period.startDate, period.timeZone)
     || !calendarBoundary(period.end, period.endDateExclusive, period.timeZone)) return undefined;
   if (!rangeLabels(period.range, period.startDate, period.endDate, period.endDateExclusive, period.todayDate)) return undefined;
+  if (period.range !== "custom" && !anchorMatchesCompletion(period.todayDate, source.readCompletedAt, period.timeZone)) return undefined;
   if (requested.range === "custom" && (period.startDate !== requested.start_date || period.endDate !== requested.end_date)) return undefined;
   if (!integer(meta.page, 1) || !integer(meta.page_size, 1) || meta.page_size !== (requested.page_size ?? 25)
     || !integer(meta.total_pages, 1) || meta.page !== Math.min(requested.page ?? 1, meta.total_pages)
