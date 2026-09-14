@@ -7,6 +7,8 @@ import { paymentSummaryResponse } from "./payment-summary-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
+import { validResourceId } from "./resource-id.js";
+export { validResourceId } from "./resource-id.js";
 
 export type CrmResource = "customers" | "leads";
 export type ReadResource = CrmResource | "payments" | "expenses";
@@ -50,12 +52,6 @@ export type CanonicalCrmClient = Readonly<{
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses";
-/** Preserve opaque IDs while rejecting route substitutions and unbounded input. */
-export const validResourceId = (value: unknown): value is string => typeof value === "string"
-  && value.length >= 1 && value.length <= 1024 && Array.from(value).length <= 512 && !/^(?:\.|%2e){1,2}$/iu.test(value)
-  && !/[/\\?#]/u.test(value)
-  && !/[\uD800-\uDFFF]/u.test(value)
-  && Array.from(value).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127);
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const utcTimestamp = (value: unknown): value is string => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+00:00)$/iu.test(value)) return false;

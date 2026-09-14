@@ -1,9 +1,9 @@
 import { correlationReference } from "./agent-error.js";
+import { validResourceId as identity } from "./resource-id.js";
 import { expenseDatePattern, expenseReadFields, type ExpenseListOptions } from "./expense-contract.js";
 
 const defaults = Object.freeze(["id", "name", "category", "amount", "currency", "incurred_on", "paid_on", "status"]);
 const record = (value: unknown): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null && !Array.isArray(value);
-const identity = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 512 && !/[\p{Cc}\p{Cs}]/u.test(value);
 const instant = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 const fieldValue = (field: string, value: unknown): boolean => {
