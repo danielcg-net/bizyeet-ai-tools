@@ -111,6 +111,16 @@ void test("preserves currency totals and strips unrequested private fields", () 
   assert.deepEqual((result.data as Readonly<{ totals: unknown }>).totals, input.data.totals);
   assert.ok(Object.isFrozen(result));
 });
+void test("rejects item currencies not represented in totals", () => {
+  const input = { ...fixture(), data: { ...fixture().data, total: 2,
+    items: [
+      { ...fixture().data.items[0], id: "first-tax-id", currency: "CAD", reason: "first" },
+      { ...fixture().data.items[0], id: "second-tax-id", currency: "USD", reason: "second" },
+    ],
+    totals: [Object.freeze({ ...group("CAD", 60), entry_count: 2 })] }, meta: { ...fixture().meta, returned: 2 } };
+  const result = taxReportResponse(input, { ...requested, fields: ["reason"] });
+  assert.equal(result, undefined);
+});
 void test("rejects duplicated ledger identities and inconsistent currency counts", () => {
   assert.equal(taxReportResponse({ ...fixture(), data: { ...fixture().data, total: 2, totals: [{ ...group("CAD", 50), entry_count: 2 }], items: [fixture().data.items[0], fixture().data.items[0]] },
     meta: { ...fixture().meta, returned: 2 } }, requested), undefined);
