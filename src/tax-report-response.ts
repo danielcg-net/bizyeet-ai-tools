@@ -54,7 +54,8 @@ export const taxReportResponse = (value: unknown, requested: TaxReportOptions): 
     || period.range !== (requested.range ?? "month") || !instant(period.start) || !instant(period.end) || period.start >= period.end
     || typeof period.timeZone !== "string" || period.timeZone.length < 1 || period.timeZone.length > 128
     || !date(period.startDate) || !date(period.endDate) || !date(period.endDateExclusive) || !date(period.todayDate)
-    || period.startDate > period.endDate || period.endDate >= period.endDateExclusive
+    || period.startDate > period.endDate
+    || Date.parse(`${period.endDateExclusive}T00:00:00.000Z`) - Date.parse(`${period.endDate}T00:00:00.000Z`) !== 86_400_000
     || period.startInclusive !== true || period.endInclusive !== false) return undefined;
   if (!calendarBoundary(period.start, period.startDate, period.timeZone)
     || !calendarBoundary(period.end, period.endDateExclusive, period.timeZone)) return undefined;

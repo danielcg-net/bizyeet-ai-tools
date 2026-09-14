@@ -9,6 +9,8 @@
 - `taxReportMcpTool` is registered with reports.read and read-only annotations. Local installed-package tests verify live descriptor equality, empty/populated CAD ledger data and period parity, private field selection, export and revocation over TLS/OAuth. Broader currency/role scenarios and required delivery checks remain; no package publication or production availability is implied.
 # PR41 response review hardening
 
+- Follow-up review: endDateExclusive must be the Gregorian successor of endDate, not merely a later date. Compare date-only labels at UTC midnight (not actual tenant instants), retaining DST-safe boundary checks. Added contradictory multi-year exclusive-end regression; full1127PASS2skip. Existing valid month-boundary and23-hour DST cases remain passing.
+
 - Second review: validate supplied UTC boundaries against their calendar labels in the reported timezone using Intl. Require the instant to start that local date (previous millisecond has another date); no replacement period calculation or 24-hour-day assumption. Wrong-year/midday/invalid-zone cases reject; 23-hour Edmonton DST day accepts. Full1126PASS2skip and installed local tax integration pass. This does not recompute amounts or provider routing.
 
 - Input schema now includes real Gregorian date patterns, custom-only date requirements, field enums, and currency/province syntax. Mirrored in the private descriptor. Full checks 1121 passed/two skips; installed local TLS/OAuth tax test passed with exact descriptor parity after both review fixes. Cross-field date ordering remains runtime-validated, not expressible by standard JSON Schema. Private changes are not deployed.

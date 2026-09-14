@@ -16,6 +16,7 @@ await Promise.all([
   { start: "2026-01-01T12:00:00.000Z" },
   { end: "2026-02-01T12:00:00.000Z" },
   { timeZone: "Not/A_Timezone" },
+  { endDateExclusive: "2030-01-01", end: "2030-01-01T00:00:00.000Z" },
 ].map((period, index) => test(`rejects inconsistent calendar boundary ${String(index)}`, () => {
   assert.equal(taxReportResponse({ ...fixture(), meta: { ...fixture().meta,
     period: { ...fixture().meta.period, ...period },
