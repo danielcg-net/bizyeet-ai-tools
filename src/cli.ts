@@ -21,6 +21,8 @@ import { validResourceId } from "./canonical-crm-client.js";
 import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
 import { receivedPaymentSummary } from "./agent-client.js";
 import { validPaymentSummaryOptions } from "./payment-summary-contract.js";
+import { readTaxReport } from "./agent-client.js";
+import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { exportReadResponse, READ_OUTPUT_BYTE_LIMIT } from "./read-export.js";
 import { escapeDisplayJson } from "./display-json.js";
 import { isUuid } from "./uuid.js";
@@ -41,6 +43,7 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  readTaxReport?: (input: Omit<Parameters<typeof readTaxReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getExpenseSchedule?: (input: Omit<Parameters<typeof getExpenseSchedule>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listExpenseSchedules?: (input: Omit<Parameters<typeof listExpenseSchedules>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getExpense?: (input: Omit<Parameters<typeof getExpense>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -72,6 +75,7 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  readTaxReport: async (input) => readTaxReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getExpenseSchedule: async (input) => getExpenseSchedule({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listExpenseSchedules: async (input) => listExpenseSchedules({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getExpense: async (input) => getExpense({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -128,6 +132,8 @@ const helpMessage = [
   "Generate and retain one UUID idempotency key for this execution. Never replace it to recover an uncertain outcome.",
   "       bizyeet payments received-summary [--range <today|month|last_month|ytd|custom>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--profile <name>] [--export]",
   "Summary custom dates are inclusive in the tenant timezone; currency groups are never combined. This is gross collected receipts, not net revenue.",
+  "       bizyeet reports taxes [--range <today|7d|30d|month|last_month|ytd|custom>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--authority <code>] [--province <code>] [--currency <code>] [--entry-type <collected|reversal|adjustment>] [--page <number>] [--limit <1-100>] [--fields <csv>] [--profile <name>] [--export]",
+  "Tax reports require reports.read and tenant-admin access. Month is month-to-date; totals remain in separate currencies and are not filing-ready.",
   "       bizyeet --version",
   "       bizyeet diagnostics (local runtime and manual-update guidance; no network or credentials)",
   "Authentication uses OAuth with PKCE or Device Authorization; API keys, personal access tokens, and passwords are not accepted.",
@@ -474,6 +480,34 @@ const summaryRead = async (args: readonly string[], dependencies: CliStorage, ex
   } catch (error) { return requestFailure(error); }
 };
 
+const taxReadOptions = (args: readonly string[]): TaxReportOptions | undefined => {
+  try {
+    const mapping = { "--range": "range", "--start-date": "start_date", "--end-date": "end_date", "--authority": "authority",
+      "--province": "province", "--currency": "currency", "--entry-type": "entry_type", "--page": "page", "--limit": "page_size", "--fields": "fields" };
+    if (!hasOnlyOptions(args, [...Object.keys(mapping), "--profile"], ["--export"])
+      || args.filter((arg) => arg === "--export").length > 1) return undefined;
+    const options = Object.fromEntries(Object.entries(mapping).flatMap(([flag, key]): readonly (readonly [string, unknown])[] => {
+      const value = oneOption(args, flag);
+      if (!value) return [];
+      if (key === "page" || key === "page_size") return [[key, /^[1-9]\d*$/u.test(value) ? Number(value) : null]];
+      return [[key, key === "fields" ? value.split(",") : value]];
+    }));
+    return validTaxReportOptions(options) ? options : undefined;
+  } catch { return undefined; }
+};
+
+const taxRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const options = taxReadOptions(args);
+  if (!options) return invalidInput("Tax report options are invalid.");
+  try {
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.readTaxReport) return unsupportedCommand("reports taxes");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.readTaxReport({ credentials: authenticated.credentials, profile: authenticated.profile, options, persistCredentials }), args.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
 const crmRead = async (resource: "customers" | "leads" | "payments", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
   if (resource === "customers" && command === "update") return customerUpdate(options, dependencies, execution);
@@ -542,7 +576,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (first === "diagnostics") return args.length === 1 ? output(diagnostics()) : invalidInput("diagnostics accepts no arguments other than --json.");
   if (args.length === 0 || optionArgs.includes("--help") || optionArgs.includes("-h")) return result(0, helpMessage, "stdout");
-  if (dependencies.withProfileLock && (first === "customers" || first === "leads" || first === "payments" || first === "expenses" || first === "auth")) {
+  if (dependencies.withProfileLock && (first === "customers" || first === "leads" || first === "payments" || first === "expenses" || first === "reports" || first === "auth")) {
     try {
       if (first === "auth" && second === "login") {
         const parsed = loginOptions(args.slice(2));
@@ -558,6 +592,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
     }
   }
   if (first === "expenses") return expenseRead(args.slice(second === "schedules" ? 2 : 1), dependencies, execution, second === "schedules");
+  if (first === "reports" && second === "taxes") return taxRead(args.slice(2), dependencies, execution);
   if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);
   if (first === "customers" || first === "leads" || first === "payments") return crmRead(first, args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
