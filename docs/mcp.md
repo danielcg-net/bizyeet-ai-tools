@@ -43,3 +43,16 @@ guarantee. Unsupported providers return an explicit error, never inactive data.
 
 Any future write must first return a preview and requires the exact preview ID,
 a single-use trusted approval receipt, and an idempotency key.
+
+## Persisted expense reads
+
+When deployed, `bizyeet_expenses_list` and `bizyeet_expenses_get` require
+`expenses.read` plus live dashboard expense permission. The tools share the
+canonical expense API rather than selecting a provider or reading a store.
+List filters use inclusive calendar dates. IDs and cursors remain opaque.
+
+Output metadata explicitly marks the persisted view and materialization as
+not evaluated. Reading does not generate scheduled occurrences: an empty page
+does not prove that no expenses are due. Read-completion time is not a snapshot
+or synchronization guarantee. Preserve amounts and currencies; select notes
+explicitly when authorized and needed.
