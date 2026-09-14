@@ -279,6 +279,21 @@ conversion. Notes require explicit field selection. Use the returned opaque IDs 
 do not substitute native database IDs. Live OAuth scope and dashboard expense permission
 are enforced by the canonical API. `--profile` and secure `--export` use the shared read flow.
 
+## Read expense schedules
+
+When the canonical schedule-read endpoints are deployed:
+
+```sh
+bizyeet expenses schedules list --active=0 --frequency=monthly --limit=25
+bizyeet expenses schedules get <opaque-id> --fields=amount,currency,generated_count --export
+```
+
+Use `expenses.read` and the existing dashboard expense permission. These commands read
+persisted recurrence definitions; they do not generate occurrences, calculate forecasts
+or evaluate due costs. Stored generation counters are history, not a freshness guarantee.
+Notes require explicit field selection. Opaque IDs, bounded cursors, profile locking and
+private exports follow the shared expense-read contract.
+
 ## Received-payment summaries
 
 Servers with the received-summary contract deployed support:

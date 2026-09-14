@@ -16,12 +16,13 @@ const period = Object.freeze({ type: "object", required: Object.freeze(["kind", 
   startDate: Object.freeze({ type: Object.freeze(["string", "null"]), pattern: expenseDatePattern }), endDate: Object.freeze({ type: Object.freeze(["string", "null"]), pattern: expenseDatePattern }),
   startInclusive: Object.freeze({ type: "boolean", const: true }), endInclusive: Object.freeze({ type: "boolean", const: true }),
 }) });
-const output = (list: boolean): Readonly<Record<string, unknown>> => Object.freeze({ type: "object", required: Object.freeze(["data", "meta"]), properties: Object.freeze({
+/** Share persisted metadata without inventing a query period for schedule definitions. */
+export const expenseOutputSchema = (list: boolean, includePeriod = true): Readonly<Record<string, unknown>> => Object.freeze({ type: "object", required: Object.freeze(["data", "meta"]), properties: Object.freeze({
   data: list ? Object.freeze({ type: "object", required: Object.freeze(["items", "total"]), properties: Object.freeze({
     items: Object.freeze({ type: "array", maxItems: 100, items: Object.freeze({ type: "object", required: Object.freeze(["id"]) }) }), total: Object.freeze({ type: "integer", minimum: 0 }),
   }) }) : Object.freeze({ type: "object", required: Object.freeze(["id"]) }),
-  meta: Object.freeze({ type: "object", required: Object.freeze(["contract_version", "source", ...(list ? ["next_cursor", "period"] : [])]), properties: Object.freeze({
-    contract_version: version, source, ...(list ? { period, next_cursor: Object.freeze({ type: Object.freeze(["string", "null"]), minLength: 32, maxLength: 128 }) } : {}),
+  meta: Object.freeze({ type: "object", required: Object.freeze(["contract_version", "source", ...(list ? ["next_cursor", ...(includePeriod ? ["period"] : [])] : [])]), properties: Object.freeze({
+    contract_version: version, source, ...(list ? { ...(includePeriod ? { period } : {}), next_cursor: Object.freeze({ type: Object.freeze(["string", "null"]), minLength: 32, maxLength: 128 }) } : {}),
   }) }),
 }) });
 
@@ -33,9 +34,9 @@ export const expenseMcpTools = Object.freeze([
       search: Object.freeze({ type: "string", maxLength: 120 }), sort: Object.freeze({ type: "string", enum: expenseSortFields }),
       dir: Object.freeze({ type: "string", enum: Object.freeze(["asc", "desc"]) }), status: Object.freeze({ type: "string", enum: Object.freeze(["due", "paid", "skipped"]) }),
       category: Object.freeze({ type: "string", maxLength: 32 }), currency: Object.freeze({ type: "string", pattern: "^[A-Z]{3}$" }), schedule: handle, start_date: date, end_date: date,
-    }) }), outputSchema: output(true),
+    }) }), outputSchema: expenseOutputSchema(true),
   }),
   Object.freeze({ name: "bizyeet_expenses_get", title: "Get expense", description: "Read one persisted expense by its opaque tenant-bound ID. Schedule references are opaque IDs. Notes require explicit field selection; this does not generate recurring expenses.", annotations, securitySchemes,
-    inputSchema: Object.freeze({ type: "object", required: Object.freeze(["api_version", "id"]), additionalProperties: false, properties: Object.freeze({ api_version: version, fields, id: handle }) }), outputSchema: output(false),
+    inputSchema: Object.freeze({ type: "object", required: Object.freeze(["api_version", "id"]), additionalProperties: false, properties: Object.freeze({ api_version: version, fields, id: handle }) }), outputSchema: expenseOutputSchema(false),
   }),
 ] as const);
