@@ -1,0 +1,6 @@
+# Expense schedule reads
+
+- BIZYEET-646 schedule work extends canonical expense reads. Query syntax reuses common expense bounds and adds frequency/active filters; no tenant/provider/recurrence overrides are accepted. Both active=0 and active=1 are explicit strings in the transport.
+- Schedule response projection reuses the expense envelope validator with a trusted internal field contract. It validates recurrence fields/counters without calculating occurrences, preserves numeric zero/active values and excludes notes by default. Schedule lists have no invented aggregate query period.
+- Source metadata remains persisted D1, read-completion time and materialization not evaluated. This is not a forecast or synchronization claim.
+- Canonical client schedule endpoint dispatch, authenticated CLI command wiring, MCP descriptors and installed schedule parity remain to implement before delivery. Keep this branch isolated from the expense PR under review and integrate that merged dependency before opening a schedule PR.
