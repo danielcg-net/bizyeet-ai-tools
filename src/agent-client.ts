@@ -9,6 +9,7 @@ import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch } from "./search-contract.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
+import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
 import { validExpenseScheduleListOptions, type ExpenseScheduleListOptions } from "./expense-schedule-contract.js";
@@ -160,6 +161,12 @@ export const receivedPaymentSummary = async (input: Readonly<{
 }>): Promise<AgentResult> => {
   if (!validPaymentSummaryOptions(input.options)) throw new Error("Payment summary options are invalid.");
   return invoke({ ...input, operation: (client) => client.receivedPaymentSummary(input.options) });
+};
+
+/** Read canonical tax reports through the shared OAuth refresh and persistence boundary. */
+export const readTaxReport = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ options: TaxReportOptions }>): Promise<AgentResult> => {
+  if (!validTaxReportOptions(input.options)) throw new Error("Tax report options are invalid.");
+  return invoke({ ...input, operation: (client) => client.taxReport(input.options) });
 };
 
 /** Lists at most 100 contract-defined customer records without accepting arbitrary paths or query keys. */
