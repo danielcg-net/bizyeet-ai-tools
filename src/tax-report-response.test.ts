@@ -11,6 +11,18 @@ meta: { contract_version: "v1", request_id: "00000000-0000-4000-8000-00000000000
 const fixture = (): typeof template => template;
 const requested = { range: "custom", start_date: "2026-01-01", end_date: "2026-01-31" } as const;
 
+await Promise.all(([
+  ["entry_type", "refund"], ["authority", "unknown"], ["province", "Alberta"],
+  ["received_at", "not-a-date"], ["received_at", "2026-02-30T12:00:00Z"],
+  ["effective_at", "2026-02-30"], ["rate_ppm", -1],
+  ["label", "bad\u0000label"], ["reason", "x".repeat(1_048_577)],
+  ["registration_number", " untrimmed "],
+] as const).map(([field, value], index) => test(`rejects malformed selected tax field ${String(index)}`, () => {
+  assert.equal(taxReportResponse({ ...fixture(), data: { ...fixture().data,
+    items: [{ ...fixture().data.items[0], [field]: value }],
+  } }, { ...requested, fields: [field] }), undefined);
+})));
+
 void test("preserves currency totals and strips unrequested private fields", () => {
   const result = taxReportResponse(fixture(), requested);
   assert.ok(result);

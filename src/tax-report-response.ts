@@ -1,7 +1,8 @@
 import { correlationReference } from "./agent-error.js";
 import { validResourceId } from "./resource-id.js";
 import { paymentSummaryDatePattern } from "./payment-summary-contract.js";
-import { taxReportDefaultFields, taxReportFields, validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
+import { paymentTimestampPattern } from "./payment-contract.js";
+import { taxReportAuthorities, taxReportEntryTypes, taxReportDefaultFields, taxReportFields, validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null && !Array.isArray(value);
 const integer = (value: unknown, minimum = Number.MIN_SAFE_INTEGER): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
@@ -12,9 +13,19 @@ const totalFields = Object.freeze(["taxable_sales_minor", "collected_tax_minor",
 const fieldValue = (field: string, value: unknown): boolean => {
   if (field === "id") return validResourceId(value);
   if (field === "linked_entry_id") return value === null || validResourceId(value);
-  if (["rate_ppm", "taxable_base_minor", "amount_minor"].includes(field)) return integer(value);
+  if (field === "rate_ppm") return integer(value, 0);
+  if (["taxable_base_minor", "amount_minor"].includes(field)) return integer(value);
   if (field === "currency") return typeof value === "string" && /^[A-Z]{3}$/u.test(value);
-  return typeof value === "string";
+  if (field === "entry_type") return typeof value === "string" && (taxReportEntryTypes as readonly string[]).includes(value);
+  if (field === "authority") return typeof value === "string" && (taxReportAuthorities as readonly string[]).includes(value);
+  if (field === "province") return typeof value === "string" && /^(?:[A-Z]{2})?$/u.test(value);
+  if (field === "effective_at") return date(value);
+  if (field === "received_at") return typeof value === "string" && new RegExp(paymentTimestampPattern, "u").test(value);
+  // Ledger text has no smaller business limit; retain the transport's 1 MiB ceiling.
+  if (["label", "registration_number", "reason"].includes(field)) return typeof value === "string"
+    && value.length <= 1_048_576 && value.trim() === value
+    && !/[\p{Cc}\p{Cs}]/u.test(value.replaceAll("\n", "").replaceAll("\r", "").replaceAll("\t", ""));
+  return false;
 };
 
 /** Validate and allowlist canonical output without deriving financial totals or tenant date boundaries. */
