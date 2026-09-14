@@ -8,3 +8,4 @@
 - `expenseMcpTools` advertises the exact canonical server list/get schemas with expenses.read and explicit persisted metadata. Installed local TLS/OAuth E2E verifies descriptor equality, list/detail canonical parity, credential-free private exports and revoked grant denial.
 - Installed local coverage forces and persists OAuth rotation, follows an amount-sorted second page, rejects cursor/filter mismatch and revokes the rotated grant. Exports exclude original and rotated credentials.
 - Schedule support and tracked CI rollout remain required before full expense delivery.
+- Expense response IDs and schedule IDs reuse `resource-id.ts`, the canonical request validator. Preserve its Unicode code-point bound and route-substitution rejection; do not introduce a response-only identity rule.
