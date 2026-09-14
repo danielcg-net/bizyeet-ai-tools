@@ -12,6 +12,18 @@ const fixture = (): typeof template => template;
 const requested = { range: "custom", start_date: "2026-01-01", end_date: "2026-01-31" } as const;
 
 await Promise.all(([
+  ["currency", "USD"], ["authority", "BC_PST"], ["entry_type", "reversal"], ["province", "AB"],
+] as const).map(([field, value]) => test(`rejects contradictory ${field} even when hidden by selection`, () => {
+  assert.equal(taxReportResponse(fixture(), { ...requested, [field]: value, fields: ["reason"] }), undefined);
+})));
+void test("validates filter evidence but strips it from explicitly selected output", () => {
+  const input = { ...fixture(), data: { ...fixture().data, totals: [group("CAD", 50)] } };
+  const result = taxReportResponse(input, { ...requested, currency: "CAD", authority: "GST_HST", entry_type: "collected", fields: ["reason"] });
+  assert.deepEqual((result?.data as Readonly<{ items: unknown }>).items, [{ id: "opaque-tax-id", reason: "private" }]);
+  assert.equal(taxReportResponse(fixture(), { ...requested, currency: "CAD" }), undefined);
+});
+
+await Promise.all(([
   ["today", "2026-03-08", "2026-03-08", "2026-03-09"],
   ["7d", "2026-03-02", "2026-03-08", "2026-03-09"],
   ["30d", "2026-02-07", "2026-03-08", "2026-03-09"],
@@ -89,6 +101,7 @@ void test("only exposes reason when explicitly requested", () => {
 await Promise.all([
   { ...fixture(), meta: { ...fixture().meta, filing_ready: true } },
   { ...fixture(), meta: { ...fixture().meta, page_size: 100 } },
+  { ...fixture(), meta: { ...fixture().meta, total_pages: 99 } },
   { ...fixture(), meta: { ...fixture().meta, source: { ...fixture().meta.source, provider: "zoho_invoice" } } },
   { ...fixture(), meta: { ...fixture().meta, period: { ...fixture().meta.period, startDate: "2026-01-02" } } },
   { ...fixture(), data: { ...fixture().data, totals: [group("CAD", Number.MAX_SAFE_INTEGER + 1)] } },

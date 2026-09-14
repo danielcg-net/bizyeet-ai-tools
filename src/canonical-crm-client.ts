@@ -4,7 +4,7 @@ import { isUuid as uuid } from "./uuid.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
 import { paymentSummaryResponse } from "./payment-summary-response.js";
-import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
+import { validTaxReportOptions, taxReportDefaultFields, type TaxReportOptions } from "./tax-report-contract.js";
 import { taxReportResponse } from "./tax-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
@@ -224,7 +224,9 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   const taxReport = async (options: TaxReportOptions = {}): Promise<CanonicalResult> => {
     if (!validTaxReportOptions(options)) return failure(400, "invalid_request");
-    const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(options as Readonly<Record<string, unknown>>)
+    const evidence = (["currency", "authority", "entry_type", "province"] as const).filter((field) => options[field] !== undefined);
+    const transport = evidence.length === 0 ? options : { ...options, fields: [...new Set([...(options.fields ?? taxReportDefaultFields), ...evidence])] };
+    const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(transport as Readonly<Record<string, unknown>>)
       .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
     return reportRead("/api/agent/reports/taxes", parameters, (body) => taxReportResponse(body, options));
   };
