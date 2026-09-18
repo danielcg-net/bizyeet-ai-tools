@@ -267,32 +267,18 @@ advertise both `payments.read` and `customers.read`. Financial writes are not ex
 Servers with the canonical expense-read contract deployed support OAuth `expenses.read`:
 
 ```sh
-bizyeet expenses list --limit 25 --currency CAD --start-date 2026-09-01 --end-date 2026-09-30
-bizyeet expenses get <opaque-id> --fields amount,currency,notes --export
+bizyeet expenses list --limit 25 --currency CAD --start 2026-09-01 --end 2026-09-30
+bizyeet expenses get <opaque-id> --fields amount,currency,status --export
 ```
 
 Expense dates are inclusive calendar days, not UTC timestamp intervals. Read output is a
 persisted view: it does not generate recurring expenses, and an empty page does not prove
-that no scheduled costs are due. Metadata identifies the source, read-completion time and
-materialization-not-evaluated state. Amount strings and currencies are preserved without
-conversion. Notes require explicit field selection. Use the returned opaque IDs and cursor;
-do not substitute native database IDs. Live OAuth scope and dashboard expense permission
-are enforced by the canonical API. `--profile` and secure `--export` use the shared read flow.
-
-## Read expense schedules
-
-When the canonical schedule-read endpoints are deployed:
-
-```sh
-bizyeet expenses schedules list --active=0 --frequency=monthly --limit=25
-bizyeet expenses schedules get <opaque-id> --fields=amount,currency,generated_count --export
-```
-
-Use `expenses.read` and the existing dashboard expense permission. These commands read
-persisted recurrence definitions; they do not generate occurrences, calculate forecasts
-or evaluate due costs. Stored generation counters are history, not a freshness guarantee.
-Notes require explicit field selection. Opaque IDs, bounded cursors, profile locking and
-private exports follow the shared expense-read contract.
+that no scheduled costs are due. Amount strings and currencies are preserved without
+conversion. Notes and native tenant or schedule identifiers are never readable through this
+interface. Use the returned opaque IDs and cursor; do not substitute native database IDs.
+Live OAuth scope and dashboard expense permission are enforced by the canonical API.
+`--profile` and secure `--export` use the shared read flow. Expense schedules are not
+currently part of this public CLI or MCP contract.
 
 ## Tax collection reports
 

@@ -2,7 +2,6 @@ import { CRM_SEARCH_MAX_LENGTH } from "./search-contract.js";
 import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
 import { taxReportMcpTool } from "./tax-report-mcp.js";
 import { expenseMcpTools } from "./expense-mcp.js";
-import { expenseScheduleMcpTools } from "./expense-schedule-mcp.js";
 import { paymentDateFields, paymentReadFields, paymentSortFields, paymentTimestampPattern } from "./payment-contract.js";
 
 export type McpTool = Readonly<{
@@ -103,5 +102,4 @@ export const mcpReadTools = Object.freeze([
   paymentSummaryMcpTool,
   taxReportMcpTool,
   ...expenseMcpTools,
-  ...expenseScheduleMcpTools,
 ] as const) satisfies readonly McpTool[];
