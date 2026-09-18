@@ -8,6 +8,7 @@ import {
   registerPublicClient,
   requestDeviceAuthorization,
   validRefreshToken,
+  canonicalRegistrationScope,
   type DeviceAuthorization,
   type FetchLike,
   type OAuthTokenSet,
@@ -51,18 +52,22 @@ const credentialsFrom = (tokens: OAuthTokenSet, now: () => number, profile: Prof
 /** Completes an OAuth-only device login and returns secret-bearing credentials only to the local storage boundary. */
 export const loginWithDevice = async (input: Readonly<{
   clientId?: string;
-  deviceRegistrationVersion?: 1;
+  deviceRegistrationVersion?: number;
+  registeredScope?: string;
   issuer: string;
   scope: string;
 }>, dependencies: DeviceLoginDependencies): Promise<DeviceLoginResult> => {
   const issuer = issuerOrigin(input.issuer);
   const metadata = await discoverOAuth(issuer, dependencies.fetcher);
-  const verifiedClientId = input.deviceRegistrationVersion === 1 ? input.clientId : undefined;
-  const clientId = verifiedClientId ?? (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: deviceRedirectUri, deviceGrant: true })).clientId;
+  const requestedScope = canonicalRegistrationScope(input.scope);
+  if (requestedScope === null) throw new Error("Invalid OAuth registration scope.");
+  const verifiedClientId = input.deviceRegistrationVersion === 2
+    && canonicalRegistrationScope(input.registeredScope) === requestedScope ? input.clientId : undefined;
+  const clientId = verifiedClientId ?? (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: deviceRedirectUri, deviceGrant: true, scope: input.scope })).clientId;
   const device = await requestDeviceAuthorization({ clientId, fetcher: dependencies.fetcher, metadata, resource: issuer, scope: input.scope });
   dependencies.onVerification(device);
   const tokens = await exchangeDeviceCode({ clientId, device, fetcher: dependencies.fetcher, metadata, resource: issuer });
-  const profile: Profile = { clientId, issuer: issuer.origin, deviceGrantVerified: true, deviceRegistrationVersion: 1 };
+  const profile: Profile = { clientId, issuer: issuer.origin, deviceGrantVerified: true, deviceRegistrationVersion: 2, registeredScope: requestedScope };
   return {
     credentials: credentialsFrom(tokens, dependencies.now, profile, input.scope),
     profile,
@@ -80,7 +85,7 @@ export const loginWithBrowser = async (input: Readonly<{
   const callback = await dependencies.openCallback(state, issuer.origin);
   const prepared = await (async (): Promise<Readonly<{ clientId: string; pkce: ReturnType<typeof createPkce> }>> => {
     try {
-      const clientId = (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: callback.redirectUri })).clientId;
+      const clientId = (await registerPublicClient({ fetcher: dependencies.fetcher, metadata, redirectUri: callback.redirectUri, scope: input.scope })).clientId;
       const pkce = createPkce();
       await dependencies.launchBrowser(authorizationUrl({ clientId, metadata, pkce, redirectUri: callback.redirectUri, resource: issuer, scope: input.scope, state }));
       return { clientId, pkce };

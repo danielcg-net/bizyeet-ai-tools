@@ -5,7 +5,7 @@ import { authorizationUrl, createPkce, discoverOAuth, exchangeAuthorizationCode,
 
 const issuer = new URL("https://example.test");
 const jsonResponse = (value: Readonly<Record<string, unknown>>): Promise<Response> =>
-  Promise.resolve(new Response(JSON.stringify(value)));
+  Promise.resolve(new Response(JSON.stringify({ ...(typeof value.client_id === "string" ? { scope: "customers.read" } : {}), ...value })));
 
 await Promise.all(["", "synthetic\ud800value", "synthetic\udfffvalue", null, 1].map((identifier, index) =>
   test(`rejects unusable returned device and registration identifiers ${String(index)}`, async () => {
@@ -421,6 +421,7 @@ void test("registers only a secretless public client with an exact loopback call
         token_endpoint_auth_method: "none",
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
+        scope: "customers.read",
       });
       return jsonResponse({ client_id: "registered-client", token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"] });
     },
@@ -441,7 +442,7 @@ void test("requests the device grant explicitly during public registration", asy
     metadata: { authorization_endpoint: "https://example.test/authorize", registration_endpoint: "https://example.test/register", token_endpoint: "https://example.test/token" },
     fetcher: (_url, request) => {
       if (typeof request?.body !== "string") throw new Error("Expected registration JSON");
-      assert.deepEqual(JSON.parse(request.body), { redirect_uris: ["http://127.0.0.1:43123/callback"],
+      assert.deepEqual(JSON.parse(request.body), { redirect_uris: ["http://127.0.0.1:43123/callback"], scope: "customers.read",
         token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"], response_types: ["code"] });
       return jsonResponse({ client_id: "device-client", token_endpoint_auth_method: "none", grant_types: ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"], response_types: [] });
     } });
