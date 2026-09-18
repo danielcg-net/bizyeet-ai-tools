@@ -37,7 +37,7 @@
     "marked": "18.0.13",
     "shell-quote": "1.10.0",
     "typescript": "^5.0.0",
-    "typescript-eslint": "^8.0.0",
+    "typescript-eslint": "^8.70.0",
     "yaml": "^2.9.0"
   },
   "license": "Apache-2.0",
