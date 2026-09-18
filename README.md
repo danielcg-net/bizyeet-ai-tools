@@ -100,6 +100,10 @@ Device authorization lifetimes are limited to fifteen minutes; longer advertised
 lifetimes are rejected before polling. Token exchanges reject empty or
 whitespace-bearing access tokens before reporting a successful login.
 Device registration explicitly requests the device-code and refresh grants.
+Both login flows register only their requested scopes (default `customers.read`)
+and require the server to return exactly that scope set before authorization.
+Deploy the scope-aware server before this client; older servers without an
+explicit scope assignment fail closed with administrator guidance.
 Registration must explicitly assign the selected login flow and refresh-token
 grant with secretless authentication. A missing or insufficient assignment stops
 login with an administrator-facing diagnostic; requested grants are not assumed
@@ -107,7 +111,9 @@ to have been granted. Browser login also requires the code response type (the
 default when omitted).
 Switching from a browser or legacy profile registers a device-capable client;
 later device logins reuse it only after a successful device exchange has been
-recorded in that same issuer's protected profile.
+recorded in that same issuer's protected profile with registration version 2 and
+an exact matching registered scope set. Legacy or differently scoped clients
+register again rather than reusing broader eligibility.
 Verification links must use HTTPS on the selected issuer origin, without
 credentials or fragments; unsafe links are rejected before being displayed.
 The device flow prints its verification URI and user code
@@ -182,7 +188,7 @@ response content is never included in parser errors.
 The V1 client intentionally exposes explicit business commands only. It has no
 raw HTTP, SQL, tenant-selection, bulk-export, or caller-supplied output-path command.
 
-Use `--export` on `customers list` or `customers get` to save the complete bounded
+Use `--export` on customer or lead `list`/`get` commands to save the complete bounded
 canonical JSON response in a generated private local file. Responses above 32 KiB
 use the same mechanism automatically. Stdout contains only a versioned path,
 byte-count and continuation-cursor summary. Export does not follow the cursor or
@@ -200,8 +206,15 @@ On failure, inspect private export directories for incomplete files before retry
 
 ```sh
 bizyeet customers list --limit 25 --search "acme"
-bizyeet customers get customer_opaque_id
+bizyeet customers get customer_opaque_id --fields id,name
+bizyeet leads list --limit 25 --search "acme" --fields id,name
+bizyeet leads get lead_opaque_id --fields id,name
 ```
+
+Customer and lead reads use `customers.read` and the same canonical provider
+routing as the dashboard. Both list and exact reads support `--fields` (at most
+20 field names); the server applies the authorized projection. Lead create,
+update and promotion commands are not yet exposed.
 
 List pages are capped at 100 records. Resource IDs and cursors are opaque;
 never replace them with URLs, database IDs, or tenant identifiers. All command
@@ -215,6 +228,110 @@ Anything after the separator is an ID, not a help, JSON, or profile option.
 For an opaque cursor beginning with `--`, use `--cursor=<value>`, for example
 `bizyeet customers list --cursor=--next-page`. The equals form preserves the
 entire value, including additional equals signs, without treating it as a flag.
+These option and separator rules apply to lead reads too. Reuse a cursor only
+with the same resource, search, fields and profile; start a fresh list when the
+server reports an expired or incompatible cursor. The CLI never switches
+providers or follows pages automatically.
+
+## Read payments
+
+Payment reads require a server with the payment-read contract deployed, an OAuth
+grant containing `payments.read`, and the user's current payment permission.
+They use the canonical payment provider independently of the CRM provider.
+
+```sh
+bizyeet payments list --limit 25 --status sent --sort amount --dir asc --fields id,amount,currency
+bizyeet payments list --date-field received_at --start 2026-09-01T00:00:00Z --end 2026-10-01T00:00:00Z
+bizyeet payments get payment_opaque_id --fields id,amount,currency --export
+```
+
+Status filters are `sent` or `received`. Date fields are `created_at`, `sent_at`,
+`received_at`, or `due_at`; boundaries use UTC timestamps with inclusive start
+and exclusive end. Sort fields are `created_at`, `sent_at`, `received_at`,
+`status`, and `amount`, with `asc` or `desc` direction. Search is capped at 120
+characters and searches public payment facts, not private customer information.
+
+`--fields customer,service` opts into canonical relationship references and
+additionally requires `customers.read`. Unavailable or missing relationships
+are explicit, not replaced by inactive-provider data. Payment IDs and cursors
+remain opaque; continue with identical filters, projection, ordering and profile.
+Amounts retain their currency: these commands do not aggregate or convert them.
+The same read contract is exposed by `bizyeet_payments_list` and
+`bizyeet_payments_get` MCP tools for payment-only fields. Use
+`bizyeet_payments_list_with_relationships` or `bizyeet_payments_get_with_relationships`
+with an explicit `customer` or `service` field for relationships; these tools
+advertise both `payments.read` and `customers.read`. Financial writes are not exposed by this increment.
+
+## Read expenses
+
+Servers with the canonical expense-read contract deployed support OAuth `expenses.read`:
+
+```sh
+bizyeet expenses list --limit 25 --currency CAD --start 2026-09-01 --end 2026-09-30
+bizyeet expenses get <opaque-id> --fields amount,currency,status --export
+```
+
+Expense dates are inclusive calendar days, not UTC timestamp intervals. Read output is a
+persisted view: it does not generate recurring expenses, and an empty page does not prove
+that no scheduled costs are due. Amount strings and currencies are preserved without
+conversion. Notes and native tenant or schedule identifiers are never readable through this
+interface. Use the returned opaque IDs and cursor; do not substitute native database IDs.
+Live OAuth scope and dashboard expense permission are enforced by the canonical API.
+`--profile` and secure `--export` use the shared read flow. Expense schedules are not
+currently part of this public CLI or MCP contract.
+
+## Tax collection reports
+
+Servers with the canonical tax-report contract deployed support:
+
+```sh
+bizyeet reports taxes --range 30d --currency CAD --limit 25
+bizyeet reports taxes --range custom --start-date 2026-03-01 --end-date 2026-03-31 --fields amount_minor,currency --export
+```
+
+Tax reads require `reports.read` and the user's live tenant-admin role. They
+return immutable ledger entries and separate currency totals in integer minor
+units, not a filing-ready tax return. `month` means month-to-date; `7d` and `30d`
+include today and the preceding calendar days. Custom date labels are inclusive
+in the tenant timezone; returned UTC instants are inclusive-start/exclusive-end.
+The caller cannot override the tenant, provider or timezone.
+
+Use `--page` and `--limit` for bounded pagination. Private `reason` and
+`registration_number` require explicit `--fields` selection. The CLI strips
+unknown output fields and does not calculate tax or combine currencies.
+`source.readCompletedAt` indicates read completion, not a snapshot guarantee.
+For rolling ranges, the calendar anchor must match that timestamp in the tenant
+timezone, allowing the request's 15-second timeout window to cross midnight.
+The CLI command does not imply that a server has deployed the corresponding
+endpoint; unsupported or unauthorized requests fail explicitly.
+
+## Received-payment summaries
+
+Servers with the received-summary contract deployed support:
+
+```sh
+bizyeet payments received-summary --range month
+bizyeet payments received-summary --range custom --start-date 2026-03-01 --end-date 2026-03-31 --export
+```
+
+This requires `payments.read` and the user's live payment permission. The result
+is **gross collected incoming receipts**, not net revenue or profit. Currency
+groups remain separate; legacy missing-currency rows retain their labelled
+tenant-default group. The CLI never computes currency conversions or totals.
+
+Ranges are `today`, `month` (month to date), `last_month`, `ytd`, and `custom`.
+Custom start/end dates are inclusive in the server-resolved tenant timezone;
+the response reports inclusive-start/exclusive-end UTC boundaries. Neither
+timezone nor fallback currency can be supplied by the caller.
+
+`source.readCompletedAt` is the time the read completed, not a synchronization
+or snapshot guarantee. `period.requestedStartDate` and `requestedEndDate` echo
+the validated custom dates (null for named ranges); the CLI rejects responses
+whose requested range or dates differ from the command.
+Unsupported providers return an error rather
+than inactive-provider data. The matching MCP tool is
+`bizyeet_payments_received_summary`; it advertises the same `payments.read` scope.
+`--export` uses the existing private local export mechanism.
 
 ## Preview and approve a customer update
 

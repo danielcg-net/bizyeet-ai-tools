@@ -42,8 +42,12 @@ if (-not $actual.AreAccessRulesProtected) { throw 'Unprotected export path' }
 
 export type AclExecutor = (executable: string, args: readonly string[], environment: NodeJS.ProcessEnv) => Promise<string>;
 
+// Windows PowerShell's cold start can exceed ten seconds on a busy host.
+// Keep one bounded attempt: timeout must still abort before any data is written.
+export const windowsExportProcessOptions = Object.freeze({ timeout: 30_000, maxBuffer: 16_384, windowsHide: true });
+
 const executeAcl: AclExecutor = async (executable, args, environment) =>
-  (await execute(executable, args, { env: environment, timeout: 10_000, maxBuffer: 16_384, windowsHide: true })).stdout;
+  (await execute(executable, args, { env: environment, ...windowsExportProcessOptions })).stdout;
 
 /** Establish or verify owner-only Windows ACLs before an export receives data. */
 export const secureWindowsExport = async (path: string, mode: "directory" | "file" | "verify",

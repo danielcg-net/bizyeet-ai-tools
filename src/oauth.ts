@@ -358,11 +358,14 @@ export const registerPublicClient = async (input: Readonly<{
   metadata: OAuthMetadata;
   redirectUri: string;
   deviceGrant?: boolean;
+  scope?: string;
 }>): Promise<RegisteredPublicClient> => {
+  const scope = canonicalRegistrationScope(input.scope ?? "customers.read");
+  if (scope === null) throw new Error("Invalid OAuth registration scope.");
   if (!input.metadata.registration_endpoint) throw new Error("The authorization server does not support public-client registration.");
   if (!isLoopbackRedirect(input.redirectUri)) throw new Error("Public OAuth clients require an exact loopback redirect URI.");
   const response = await input.fetcher(input.metadata.registration_endpoint, {
-    body: JSON.stringify({ redirect_uris: [input.redirectUri], token_endpoint_auth_method: "none",
+    body: JSON.stringify({ redirect_uris: [input.redirectUri], token_endpoint_auth_method: "none", scope,
       grant_types: ["authorization_code", "refresh_token", ...(input.deviceGrant ? ["urn:ietf:params:oauth:grant-type:device_code"] : [])],
       response_types: ["code"] }),
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -375,5 +378,13 @@ export const registerPublicClient = async (input: Readonly<{
   if (!permitsRegisteredFlow(body, input.deviceGrant === true)) {
     throw new Error("OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.");
   }
+  if (!("scope" in body) || canonicalRegistrationScope(body.scope) !== scope) {
+    throw new Error("OAuth registration did not assign exactly the requested scopes. Contact your tenant administrator before retrying.");
+  }
   return { clientId: body.client_id };
 };
+
+/** Canonical scope set for exact registration assignment and protected profile reuse. */
+export const canonicalRegistrationScope = (value: unknown): string | null => typeof value === "string"
+  && value.length <= 1024 && /^[\x21\x23-\x5b\x5d-\x7e]+(?: [\x21\x23-\x5b\x5d-\x7e]+)*(?![\s\S])/u.test(value)
+  ? [...new Set(value.split(" "))].sort().join(" ") : null;

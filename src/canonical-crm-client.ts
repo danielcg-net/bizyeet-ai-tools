@@ -2,8 +2,18 @@ import { readBoundedJson as boundedResponse } from "./bounded-json.js";
 import { canonicalErrorCode, correlationReference, recordedFailureCode } from "./agent-error.js";
 import { isUuid as uuid } from "./uuid.js";
 import { validCursor } from "./cursor.js";
+import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
+import { paymentSummaryResponse } from "./payment-summary-response.js";
+import { validTaxReportOptions, taxReportDefaultFields, type TaxReportOptions } from "./tax-report-contract.js";
+import { taxReportResponse } from "./tax-report-response.js";
+import { validPaymentQuery } from "./payment-contract.js";
+import { validExpenseListOptions } from "./expense-contract.js";
+import { expenseResponse } from "./expense-response.js";
+import { validResourceId } from "./resource-id.js";
+export { validResourceId } from "./resource-id.js";
 
 export type CrmResource = "customers" | "leads";
+export type ReadResource = CrmResource | "payments" | "expenses";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
 export type ListOptions = ReadOptions & Readonly<{
   page_size?: number;
@@ -11,6 +21,17 @@ export type ListOptions = ReadOptions & Readonly<{
   search?: string;
   sort?: string;
   dir?: "asc" | "desc";
+  status?: string;
+  date_field?: string;
+  start?: string;
+  end?: string;
+  category?: string;
+  currency?: string;
+  schedule?: string;
+  start_date?: string;
+  end_date?: string;
+  frequency?: string;
+  active?: string;
 }>;
 export type CanonicalResult = Readonly<{ status: number; body: unknown }>;
 export type CustomerUpdatePreview = Readonly<{ resource_id: string; changes: Readonly<Record<string, string>> }>;
@@ -24,8 +45,10 @@ export type ClientDependencies = Readonly<{
   wait?: (milliseconds: number) => Promise<void>;
 }>;
 export type CanonicalCrmClient = Readonly<{
-  list: (resource: CrmResource, options?: ListOptions) => Promise<CanonicalResult>;
-  get: (resource: CrmResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
+  receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
+  taxReport: (options?: TaxReportOptions) => Promise<CanonicalResult>;
+  list: (resource: ReadResource, options?: ListOptions) => Promise<CanonicalResult>;
+  get: (resource: ReadResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
   previewCustomerUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
   executeCustomerUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   customerUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
@@ -33,13 +56,7 @@ export type CanonicalCrmClient = Readonly<{
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const validResource = (value: unknown): value is CrmResource => value === "customers" || value === "leads";
-/** Preserve opaque IDs while rejecting route substitutions and unbounded input. */
-export const validResourceId = (value: unknown): value is string => typeof value === "string"
-  && value.length >= 1 && value.length <= 1024 && Array.from(value).length <= 512 && !/^(?:\.|%2e){1,2}$/iu.test(value)
-  && !/[/\\?#]/u.test(value)
-  && !/[\uD800-\uDFFF]/u.test(value)
-  && Array.from(value).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127);
+const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses";
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const utcTimestamp = (value: unknown): value is string => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+00:00)$/iu.test(value)) return false;
@@ -102,6 +119,11 @@ const query = (options: ListOptions): string => new URLSearchParams([
   ...(options.sort === undefined ? [] : [["sort", options.sort]]),
   ...(options.dir === undefined ? [] : [["dir", options.dir]]),
   ...(options.fields === undefined ? [] : [["fields", options.fields.join(",")]]),
+  ...(options.status === undefined ? [] : [["status", options.status]]),
+  ...(options.date_field === undefined ? [] : [["date_field", options.date_field]]),
+  ...(options.start === undefined ? [] : [["start", options.start]]),
+  ...(options.end === undefined ? [] : [["end", options.end]]),
+  ...Object.entries(options).filter(([key, value]) => typeof value === "string" && ["category", "currency", "schedule", "start_date", "end_date", "frequency", "active"].includes(key)).map(([key, value]) => [key, String(value)]),
 ]).toString();
 const validEnvelope = (body: unknown, id: string | null, pageSize: number): boolean => {
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return false;
@@ -128,8 +150,15 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return request(url, init);
     }
   };
-  const read = async (resource: CrmResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
+  const read = async (resource: ReadResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
+    if (resource === "expenses") {
+      if (!validExpenseListOptions(options) || (id !== null && Object.keys(options).some((key) => key !== "fields"))) return failure(400, "invalid_request");
+    } else {
+      if ([options.category, options.currency, options.schedule, options.start_date, options.end_date, options.frequency, options.active].some((value) => value !== undefined)) return failure(400, "invalid_request");
+      if (resource === "payments" ? !validPaymentQuery(options)
+        : [options.status, options.date_field, options.start, options.end].some((value) => value !== undefined)) return failure(400, "invalid_request");
+    }
     if (id !== null && !validResourceId(id)) return failure(400, "invalid_request");
     if (options.cursor !== undefined && !validCursor(options.cursor)) return failure(400, "invalid_request");
     const pageSize = options.page_size ?? 25;
@@ -143,8 +172,15 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         redirect: "error", signal: AbortSignal.timeout(15_000),
       });
       const body = await boundedResponse(response, 1_048_576);
+      // The bearer middleware uses the OAuth error shape, not a business
+      // envelope. Preserve its 401 so the shared session can refresh once.
+      if (response.status === 401 && record(body) && body.error === "invalid_token") return failure(401, "authorization_required");
       if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
         ? { status: response.status, body } : failure(502, "invalid_response");
+      if (resource === "expenses") {
+        const projected = validExpenseListOptions(options) ? expenseResponse(body, options, id) : undefined;
+        return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
+      }
       if (!validEnvelope(body, id, pageSize) || !record(body) || !record(body.meta)) return failure(502, "invalid_response");
       return { status: response.status, body: { ...body, meta: { ...body.meta,
         ...(Object.hasOwn(body.meta, "request_id") ? { request_id: correlationReference(body.meta.request_id) } : {}),
@@ -152,6 +188,39 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     } catch {
       return failure(503, "request_unavailable");
     }
+  };
+  const reportRead = async (path: string, parameters: URLSearchParams, project: (body: unknown) => Readonly<Record<string, unknown>> | undefined): Promise<CanonicalResult> => {
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await requestRead(`${origin}${path}?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 1_048_576);
+      if (response.status === 401 && record(body) && body.error === "invalid_token") return failure(401, "authorization_required");
+      if (!response.ok) return record(body) && record(body.error) && typeof body.error.code === "string"
+        ? { status: response.status, body } : failure(502, "invalid_response");
+      const projected = project(body);
+      return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
+  const receivedPaymentSummary = async (options: PaymentSummaryOptions = {}): Promise<CanonicalResult> => {
+    if (!validPaymentSummaryOptions(options)) return failure(400, "invalid_request");
+    const parameters = new URLSearchParams([["api_version", "v1"],
+      ...(options.range === undefined ? [] : [["range", options.range]]),
+      ...(options.start_date === undefined ? [] : [["start_date", options.start_date]]),
+      ...(options.end_date === undefined ? [] : [["end_date", options.end_date]]),
+    ]);
+    return reportRead("/api/agent/payments/received-summary", parameters, (body) => paymentSummaryResponse(body, options));
+  };
+  const taxReport = async (options: TaxReportOptions = {}): Promise<CanonicalResult> => {
+    if (!validTaxReportOptions(options)) return failure(400, "invalid_request");
+    const evidence = (["currency", "authority", "entry_type", "province"] as const).filter((field) => options[field] !== undefined);
+    const transport = { ...options, fields: [...new Set([...(options.fields ?? taxReportDefaultFields), ...evidence, "received_at"])] };
+    const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(transport as Readonly<Record<string, unknown>>)
+      .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
+    return reportRead("/api/agent/reports/taxes", parameters, (body) => taxReportResponse(body, options));
   };
   const write = async (input: CustomerUpdatePreview | CustomerUpdateExecution, preview: boolean): Promise<CanonicalResult> => {
     if (!record(input)) return failure(400, "invalid_request");
@@ -207,8 +276,10 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     } catch { return failure(503, "request_unavailable"); }
   };
   return Object.freeze({
-    list: (resource: CrmResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
-    get: (resource: CrmResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
+    receivedPaymentSummary,
+    taxReport,
+    list: (resource: ReadResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
+    get: (resource: ReadResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
     previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true),
     executeCustomerUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => write(input, false),
     customerUpdateStatus,

@@ -26,7 +26,7 @@ export type CredentialAuthorityStore = Readonly<{
   transaction: <T>(operation: (session: CredentialAuthoritySession) => Promise<T>) => Promise<T>;
 }>;
 
-export type Profile = Readonly<{ clientId: string; issuer: string; deviceGrantVerified?: boolean; deviceRegistrationVersion?: number }>;
+export type Profile = Readonly<{ clientId: string; issuer: string; deviceGrantVerified?: boolean; deviceRegistrationVersion?: number; registeredScope?: string }>;
 export type ProfileCollection = Readonly<Record<string, Profile>>;
 export type ProfileOperationOutcome<T> = Readonly<{ result: T; cleanupFailed: boolean }>;
 export type CredentialCollection = Readonly<Record<string, StoredCredentials>>;
@@ -62,6 +62,7 @@ const isProfile = (value: unknown): value is Profile =>
   && typeof (value as Record<string, unknown>).clientId === "string"
   && typeof (value as Record<string, unknown>).issuer === "string"
   && (!("deviceGrantVerified" in value) || typeof value.deviceGrantVerified === "boolean")
+  && (!("registeredScope" in value) || (typeof value.registeredScope === "string" && value.registeredScope.length <= 1024))
   && (!("deviceRegistrationVersion" in value) || (typeof value.deviceRegistrationVersion === "number"
     && Number.isSafeInteger(value.deviceRegistrationVersion) && value.deviceRegistrationVersion > 0));
 

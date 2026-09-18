@@ -19,6 +19,47 @@ await Promise.all(["list", "get"].flatMap((method) => ["safe-reference", "bad\u0
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await test("payment filters use the canonical agent endpoint without provider selection", async () => {
+  const request = mock.fn((url: string, init: RequestInit) => {
+    assert.equal(new URL(url).origin, "https://tenant.example");
+    assert.equal(init.method, "GET");
+    return Promise.resolve(Response.json(emptyPage));
+  });
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  const options = { page_size: 10, status: "received", date_field: "received_at", start: "2026-09-01T00:00:00Z",
+    end: "2026-10-01T00:00:00Z", sort: "amount", dir: "desc", fields: ["id", "amount"] } as const;
+  assert.equal((await client.list("payments", options)).status, 200);
+  assert.equal(request.mock.callCount(), 1);
+  const [address, init] = request.mock.calls[0]?.arguments ?? [];
+  const url = new URL(address ?? "https://invalid.example");
+  assert.equal(url.pathname, "/api/agent/payments");
+  assert.deepEqual(Object.fromEntries(url.searchParams), {
+    api_version: "v1", limit: "10", status: "received", date_field: "received_at",
+    start: options.start, end: options.end, sort: "amount", dir: "desc", fields: "id,amount",
+  });
+  assert.equal(new Headers(init?.headers).get("authorization"), "Bearer oauth-access");
+});
+
+await Promise.all([
+  { fields: ["customer_email"] }, { sort: "customer_business" }, { start: "2026-02-30T00:00:00Z" },
+].map((options, index) => test(`payment transport rejects unsafe filter before OAuth access ${String(index)}`, async () => {
+  const request = mock.fn(() => Promise.resolve(Response.json(emptyPage)));
+  const getAccessToken = mock.fn(token);
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken, request });
+  assert.equal((await client.list("payments", options)).status, 400);
+  assert.equal(request.mock.callCount(), 0);
+  assert.equal(getAccessToken.mock.callCount(), 0);
+})));
+
+await Promise.all((["customers", "leads", "payments"] as const).flatMap((resource) => ["list", "get"].map((method) =>
+  test(`${resource} ${method} preserves OAuth invalid-token denial without a transport replay`, async () => {
+    const request = mock.fn(() => Promise.resolve(Response.json({ error: "invalid_token", error_description: "untrusted-secret" }, { status: 401 })));
+    const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+    const result = method === "list" ? await client.list(resource) : await client.get(resource, "synthetic-id");
+    assert.deepEqual(result, { status: 401, body: { error: { code: "authorization_required" } } });
+    assert.equal(request.mock.callCount(), 1);
+  }))));
+
 await Promise.all(["bad\uD800id", "bad\uDC00id", "\uD800\uD800", "\uDC00\uD800", "paired😀id"].map((id, index) => test(`opaque ID scalar validation case ${String(index)}`, async () => {
   const request = mock.fn((url: string) => Promise.resolve(Response.json(url.includes("/customers?")
     ? { ...emptyPage, data: { items: [{ id }], total: 1 } }

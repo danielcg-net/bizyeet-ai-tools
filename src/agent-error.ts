@@ -10,12 +10,19 @@ const codes = new Set([
   "authentication_required", "authorization_required", "authorization_denied", "invalid_request",
   "not_found", "conflict", "idempotency_conflict", "preview_expired", "approval_required",
   "invalid_cursor", "rate_limited", "internal_error", "provider_unavailable", "request_unavailable",
-  "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress",
+  "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress", "customer_provider_not_configured",
 ]);
-/** Shared safe wire-code vocabulary, including the existing server's legacy unsupported spelling. */
+const aliases: Readonly<Record<string, string>> = Object.freeze({
+  crm_operation_unsupported: "unsupported_operation",
+  payment_operation_unsupported: "unsupported_operation",
+  payment_provider_unsupported: "unsupported_operation",
+  payment_provider_unavailable: "provider_unavailable",
+  payment_provider_invalid_response: "invalid_response",
+  provider_configuration_changed: "conflict",
+});
+/** Normalize documented domain errors without interpreting provider routing. */
 export const canonicalErrorCode = (value: unknown): string | undefined =>
-  value === "crm_operation_unsupported" ? "unsupported_operation"
-    : typeof value === "string" && codes.has(value) ? value : undefined;
+  typeof value === "string" ? Object.hasOwn(aliases, value) ? aliases[value] : codes.has(value) ? value : undefined : undefined;
 
 const recordedFailureCodes = new Set([
   "authentication_required", "authorization_denied", "invalid_request", "not_found", "conflict",
@@ -24,7 +31,9 @@ const recordedFailureCodes = new Set([
 ]);
 /** Recorded server outcomes exclude client transport and response-validation failures. */
 export const recordedFailureCode = (value: unknown): string | undefined => {
-  const code = canonicalErrorCode(value);
+  // Read-domain aliases must not widen the existing customer write journal.
+  const code = value === "crm_operation_unsupported" ? "unsupported_operation"
+    : typeof value === "string" && codes.has(value) ? value : undefined;
   return code !== undefined && recordedFailureCodes.has(code) ? code : undefined;
 };
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -42,7 +51,7 @@ export const agentFailure = (status: number, body: unknown): AgentFailure => {
   const code = canonicalErrorCode(error.code) ?? "internal_error";
   const requestId = correlationReference(error.request_id);
   return Object.freeze({ kind: "agent_failure", code, status, requestId,
-    retryable: ["execution_ambiguous", "execution_in_progress"].includes(code) ? false
+    retryable: ["execution_ambiguous", "execution_in_progress", "customer_provider_not_configured"].includes(code) ? false
       : typeof error.retryable === "boolean" ? error.retryable : status === 429 || status >= 500 });
 };
 
@@ -63,6 +72,7 @@ export const agentFailureExitCode = (failure: AgentFailure): number => {
 
 /** Emits local safe recovery copy; never repeats an upstream error payload. */
 export const agentFailureMessage = (failure: AgentFailure): string => {
+  if (failure.code === "customer_provider_not_configured") return "Ask your tenant administrator to configure the customer provider in BizYeet settings, then retry. Signing in again will not fix provider configuration.";
   if (["execution_ambiguous", "execution_in_progress"].includes(failure.code)) return "Read the outcome with customers update status using the original preview ID and idempotency key. Do not retry with a new idempotency key or create a replacement write.";
   if (agentFailureExitCode(failure) === 3) return "Run auth login to reconnect this profile.";
   if (failure.code === "invalid_cursor") return "Start a fresh list request without the expired or incompatible cursor.";

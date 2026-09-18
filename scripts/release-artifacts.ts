@@ -39,10 +39,14 @@ const hashFile = async (path: string): Promise<string> => {
   return hash.digest("hex");
 };
 
+/** The full gate includes builds, lint and native tests; short npm operations keep their tighter bound. */
+export const releaseNpmTimeout = (args: readonly string[]): number =>
+  args.length === 2 && args[0] === "run" && args[1] === "check" ? 600_000 : 120_000;
+
 const npm = async (args: readonly string[], cwd: string): Promise<string> => {
   const cli = process.env.npm_execpath;
   if (!cli) throw new Error("Run artifact verification through npm run release:verify.");
-  const execution = execute(process.execPath, [cli, ...args], { cwd, timeout: 120_000, maxBuffer: 8 * 1024 * 1024 });
+  const execution = execute(process.execPath, [cli, ...args], { cwd, timeout: releaseNpmTimeout(args), maxBuffer: 8 * 1024 * 1024 });
   // Keep the complete test failure visible; Node's inspection of a rejected
   // execFile promise truncates its stdout property before late test failures.
   if (args[0] === "run" && args[1] === "check") {

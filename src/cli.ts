@@ -5,15 +5,22 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
-import { validOAuthScope } from "./oauth-scope.js";
+import { canonicalRegistrationScope } from "./oauth.js";
 import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
-import { checkIdentity, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
+import { validPaymentQuery } from "./payment-contract.js";
+import { getExpense, listExpenses } from "./agent-client.js";
+import { validExpenseListOptions } from "./expense-contract.js";
 import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validResourceId } from "./canonical-crm-client.js";
 import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
+import { receivedPaymentSummary } from "./agent-client.js";
+import { validPaymentSummaryOptions } from "./payment-summary-contract.js";
+import { readTaxReport } from "./agent-client.js";
+import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { exportReadResponse, READ_OUTPUT_BYTE_LIMIT } from "./read-export.js";
 import { escapeDisplayJson } from "./display-json.js";
 import { isUuid } from "./uuid.js";
@@ -34,6 +41,12 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  readTaxReport?: (input: Omit<Parameters<typeof readTaxReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  getExpense?: (input: Omit<Parameters<typeof getExpense>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  listExpenses?: (input: Omit<Parameters<typeof listExpenses>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  receivedPaymentSummary?: (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  getPayment?: (input: Omit<Parameters<typeof getAgentPayment>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  listPayments?: (input: Omit<Parameters<typeof listAgentPayments>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   exportReadResponse?: typeof exportReadResponse;
   previewCustomerUpdate?: (input: Omit<Parameters<typeof previewCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeCustomerUpdate?: (input: Omit<Parameters<typeof executeCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -41,7 +54,9 @@ type CliRuntime = Readonly<{
   readChanges?: typeof readChanges;
   readApprovalReceipt?: typeof readApprovalReceipt;
   checkIdentity?: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
-  getCustomer: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile; resourceId: string }>) => Promise<AgentResult>;
+  getLead?: (input: Omit<Parameters<typeof getAgentLead>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  listLeads?: (input: Omit<Parameters<typeof listAgentLeads>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  getCustomer: (input: Omit<Parameters<typeof getAgentCustomer>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listCustomers: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; options: CustomerListOptions; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   loginBrowser: (input: Readonly<{ issuer: string; scope: string }>) => ReturnType<typeof loginWithBrowser>;
   loginDevice: (input: Parameters<typeof loginWithDevice>[0], onVerification: (device: DeviceAuthorization) => void) => ReturnType<typeof loginWithDevice>;
@@ -56,6 +71,14 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  readTaxReport: async (input) => readTaxReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  getExpense: async (input) => getExpense({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  listExpenses: async (input) => listExpenses({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  receivedPaymentSummary: async (input) => receivedPaymentSummary({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  getPayment: async (input) => getAgentPayment({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  listPayments: async (input) => listAgentPayments({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  getLead: async (input) => getAgentLead({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  listLeads: async (input) => listAgentLeads({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   readChanges,
   readApprovalReceipt,
   previewCustomerUpdate: async (input) => previewCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -85,7 +108,13 @@ const helpMessage = [
   "Usage: bizyeet auth <login|status|check|logout> [--profile <name>]",
   "       auth status inspects local credentials; auth check verifies current server access.",
   "       bizyeet customers list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
-  "       bizyeet customers get <opaque-id> [--profile <name>] [--export]",
+  "       bizyeet customers get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet leads list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet leads get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet payments list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <sent|received>] [--date-field <field>] [--start <UTC>] [--end <UTC>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
+  "       bizyeet payments get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet expenses list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <due|paid|skipped>] [--category <name>] [--currency <ISO>] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
+  "       bizyeet expenses get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "Read commands accept --export for a private local JSON file; responses above 32 KiB export automatically. No output-path argument or automatic pagination is supported.",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
   "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
@@ -93,6 +122,10 @@ const helpMessage = [
   "Preview reads a bounded JSON changes object from stdin; review its approval_path in your signed-in dashboard.",
   "Execution prompts for a hidden approval receipt. Harnesses use a private pipe with --receipt-stdin; never put receipts in commands, shell history or chat.",
   "Generate and retain one UUID idempotency key for this execution. Never replace it to recover an uncertain outcome.",
+  "       bizyeet payments received-summary [--range <today|month|last_month|ytd|custom>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--profile <name>] [--export]",
+  "Summary custom dates are inclusive in the tenant timezone; currency groups are never combined. This is gross collected receipts, not net revenue.",
+  "       bizyeet reports taxes [--range <today|7d|30d|month|last_month|ytd|custom>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--authority <code>] [--province <code>] [--currency <code>] [--entry-type <collected|reversal|adjustment>] [--page <number>] [--limit <1-100>] [--fields <csv>] [--profile <name>] [--export]",
+  "Tax reports require reports.read and tenant-admin access. Month is month-to-date; totals remain in separate currencies and are not filing-ready.",
   "       bizyeet --version",
   "       bizyeet diagnostics (local runtime and manual-update guidance; no network or credentials)",
   "Authentication uses OAuth with PKCE or Device Authorization; API keys, personal access tokens, and passwords are not accepted.",
@@ -134,21 +167,28 @@ const profileInputMessages = new Set([
   "Use --profile once with a valid profile name.", "Profile names use lowercase letters, digits, and hyphens only.",
 ]);
 const safeValidationMessages = new Set([
+  "Payment summary options are invalid.",
+  ...["--range", "--start-date", "--end-date"].map((option) => `Use ${option} once with a value.`),
   ...profileInputMessages,
+  "OAuth registration did not assign exactly the requested scopes. Contact your tenant administrator before retrying.",
   "OAuth registration does not permit secretless login with the selected flow and refresh tokens. Contact your tenant administrator before retrying.",
   "Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.",
   "Write input is invalid, oversized, cancelled or expired.",
   "Preview changes require piped JSON with --input-stdin.",
   "Use hidden terminal entry, or --receipt-stdin with a pipe.",
-  "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.",
+  "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.", "Lead ID is invalid.",
   CRM_SEARCH_LIMIT_MESSAGE, "Requested fields are invalid.",
   "Stored BizYeet credentials are invalid.", "Credential fallback file permissions are unsafe; expected mode 0600.",
   "Credential fallback file permissions are unsafe; expected an owner-only regular file with mode 0600.",
   "Credential fallback directory is unsafe; expected an owner-only directory with mode 0700.",
   "Credential fallback file must not be a symbolic link.",
   "customers list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
+  "leads list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
+  "Payment read options are invalid.",
+  "Payment ID is invalid.",
+  "Unsupported payment list option.",
   "customers get requires one opaque ID and optional --profile.",
-  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key"].map((option) => `Use ${option} once with a value.`),
+  ...["--cursor", "--fields", "--limit", "--profile", "--search", "--issuer", "--scope", "--idempotency-key", "--status", "--date-field", "--start", "--end", "--sort", "--dir"].map((option) => `Use ${option} once with a value.`),
 ]);
 const safeLocalMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && safeValidationMessages.has(error.message) ? error.message : fallback;
@@ -227,9 +267,9 @@ const loginOptions = (args: readonly string[]): Readonly<{ name: string; issuer:
   try {
     const name = profileFrom(args);
     const issuer = oneOption(args, "--issuer");
-    const scope = oneOption(args, "--scope", "customers.read");
+    const scope = canonicalRegistrationScope(oneOption(args, "--scope", "customers.read"));
     // RFC 6749 section 3.3: scope-token *(SP scope-token), no quote/backslash.
-    if (!validOAuthScope(scope)) return invalidInput("Use nonempty OAuth scope tokens separated by one space, without quotes, backslashes or non-ASCII characters.");
+    if (scope === null) return invalidInput("Use at most 1024 ASCII characters of nonempty OAuth scope tokens separated by one space, without quotes or backslashes.");
     if (!issuer) return invalidInput("auth login requires --issuer.");
     return { name, issuer: issuerOrigin(issuer).origin, scope };
   } catch (error) {
@@ -247,7 +287,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
     const previousCredentials = credentials[profileNameValue];
     const previousProfile = previousCredentials?.profile;
     const existingClientId = previousProfile?.issuer === issuer && previousProfile.deviceGrantVerified === true
-      && previousProfile.deviceRegistrationVersion === 1
+      && previousProfile.deviceRegistrationVersion === 2 && canonicalRegistrationScope(previousProfile.registeredScope) === scope
       ? previousProfile.clientId : undefined;
     if (previousCredentials?.refreshToken) {
       if (!previousProfile) return result(3, errorEnvelope("authentication_required", "This legacy profile has no bound issuer. Revoke its access in dashboard settings and run auth logout before replacing it."), "stderr");
@@ -258,7 +298,7 @@ const login = async (args: readonly string[], dependencies: CliStorage, executio
       }
     }
     const completed = args.includes("--device")
-      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 1 as const } : {}), issuer, scope }, onVerification)
+      ? await execution.loginDevice({ ...(existingClientId ? { clientId: existingClientId, deviceRegistrationVersion: 2, registeredScope: scope } : {}), issuer, scope }, onVerification)
       : await execution.loginBrowser({ issuer, scope });
     try {
       await dependencies.saveCredentials(profileNameValue, { ...completed.credentials, profile: completed.profile });
@@ -338,16 +378,33 @@ const readOutput = async (outcome: AgentResult, explicit: boolean, execution: Cl
   }
 };
 
-const customerListOptions = (args: readonly string[]): CustomerListOptions => {
-  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search"], ["--export"])) throw new Error("customers list accepts --cursor, --fields, --limit, --profile, --search, and --export only.");
+const crmListOptions = (resource: "customers" | "leads" | "payments", args: readonly string[]): PaymentListOptions => {
+  if (!hasOnlyOptions(args, ["--cursor", "--fields", "--limit", "--profile", "--search", ...(resource === "payments" ? ["--status", "--date-field", "--start", "--end", "--sort", "--dir"] : [])], ["--export"])) throw new Error(resource === "payments" ? "Unsupported payment list option." : `${resource} list accepts --cursor, --fields, --limit, --profile, --search, and --export only.`);
   const rawLimit = oneOption(args, "--limit", "25");
   const fields = oneOption(args, "--fields", "").split(",").filter(Boolean);
-  return {
+  const options = {
     ...(oneOption(args, "--cursor", "") ? { cursor: oneOption(args, "--cursor", "") } : {}),
     ...(fields.length ? { fields } : {}),
     limit: Number(rawLimit),
     ...(oneOption(args, "--search", "") ? { search: oneOption(args, "--search", "") } : {}),
   };
+  if (resource !== "payments") return options;
+  const status = oneOption(args, "--status", "");
+  const dateField = oneOption(args, "--date-field", "");
+  const start = oneOption(args, "--start", "");
+  const end = oneOption(args, "--end", "");
+  const sort = oneOption(args, "--sort", "");
+  const dir = oneOption(args, "--dir", "");
+  const payment = { ...options,
+    ...(status ? { status } : {}),
+    ...(dateField ? { date_field: dateField } : {}),
+    ...(start ? { start } : {}),
+    ...(end ? { end } : {}),
+    ...(sort ? { sort } : {}),
+    ...(dir ? { dir } : {}),
+  };
+  if (!validPaymentQuery(payment)) throw new Error("Payment read options are invalid.");
+  return payment;
 };
 
 const beforeSeparator = (args: readonly string[]): readonly string[] =>
@@ -365,21 +422,99 @@ const resourceTarget = (args: readonly string[], valueOptions: readonly string[]
   return { id, options };
 };
 
-const customers = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+const expenseRead = async (input: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const [command, ...rawOptions] = input;
+  const resource = "expenses";
+  if (command !== "list" && command !== "get") return unsupportedCommand(`${resource} ${command ?? ""}`.trim());
+  try {
+    const target = command === "get" ? resourceTarget(rawOptions, ["--profile", "--fields"], ["--export"]) : undefined;
+    if (command === "get" && !target) return invalidInput(`${resource} get requires one opaque ID.`);
+    const args = target?.options ?? rawOptions;
+    const filters = Object.freeze(["cursor", "search", "sort", "dir", "category", "currency", "status", "start", "end"]);
+    const valueOptions = ["--profile", "--fields", ...(command === "list" ? ["--limit", ...filters.map((key) => `--${key}`)] : [])];
+    if (!hasOnlyOptions(args, valueOptions, ["--export"])
+      || valueOptions.some((key) => valuesFor(args, key).length > 1 || valuesFor(args, key).some((value) => !value))
+      || args.filter((arg) => arg === "--export").length > 1) return invalidInput("Expense read options are invalid.");
+    const fields = valuesFor(args, "--fields").length > 0 ? { fields: oneOption(args, "--fields", "").split(",") } : {};
+    const options = command === "get" ? fields : { ...fields, page_size: Number(oneOption(args, "--limit", "25")),
+      ...Object.fromEntries(filters.filter((key) => valuesFor(args, `--${key}`).length > 0).map((key) => [key.replaceAll("-", "_"), oneOption(args, `--${key}`, "")])),
+    };
+    if (!validExpenseListOptions(options)) return invalidInput("Expense read options are invalid.");
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    const session = { credentials: authenticated.credentials, profile: authenticated.profile,
+      persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(authenticated.name, credentials) };
+    if (command === "list" && execution.listExpenses) return await readOutput(await execution.listExpenses({ ...session, options }), args.includes("--export"), execution);
+    if (target && execution.getExpense) return await readOutput(await execution.getExpense({ ...session, resourceId: target.id, options }), args.includes("--export"), execution);
+    return unsupportedCommand(`${resource} ${command}`);
+  } catch (error) { return requestFailure(error); }
+};
+
+const summaryRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    if (!hasOnlyOptions(args, ["--range", "--start-date", "--end-date", "--profile"], ["--export"])
+      || args.filter((arg) => arg === "--export").length > 1) return invalidInput("Payment summary options are invalid.");
+    const range = oneOption(args, "--range", "month");
+    const start = oneOption(args, "--start-date", "");
+    const end = oneOption(args, "--end-date", "");
+    const options = { range, ...(start ? { start_date: start } : {}), ...(end ? { end_date: end } : {}) };
+    if (!validPaymentSummaryOptions(options)) return invalidInput("Payment summary options are invalid.");
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.receivedPaymentSummary) return unsupportedCommand("payments received-summary");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.receivedPaymentSummary({ credentials: authenticated.credentials, profile: authenticated.profile, options, persistCredentials }), args.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
+const taxReadOptions = (args: readonly string[]): TaxReportOptions | undefined => {
+  try {
+    const mapping = { "--range": "range", "--start-date": "start_date", "--end-date": "end_date", "--authority": "authority",
+      "--province": "province", "--currency": "currency", "--entry-type": "entry_type", "--page": "page", "--limit": "page_size", "--fields": "fields" };
+    if (!hasOnlyOptions(args, [...Object.keys(mapping), "--profile"], ["--export"])
+      || args.filter((arg) => arg === "--export").length > 1) return undefined;
+    const options = Object.fromEntries(Object.entries(mapping).flatMap(([flag, key]): readonly (readonly [string, unknown])[] => {
+      const value = oneOption(args, flag);
+      if (!value) return [];
+      if (key === "page" || key === "page_size") return [[key, /^[1-9]\d*$/u.test(value) ? Number(value) : null]];
+      return [[key, key === "fields" ? value.split(",") : value]];
+    }));
+    return validTaxReportOptions(options) ? options : undefined;
+  } catch { return undefined; }
+};
+
+const taxRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const options = taxReadOptions(args);
+  if (!options) return invalidInput("Tax report options are invalid.");
+  try {
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.readTaxReport) return unsupportedCommand("reports taxes");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.readTaxReport({ credentials: authenticated.credentials, profile: authenticated.profile, options, persistCredentials }), args.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
+const crmRead = async (resource: "customers" | "leads" | "payments", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
-  if (command === "update") return customerUpdate(options, dependencies, execution);
+  if (resource === "customers" && command === "update") return customerUpdate(options, dependencies, execution);
   try {
     if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
-    const listOptions = command === "list" ? customerListOptions(options) : undefined;
-    const target = command === "get" ? resourceTarget(options, ["--profile"], ["--export"]) : undefined;
-    if (command === "get" && !target) return invalidInput("customers get requires one opaque ID and optional --profile.");
-    if (command !== "list" && command !== "get") return unsupportedCommand(`customers ${command ?? ""}`.trim());
+    const listOptions = command === "list" ? crmListOptions(resource, options) : undefined;
+    const target = command === "get" ? resourceTarget(options, ["--profile", "--fields"], ["--export"]) : undefined;
+    if (command === "get" && !target) return invalidInput(`${resource} get requires one opaque ID and optional --profile, --fields or --export.`);
+    if (command !== "list" && command !== "get") return unsupportedCommand(`${resource} ${command ?? ""}`.trim());
+    const fields = command === "get" ? oneOption(target?.options ?? [], "--fields", "").split(",").filter(Boolean) : [];
+    if (resource === "payments" && !validPaymentQuery({ fields })) return invalidInput("Payment read options are invalid.");
     const authenticated = await authenticatedProfile(target?.options ?? options, dependencies);
     if ("exitCode" in authenticated) return authenticated;
     const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
     const explicit = beforeSeparator(options).includes("--export");
-    if (listOptions) return await readOutput(await execution.listCustomers({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }), explicit, execution);
-    return await readOutput(await execution.getCustomer({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: target?.id ?? "" }), explicit, execution);
+    const list = resource === "customers" ? execution.listCustomers : resource === "leads" ? execution.listLeads : execution.listPayments;
+    const get = resource === "customers" ? execution.getCustomer : resource === "leads" ? execution.getLead : execution.getPayment;
+    if (listOptions && list) return await readOutput(await list({ credentials: authenticated.credentials, options: listOptions, persistCredentials, profile: authenticated.profile }), explicit, execution);
+    if (!get || listOptions) return unsupportedCommand(`${resource} ${command}`);
+    return await readOutput(await get({ credentials: authenticated.credentials, persistCredentials, profile: authenticated.profile, resourceId: target?.id ?? "", ...(fields.length ? { options: { fields } } : {}) }), explicit, execution);
   } catch (error) {
     return requestFailure(error);
   }
@@ -428,7 +563,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (first === "diagnostics") return args.length === 1 ? output(diagnostics()) : invalidInput("diagnostics accepts no arguments other than --json.");
   if (args.length === 0 || optionArgs.includes("--help") || optionArgs.includes("-h")) return result(0, helpMessage, "stdout");
-  if (dependencies.withProfileLock && (first === "customers" || first === "auth")) {
+  if (dependencies.withProfileLock && (first === "customers" || first === "leads" || first === "payments" || first === "expenses" || first === "reports" || first === "auth")) {
     try {
       if (first === "auth" && second === "login") {
         const parsed = loginOptions(args.slice(2));
@@ -443,7 +578,11 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
       return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
     }
   }
-  if (first === "customers") return customers(args.slice(1), dependencies, execution);
+  if (first === "expenses" && second === "schedules") return unsupportedCommand("expenses schedules");
+  if (first === "expenses") return expenseRead(args.slice(1), dependencies, execution);
+  if (first === "reports" && second === "taxes") return taxRead(args.slice(2), dependencies, execution);
+  if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);
+  if (first === "customers" || first === "leads" || first === "payments") return crmRead(first, args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
   if (second === "status") return status(args.slice(2), dependencies);

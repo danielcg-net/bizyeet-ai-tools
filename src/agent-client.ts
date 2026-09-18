@@ -3,11 +3,15 @@ import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validOAuthScope } from "./oauth-scope.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch } from "./search-contract.js";
 import { validCursor } from "./cursor.js";
+import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
+import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
+import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
+import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -15,6 +19,7 @@ export type CustomerListOptions = Readonly<{
   limit?: number;
   search?: string;
 }>;
+export type PaymentListOptions = CustomerListOptions & PaymentFilters;
 
 export type AgentResult = Readonly<{ credentials: StoredCredentials; response: unknown }>;
 export type PersistCredentials = (credentials: StoredCredentials) => Promise<void>;
@@ -28,6 +33,10 @@ export const refreshPersistenceMessages = {
 } as const;
 
 const fieldPattern = /^[a-z][a-z0-9_]{0,63}$/u;
+const boundedReadOptions = (options: ReadOptions): ReadOptions => {
+  if (options.fields && (options.fields.length > 20 || !options.fields.every((field) => fieldPattern.test(field)))) throw new Error("Requested fields are invalid.");
+  return options.fields?.length ? { fields: options.fields } : {};
+};
 const validTenantIdentifier = (value: unknown): value is string => typeof value === "string"
   && value.trim().length > 0 && value.length <= 512 && !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(value);
 
@@ -36,10 +45,9 @@ const boundedOptions = (options: CustomerListOptions): ListOptions => {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("--limit must be an integer from 1 to 100.");
   if (options.cursor && !validCursor(options.cursor)) throw new Error("Cursor is invalid.");
   if (options.search && !validCrmSearch(options.search)) throw new Error(CRM_SEARCH_LIMIT_MESSAGE);
-  if (options.fields && (options.fields.length > 20 || !options.fields.every((field) => fieldPattern.test(field)))) throw new Error("Requested fields are invalid.");
   return {
     ...(options.cursor ? { cursor: options.cursor } : {}),
-    ...(options.fields?.length ? { fields: options.fields } : {}),
+    ...boundedReadOptions(options),
     page_size: limit,
     ...(options.search ? { search: options.search } : {}),
   };
@@ -140,6 +148,26 @@ export const checkIdentity = (input: Readonly<{
   }, meta: { contract_version: "v1", request_id: crypto.randomUUID() } } };
 } });
 
+/** Read canonical receipt totals through the shared OAuth refresh and persistence flow. */
+export const receivedPaymentSummary = async (input: Readonly<{
+  credentials: StoredCredentials;
+  fetcher: FetchLike;
+  metadata: MetadataSource;
+  now: () => number;
+  options: PaymentSummaryOptions;
+  persistCredentials: PersistCredentials;
+  profile: Profile;
+}>): Promise<AgentResult> => {
+  if (!validPaymentSummaryOptions(input.options)) throw new Error("Payment summary options are invalid.");
+  return invoke({ ...input, operation: (client) => client.receivedPaymentSummary(input.options) });
+};
+
+/** Read canonical tax reports through the shared OAuth refresh and persistence boundary. */
+export const readTaxReport = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ options: TaxReportOptions }>): Promise<AgentResult> => {
+  if (!validTaxReportOptions(input.options)) throw new Error("Tax report options are invalid.");
+  return invoke({ ...input, operation: (client) => client.taxReport(input.options) });
+};
+
 /** Lists at most 100 contract-defined customer records without accepting arbitrary paths or query keys. */
 export const listCustomers = async (input: Readonly<{
   credentials: StoredCredentials;
@@ -163,9 +191,46 @@ export const getCustomer = async (input: Readonly<{
   persistCredentials: PersistCredentials;
   profile: Profile;
   resourceId: string;
+  options?: ReadOptions;
 }>): Promise<AgentResult> => {
   if (!validResourceId(input.resourceId)) throw new Error("Customer ID is invalid.");
-  return invoke({ ...input, operation: (client) => client.get("customers", input.resourceId) });
+  const options = boundedReadOptions(input.options ?? {});
+  return invoke({ ...input, operation: (client) => client.get("customers", input.resourceId, options) });
+};
+
+/** Lists bounded canonical leads through the same OAuth refresh and persistence boundary as customers. */
+export const listLeads = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
+  const options = boundedOptions(input.options);
+  return invoke({ ...input, operation: (client) => client.list("leads", options) });
+};
+
+/** Reads a projected canonical lead without provider-specific routing or arbitrary query keys. */
+export const getLead = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Lead ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  return invoke({ ...input, operation: (client) => client.get("leads", input.resourceId, options) });
+};
+
+/** Read payment facts using the same refresh/persistence boundary and canonical API. */
+export const listPayments = async (input: Omit<Parameters<typeof listCustomers>[0], "options"> & Readonly<{ options: PaymentListOptions }>): Promise<AgentResult> => {
+  if (!validPaymentQuery(input.options)) throw new Error("Payment read options are invalid.");
+  const options: ListOptions = { ...boundedOptions(input.options),
+    ...(input.options.status === undefined ? {} : { status: input.options.status }),
+    ...(input.options.date_field === undefined ? {} : { date_field: input.options.date_field }),
+    ...(input.options.start === undefined ? {} : { start: input.options.start }),
+    ...(input.options.end === undefined ? {} : { end: input.options.end }),
+    ...(input.options.sort === undefined ? {} : { sort: input.options.sort }),
+    ...(input.options.dir === undefined ? {} : { dir: input.options.dir }),
+  };
+  return invoke({ ...input, operation: (client) => client.list("payments", options) });
+};
+
+/** Read one opaque payment ID; never decode provider identity in the client. */
+export const getPayment = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Payment ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  if (!validPaymentQuery(options)) throw new Error("Payment read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("payments", input.resourceId, options) });
 };
 
 type WriteSession = Readonly<{
@@ -176,6 +241,20 @@ type WriteSession = Readonly<{
   persistCredentials: PersistCredentials;
   profile: Profile;
 }>;
+
+/** Read expenses through the shared OAuth refresh and persistence boundary. */
+export const listExpenses = async (input: WriteSession & Readonly<{ options: ExpenseListOptions }>): Promise<AgentResult> => {
+  if (!validExpenseListOptions(input.options)) throw new Error("Expense read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("expenses", input.options) });
+};
+
+/** Keep expense identity opaque; canonical API enforces live scope and role. */
+export const getExpense = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  const options = input.options ?? {};
+  if (!validResourceId(input.resourceId) || !validExpenseListOptions(options)
+    || Object.keys(options).some((key) => key !== "fields")) throw new Error("Expense read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("expenses", input.resourceId, options) });
+};
 
 /** Refresh before preview; canonical server owns validation, routing and approval policy. */
 export const previewCustomerUpdate = (input: WriteSession & Readonly<{ proposal: CustomerUpdatePreview }>): Promise<AgentResult> =>
