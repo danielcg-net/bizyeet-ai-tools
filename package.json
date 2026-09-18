@@ -33,7 +33,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.0",
     "@types/node": "^26.4.0",
-    "eslint": "^10.0.0",
+    "eslint": "^10.10.0",
     "marked": "18.0.12",
     "shell-quote": "1.10.0",
     "typescript": "^5.0.0",
