@@ -32,7 +32,7 @@ export const validExpenseListOptions = (value: unknown): value is ExpenseListOpt
     && (input.cursor === undefined || (typeof input.cursor === "string" && /^[A-Za-z0-9_-]{32,128}$/u.test(input.cursor)))
     && (input.fields === undefined || (Array.isArray(input.fields) && input.fields.length > 0 && input.fields.length <= expenseReadFields.length
       && new Set(input.fields).size === input.fields.length && input.fields.every((field: unknown) => typeof field === "string" && (expenseReadFields as readonly string[]).includes(field))))
-    && optionalText(input.search, 120) && optionalText(input.category, 32)
+    && optionalText(input.search, 120) && optionalText(input.category, 100)
     && member(expenseSortFields, input.sort) && member(["asc", "desc"], input.dir) && member(["due", "paid", "skipped"], input.status)
     && (input.currency === undefined || (typeof input.currency === "string" && /^[A-Z]{3}$/u.test(input.currency)))
     && calendarDate(input.start) && calendarDate(input.end)

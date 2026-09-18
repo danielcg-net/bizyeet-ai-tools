@@ -2,7 +2,7 @@ import { expenseDatePattern, expenseReadFields, expenseSortFields } from "./expe
 
 const version = Object.freeze({ type: "string", const: "v1" });
 const handle = Object.freeze({ type: "string", minLength: 1, maxLength: 512 });
-const fields = Object.freeze({ type: "array", maxItems: expenseReadFields.length, items: Object.freeze({ type: "string", enum: expenseReadFields }) });
+const fields = Object.freeze({ type: "array", minItems: 1, maxItems: expenseReadFields.length, uniqueItems: true, items: Object.freeze({ type: "string", enum: expenseReadFields }) });
 const date = Object.freeze({ type: "string", pattern: expenseDatePattern, description: "Inclusive local incurred date, YYYY-MM-DD." });
 const annotations = Object.freeze({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const);
 const securitySchemes = Object.freeze([Object.freeze({ type: "oauth2", scopes: Object.freeze(["expenses.read"] as const) } as const)]);
