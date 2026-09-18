@@ -9,13 +9,11 @@ import { taxReportResponse } from "./tax-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
-import { validExpenseScheduleListOptions } from "./expense-schedule-contract.js";
-import { expenseScheduleResponse } from "./expense-schedule-response.js";
 import { validResourceId } from "./resource-id.js";
 export { validResourceId } from "./resource-id.js";
 
 export type CrmResource = "customers" | "leads";
-export type ReadResource = CrmResource | "payments" | "expenses" | "expense-schedules";
+export type ReadResource = CrmResource | "payments" | "expenses";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
 export type ListOptions = ReadOptions & Readonly<{
   page_size?: number;
@@ -58,7 +56,7 @@ export type CanonicalCrmClient = Readonly<{
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses" || value === "expense-schedules";
+const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses";
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const utcTimestamp = (value: unknown): value is string => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+00:00)$/iu.test(value)) return false;
@@ -154,9 +152,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   const read = async (resource: ReadResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
-    if (resource === "expense-schedules") {
-      if (!validExpenseScheduleListOptions(options) || (id !== null && Object.keys(options).some((key) => key !== "fields"))) return failure(400, "invalid_request");
-    } else if (resource === "expenses") {
+    if (resource === "expenses") {
       if (!validExpenseListOptions(options) || (id !== null && Object.keys(options).some((key) => key !== "fields"))) return failure(400, "invalid_request");
     } else {
       if ([options.category, options.currency, options.schedule, options.start_date, options.end_date, options.frequency, options.active].some((value) => value !== undefined)) return failure(400, "invalid_request");
@@ -183,10 +179,6 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         ? { status: response.status, body } : failure(502, "invalid_response");
       if (resource === "expenses") {
         const projected = validExpenseListOptions(options) ? expenseResponse(body, options, id) : undefined;
-        return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
-      }
-      if (resource === "expense-schedules") {
-        const projected = validExpenseScheduleListOptions(options) ? expenseScheduleResponse(body, options, id) : undefined;
         return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
       }
       if (!validEnvelope(body, id, pageSize) || !record(body) || !record(body.meta)) return failure(502, "invalid_response");
