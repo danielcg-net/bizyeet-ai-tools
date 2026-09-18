@@ -12,7 +12,6 @@ import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./paymen
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
-import { validExpenseScheduleListOptions, type ExpenseScheduleListOptions } from "./expense-schedule-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -255,20 +254,6 @@ export const getExpense = async (input: Parameters<typeof getCustomer>[0]): Prom
   if (!validResourceId(input.resourceId) || !validExpenseListOptions(options)
     || Object.keys(options).some((key) => key !== "fields")) throw new Error("Expense read options are invalid.");
   return invoke({ ...input, operation: (client) => client.get("expenses", input.resourceId, options) });
-};
-
-/** Read schedules through the shared OAuth refresh/persistence boundary. */
-export const listExpenseSchedules = async (input: WriteSession & Readonly<{ options: ExpenseScheduleListOptions }>): Promise<AgentResult> => {
-  if (!validExpenseScheduleListOptions(input.options)) throw new Error("Schedule read options are invalid.");
-  return invoke({ ...input, operation: (client) => client.list("expense-schedules", input.options) });
-};
-
-/** Read one opaque schedule without evaluating recurrence in the client. */
-export const getExpenseSchedule = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
-  const options = input.options ?? {};
-  if (!validResourceId(input.resourceId) || !validExpenseScheduleListOptions(options)
-    || Object.keys(options).some((key) => key !== "fields")) throw new Error("Schedule read options are invalid.");
-  return invoke({ ...input, operation: (client) => client.get("expense-schedules", input.resourceId, options) });
 };
 
 /** Refresh before preview; canonical server owns validation, routing and approval policy. */
