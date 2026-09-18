@@ -284,8 +284,6 @@ are enforced by the canonical API. `--profile` and secure `--export` use the sha
 When the canonical schedule-read endpoints are deployed:
 
 ```sh
-bizyeet expenses schedules list --active=0 --frequency=monthly --limit=25
-bizyeet expenses schedules get <opaque-id> --fields=amount,currency,generated_count --export
 ```
 
 Use `expenses.read` and the existing dashboard expense permission. These commands read
