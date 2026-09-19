@@ -29,6 +29,16 @@ void test("requests filter evidence even when the user selects only private reas
   assert.equal(request.mock.callCount(), 1);
 });
 
+void test("requests currency evidence when a private projection omits it", async () => {
+  const request = mock.fn((url: string): Promise<Response> => {
+    assert.equal(new URL(url).searchParams.get("fields"), "reason,currency,received_at");
+    return Promise.resolve(Response.json(envelope));
+  });
+  const client = createCanonicalCrmClient({ origin: profile.issuer, getAccessToken: (): Promise<string> => Promise.resolve("token"), request });
+  assert.equal((await client.taxReport({ range: "today", fields: ["reason"] })).status, 200);
+  assert.equal(request.mock.callCount(), 1);
+});
+
 await Promise.all([false, true].map((revoked) => test(`tax read preserves shared OAuth refresh behavior revoked=${String(revoked)}`, async () => {
   const persistCredentials = mock.fn((): Promise<void> => Promise.resolve());
   const fetcher = mock.fn((url: string, init?: RequestInit): Promise<Response> => {
