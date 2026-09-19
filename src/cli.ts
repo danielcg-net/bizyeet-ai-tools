@@ -8,7 +8,7 @@ import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { canonicalRegistrationScope } from "./oauth.js";
 import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
-import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, upcomingBookings, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { getExpense, listExpenses } from "./agent-client.js";
 import { validExpenseListOptions } from "./expense-contract.js";
@@ -21,6 +21,7 @@ import { receivedPaymentSummary } from "./agent-client.js";
 import { validPaymentSummaryOptions } from "./payment-summary-contract.js";
 import { readTaxReport } from "./agent-client.js";
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
+import { validBookingSummaryOptions } from "./booking-contract.js";
 import { exportReadResponse, READ_OUTPUT_BYTE_LIMIT } from "./read-export.js";
 import { escapeDisplayJson } from "./display-json.js";
 import { isUuid } from "./uuid.js";
@@ -41,6 +42,7 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  upcomingBookings?: (input: Omit<Parameters<typeof upcomingBookings>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readTaxReport?: (input: Omit<Parameters<typeof readTaxReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getExpense?: (input: Omit<Parameters<typeof getExpense>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listExpenses?: (input: Omit<Parameters<typeof listExpenses>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -71,6 +73,7 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  upcomingBookings: async (input) => upcomingBookings({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   readTaxReport: async (input) => readTaxReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getExpense: async (input) => getExpense({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listExpenses: async (input) => listExpenses({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -115,6 +118,7 @@ const helpMessage = [
   "       bizyeet payments get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet expenses list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <due|paid|skipped>] [--category <name>] [--currency <ISO>] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
   "       bizyeet expenses get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet bookings upcoming [--hours <1-720>] [--profile <name>] [--export]",
   "Read commands accept --export for a private local JSON file; responses above 32 KiB export automatically. No output-path argument or automatic pagination is supported.",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
   "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
@@ -467,6 +471,21 @@ const summaryRead = async (args: readonly string[], dependencies: CliStorage, ex
   } catch (error) { return requestFailure(error); }
 };
 
+const bookingRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    if (!hasOnlyOptions(args, ["--hours", "--profile"], ["--export"])
+      || args.filter((arg) => arg === "--export").length > 1 || valuesFor(args, "--hours").length > 1) return invalidInput("Booking summary options are invalid.");
+    const hoursValue = oneOption(args, "--hours", "");
+    const options = hoursValue ? { hours: /^\d+$/u.test(hoursValue) ? Number(hoursValue) : NaN } : {};
+    if (!validBookingSummaryOptions(options)) return invalidInput("Booking summary options are invalid.");
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.upcomingBookings) return unsupportedCommand("bookings upcoming");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.upcomingBookings({ credentials: authenticated.credentials, profile: authenticated.profile, options, persistCredentials }), args.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
 const taxReadOptions = (args: readonly string[]): TaxReportOptions | undefined => {
   try {
     const mapping = { "--range": "range", "--start-date": "start_date", "--end-date": "end_date", "--authority": "authority",
@@ -563,7 +582,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (args.length === 1 && (first === "--version" || first === "version")) return output({ version: packageVersion() });
   if (first === "diagnostics") return args.length === 1 ? output(diagnostics()) : invalidInput("diagnostics accepts no arguments other than --json.");
   if (args.length === 0 || optionArgs.includes("--help") || optionArgs.includes("-h")) return result(0, helpMessage, "stdout");
-  if (dependencies.withProfileLock && (first === "customers" || first === "leads" || first === "payments" || first === "expenses" || first === "reports" || first === "auth")) {
+  if (dependencies.withProfileLock && (first === "customers" || first === "leads" || first === "payments" || first === "expenses" || first === "reports" || first === "bookings" || first === "auth")) {
     try {
       if (first === "auth" && second === "login") {
         const parsed = loginOptions(args.slice(2));
@@ -580,6 +599,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   }
   if (first === "expenses" && second === "schedules") return unsupportedCommand("expenses schedules");
   if (first === "expenses") return expenseRead(args.slice(1), dependencies, execution);
+  if (first === "bookings" && second === "upcoming") return bookingRead(args.slice(2), dependencies, execution);
   if (first === "reports" && second === "taxes") return taxRead(args.slice(2), dependencies, execution);
   if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);
   if (first === "customers" || first === "leads" || first === "payments") return crmRead(first, args.slice(1), dependencies, execution);
