@@ -1,0 +1,4 @@
+interface:
+  display_name: "BizYeet"
+  short_description: "Use tenant-authorized BizYeet business tools safely"
+  default_prompt: "Use the BizYeet MCP or CLI to complete this tenant-authorized business task safely."

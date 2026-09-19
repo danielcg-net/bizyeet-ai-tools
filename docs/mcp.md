@@ -1,11 +1,16 @@
 # Codex MCP connection
 
+For Codex-specific setup, the companion [Codex and AI-harness guide](codex-harness.md)
+uses the supported `codex mcp add`, `codex mcp login`, and `codex mcp list`
+workflow. It never uses a copied bearer token or API key.
+
 The remote server is OAuth-protected. It does not accept API keys, copied bearer
 tokens, tenant IDs, dashboard passwords, raw HTTP, or SQL.
 
 ```toml
 [mcp_servers.bizyeet]
 url = "<your-tenant-mcp-server-url>"
+default_tools_approval_mode = "writes"
 ```
 
 Then complete the browser-based authorization flow:
