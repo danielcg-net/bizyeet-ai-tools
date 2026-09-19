@@ -10,26 +10,71 @@ redaction, audit, previews, approvals, and idempotency remain server-owned.
 Codex supports OAuth-protected Streamable HTTP MCP servers, and the desktop app,
 CLI, and IDE extension share MCP configuration on the same Codex host. The
 [official OpenAI MCP documentation](https://developers.openai.com/docs/extend/mcp)
-documents `codex mcp add`, `codex mcp login`, project-scoped configuration, and
-the OAuth callback behavior.
+documents project-scoped configuration, OAuth callback selection, and
+`codex mcp login`.
 
-For a trusted tenant project, configure only its public MCP URL:
+For a trusted tenant project, create `<project>/.codex/config.toml` with only
+the public MCP URL. Do not use `codex mcp add` for this normal setup: it creates
+a global configuration that can expose a tenant server to unrelated projects on
+the host.
+
+```toml
+[mcp_servers.bizyeet]
+url = "https://your-bizyeet-origin/mcp"
+default_tools_approval_mode = "writes"
+```
+
+From that trusted project, choose the least scope set and authenticate:
 
 ```sh
-codex mcp add bizyeet --url https://your-bizyeet-origin/mcp
-codex mcp login bizyeet
+codex mcp login bizyeet --scopes customers.read
 codex mcp list
 ```
+
+Customer and lead reads use `customers.read`; booking reads use `bookings.read`;
+payments use `payments.read`; expenses use `expenses.read`; tax reports use
+`reports.read`; and a customer update needs both `customers.read,customers.write`.
+The server may still deny a requested scope or not advertise the capability.
 
 `codex mcp login` opens the server's OAuth authorization flow. Use a tenant user
 who is already permitted in BizYeet. Do not register an API key, dashboard
 password, bearer token, OAuth client secret, tenant ID, or provider credential.
-When a pre-registered OAuth client is necessary, register the exact callback URL
-printed by `codex mcp add`; do not guess a fixed callback path.
+BizYeet normally uses Codex dynamic OAuth registration. For an installation that
+requires a pre-registered public client, an administrator must provide the exact
+client ID and callback URL. Codex obtains that callback URL when it runs
+`codex mcp add <temporary-name> --url <url> --oauth-client-id <client-id>`.
+That command is intentionally not part of the normal tenant setup because it is
+global; run it only on a host trusted for all projects, copy its non-secret
+values into the project file, and remove the temporary global server before
+authenticating:
+
+```toml
+[mcp_servers.bizyeet.oauth]
+client_id = "public-client-id"
+callback_url = "http://127.0.0.1/callback/exact-server-callback-id"
+```
+
+Do not guess or shorten that callback. The exact registered value may include a
+server-specific suffix. The OpenAI documentation explains that Codex otherwise
+uses `http://127.0.0.1/callback` with a server-specific callback ID appended.
 
 The desktop app and IDE can instead add the same Streamable HTTP URL from their
 MCP-server settings and select **Authenticate**. Verify the connected server in
 the Codex `/mcp` view or with `codex mcp list` before relying on its tools.
+
+## Install the companion skill
+
+The repository copy is source material, not an automatically loaded skill. On
+a host trusted for the tenant, install the reviewed skill explicitly:
+
+```sh
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R skills/bizyeet "${CODEX_HOME:-$HOME/.codex}/skills/bizyeet"
+```
+
+Restart Codex after installation. This makes the skill available to Codex on
+that host, so do not install a tenant-specific skill on a shared or untrusted
+host. Review changes before replacing an existing installed copy.
 
 ## MCP or CLI
 

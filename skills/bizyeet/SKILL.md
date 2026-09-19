@@ -20,19 +20,49 @@ never infer or override those decisions locally.
 
 ## Connect and authenticate
 
-Configure the remote Streamable HTTP endpoint once per trusted host or project:
+Configure the remote Streamable HTTP endpoint only in the trusted tenant
+project. Do not run `codex mcp add` for this: the CLI command creates a global
+server entry that is visible to unrelated projects on the same host. Create
+`<trusted-project>/.codex/config.toml` instead:
+
+```toml
+[mcp_servers.bizyeet]
+url = "https://your-bizyeet-origin/mcp"
+default_tools_approval_mode = "writes"
+```
+
+Then request only the scopes needed for the selected operation and authenticate:
 
 ```sh
-codex mcp add bizyeet --url https://your-bizyeet-origin/mcp
-codex mcp login bizyeet
+codex mcp login bizyeet --scopes customers.read
 codex mcp list
 ```
 
-Use the browser OAuth prompt and sign in as the tenant user. The callback URL
-printed by Codex is the only redirect URI to register when a pre-registered
-client is required. Do not copy OAuth output into prompts, configuration, shell
-history, source, or issue comments. Re-run login when the server reports
-revocation, expiry that cannot be refreshed, or an intentionally narrower scope.
+Choose the minimum scope set: customer/lead reads use `customers.read`; booking
+reads use `bookings.read`; payment reads use `payments.read`; expense reads use
+`expenses.read`; tax reports use `reports.read`; and a customer update requires
+both `customers.read,customers.write`. Requesting a scope does not grant it: the
+server's current tool list and authorization result remain authoritative.
+
+BizYeet normally uses Codex's dynamic OAuth registration. If a deployment
+requires a pre-registered public client, its administrator must provide the
+public client ID and exact callback URL. Codex can display that exact URL with
+`codex mcp add <temporary-name> --url <url> --oauth-client-id <client-id>`;
+because that command is global, use it only on a host trusted for every project,
+copy the resulting non-secret settings into the trusted project's configuration,
+then remove the temporary global entry before authentication. Store only the
+public values:
+
+```toml
+[mcp_servers.bizyeet.oauth]
+client_id = "public-client-id"
+callback_url = "http://127.0.0.1/callback/exact-server-callback-id"
+```
+
+Never guess or shorten the callback URL. Do not copy OAuth output, access
+tokens, client secrets, receipts, or passwords into prompts, shell history,
+source, or issue comments. Re-run login when the server reports revocation,
+expiry that cannot be refreshed, or an intentionally narrower scope.
 
 For the CLI, begin with `bizyeet auth check`; if no valid profile exists, use
 `bizyeet auth login --issuer https://your-bizyeet-origin`, or add `--device` for

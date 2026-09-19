@@ -1,8 +1,9 @@
 # Codex MCP connection
 
 For Codex-specific setup, the companion [Codex and AI-harness guide](codex-harness.md)
-uses the supported `codex mcp add`, `codex mcp login`, and `codex mcp list`
-workflow. It never uses a copied bearer token or API key.
+uses a trusted-project `.codex/config.toml` plus scoped `codex mcp login`.
+It never uses a copied bearer token or API key. Do not use `codex mcp add` for
+normal tenant setup: that CLI command writes a global server configuration.
 
 The remote server is OAuth-protected. It does not accept API keys, copied bearer
 tokens, tenant IDs, dashboard passwords, raw HTTP, or SQL.

@@ -426,7 +426,9 @@ and a concise [Codex and AI-harness guide](docs/codex-harness.md). They cover
 OAuth-only MCP/CLI setup, capability discovery, bounded read workflows, private
 exports, recovery, and the explicit preview/approval boundary for effects.
 They do not add a provider bypass, a token-copy setup path, or authority to run
-unadvertised operations.
+unadvertised operations. The guide includes the required explicit installation
+step for the companion skill and the project-scoped MCP configuration; reviewing
+this repository alone does not activate either on a host.
 
 See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and the
 public roadmap documentation for current scope.
