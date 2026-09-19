@@ -23,7 +23,14 @@ signing material.
 
 Requires Node.js 24 or newer.
 
+The build uses TypeScript 7 through the `@typescript/native` npm alias. The
+`typescript` alias supplies the TypeScript 6 compatibility API for ESLint and
+the routing checker. Keep both aliases: TypeScript 7 does not expose the API
+these tools use. See Microsoft's
+[side-by-side setup](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-6.0).
+
 ```sh
+npm ci
 npm run check
 ```
 
