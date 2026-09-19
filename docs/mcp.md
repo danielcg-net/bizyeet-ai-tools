@@ -31,6 +31,13 @@ implicitly. The authenticated server's tool list determines deployed availabilit
 Servers with the received-summary increment deployed additionally advertise
 `bizyeet_payments_received_summary` with `payments.read`.
 
+Servers with the canonical booking-summary increment deployed additionally
+advertise `bizyeet_bookings_upcoming`. It requires `bookings.read` and returns a
+provider-aware count for a bounded 1–720-hour future window (default 168). It
+does not list appointments or slots, expose booking details, or authorize booking
+changes. Reauthorize the MCP server for that exact scope when it is insufficient;
+the default CLI login scope is `customers.read`, not `bookings.read`.
+
 The summary reports gross collected receipts, not net revenue. It preserves
 the requested custom dates in `period.requestedStartDate` and
 `period.requestedEndDate` (null for named ranges), allowing request binding
