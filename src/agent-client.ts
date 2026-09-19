@@ -12,6 +12,7 @@ import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./paymen
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
+import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -160,6 +161,12 @@ export const receivedPaymentSummary = async (input: Readonly<{
 }>): Promise<AgentResult> => {
   if (!validPaymentSummaryOptions(input.options)) throw new Error("Payment summary options are invalid.");
   return invoke({ ...input, operation: (client) => client.receivedPaymentSummary(input.options) });
+};
+
+/** Read a bounded provider-aware booking summary through the canonical OAuth API. */
+export const upcomingBookings = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ options: BookingSummaryOptions }>): Promise<AgentResult> => {
+  if (!validBookingSummaryOptions(input.options)) throw new Error("Booking summary options are invalid.");
+  return invoke({ ...input, operation: (client) => client.bookingSummary(input.options) });
 };
 
 /** Read canonical tax reports through the shared OAuth refresh and persistence boundary. */

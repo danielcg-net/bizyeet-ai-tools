@@ -9,6 +9,8 @@ import { taxReportResponse } from "./tax-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
+import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
+import { bookingSummaryResponse } from "./booking-response.js";
 import { validResourceId } from "./resource-id.js";
 export { validResourceId } from "./resource-id.js";
 
@@ -46,6 +48,7 @@ export type ClientDependencies = Readonly<{
 }>;
 export type CanonicalCrmClient = Readonly<{
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
+  bookingSummary: (options?: BookingSummaryOptions) => Promise<CanonicalResult>;
   taxReport: (options?: TaxReportOptions) => Promise<CanonicalResult>;
   list: (resource: ReadResource, options?: ListOptions) => Promise<CanonicalResult>;
   get: (resource: ReadResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
@@ -214,6 +217,12 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     ]);
     return reportRead("/api/agent/payments/received-summary", parameters, (body) => paymentSummaryResponse(body, options));
   };
+  const bookingSummary = async (options: BookingSummaryOptions = {}): Promise<CanonicalResult> => {
+    if (!validBookingSummaryOptions(options)) return failure(400, "invalid_request");
+    const parameters = new URLSearchParams({ api_version: "v1" });
+    if (options.hours !== undefined) parameters.set("hours", String(options.hours));
+    return reportRead("/api/agent/bookings/upcoming", parameters, (body) => bookingSummaryResponse(body, options));
+  };
   const taxReport = async (options: TaxReportOptions = {}): Promise<CanonicalResult> => {
     if (!validTaxReportOptions(options)) return failure(400, "invalid_request");
     const evidence = (["currency", "authority", "entry_type", "province"] as const).filter((field) => options[field] !== undefined);
@@ -277,6 +286,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   return Object.freeze({
     receivedPaymentSummary,
+    bookingSummary,
     taxReport,
     list: (resource: ReadResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
     get: (resource: ReadResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),

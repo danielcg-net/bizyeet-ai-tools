@@ -269,6 +269,27 @@ The same read contract is exposed by `bizyeet_payments_list` and
 with an explicit `customer` or `service` field for relationships; these tools
 advertise both `payments.read` and `customers.read`. Financial writes are not exposed by this increment.
 
+## Read bookings
+
+Servers with the canonical upcoming-booking contract deployed support a bounded,
+provider-aware count of upcoming bookings. It is not a list of appointments,
+availability, booking detail, or a create/reschedule/cancel operation.
+
+Request the exact `bookings.read` scope during OAuth login; the default
+`customers.read` login is intentionally insufficient:
+
+```sh
+bizyeet auth login --issuer https://your-bizyeet-origin --scope bookings.read
+bizyeet auth check
+bizyeet bookings upcoming --hours 168
+```
+
+`--hours` is an integer from 1 through 720 and defaults to 168. The server owns
+provider routing and current booking permission checks; unavailable, disabled,
+and unsupported providers remain explicit errors. Do not infer a bookable slot,
+provider action, or tenant from a successful count. The matching MCP tool is
+`bizyeet_bookings_upcoming` and advertises the same `bookings.read` OAuth scope.
+
 ## Read expenses
 
 Servers with the canonical expense-read contract deployed support OAuth `expenses.read`:

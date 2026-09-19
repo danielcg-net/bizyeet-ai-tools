@@ -15,7 +15,7 @@ export type McpTool = Readonly<{
   inputSchema: Readonly<Record<string, unknown>>;
   name: string;
   outputSchema: Readonly<Record<string, unknown>>;
-  securitySchemes: readonly Readonly<{ scopes: readonly ("customers.read" | "payments.read" | "expenses.read" | "reports.read")[]; type: "oauth2" }>[];
+  securitySchemes: readonly Readonly<{ scopes: readonly ("customers.read" | "payments.read" | "expenses.read" | "reports.read" | "bookings.read")[]; type: "oauth2" }>[];
   title: string;
 }>;
 
@@ -54,6 +54,7 @@ const exactSchema = Object.freeze({
 
 const oauthReadSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["customers.read"] as const), type: "oauth2" as const })]);
 const oauthPaymentSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["payments.read"] as const), type: "oauth2" as const })]);
+const oauthBookingSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["bookings.read"] as const), type: "oauth2" as const })]);
 const paymentFieldsSchema = Object.freeze({ type: "array", maxItems: paymentReadFields.length, items: Object.freeze({ type: "string", enum: Object.freeze(paymentReadFields.filter((field) => field !== "customer" && field !== "service")) }) });
 const relationshipFieldsSchema = Object.freeze({ ...paymentFieldsSchema, items: Object.freeze({ type: "string", enum: paymentReadFields }), contains: Object.freeze({ enum: Object.freeze(["customer", "service"]) }) });
 const oauthPaymentRelationshipSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["payments.read", "customers.read"] as const), type: "oauth2" as const })]);
@@ -102,4 +103,5 @@ export const mcpReadTools = Object.freeze([
   paymentSummaryMcpTool,
   taxReportMcpTool,
   ...expenseMcpTools,
+  Object.freeze({ annotations: readAnnotations, description: "Read a provider-aware count of upcoming bookings for a bounded future window. This is not appointment detail or availability. Unsupported, disabled and unavailable providers are explicit.", inputSchema: Object.freeze({ type: "object", properties: Object.freeze({ api_version: Object.freeze({ const: "v1", type: "string" }), hours: Object.freeze({ type: "integer", minimum: 1, maximum: 720, default: 168 }) }), required: Object.freeze(["api_version"]), additionalProperties: false }), name: "bizyeet_bookings_upcoming", outputSchema: resourceOutputSchema, securitySchemes: oauthBookingSecurity, title: "Summarize upcoming bookings" }),
 ] as const) satisfies readonly McpTool[];
