@@ -31,7 +31,7 @@ export const communicationResponse = (body: unknown, options: CommunicationOptio
     || meta.page_size !== size || meta.total_pages !== Math.max(1, Math.ceil(data.total / size))
     || meta.page !== Math.min(options.page ?? 1, meta.total_pages)
     || !Array.isArray(data.items) || !data.items.every(metadataRow)
-    || data.items.length > Math.min(size, Math.max(0, data.total - (meta.page - 1) * size))) return undefined;
+    || data.items.length !== Math.min(size, Math.max(0, data.total - (meta.page - 1) * size))) return undefined;
   return { data: { items: data.items, total: data.total }, meta: { contract_version: "v1", request_id: correlationReference(meta.request_id),
     page: meta.page, page_size: size, total_pages: meta.total_pages } };
 };

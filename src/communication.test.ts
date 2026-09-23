@@ -52,6 +52,14 @@ await test("history rejects inconsistent pagination and invalid metadata values"
     { data: { items: [], total: 0 }, meta: { contract_version: "v1", request_id: "synthetic", page: 1, page_size: 10, total_pages: 1 } });
 });
 
+await test("history rejects truncated pages and accepts an exact final partial page", () => {
+  const response = (items: readonly unknown[], page: number): Readonly<Record<string, unknown>> => ({data:{items,total:11},meta:{contract_version:"v1",request_id:"synthetic",page,page_size:10,total_pages:2}});
+  assert.equal(communicationResponse(response([],1),{}),undefined);
+  assert.equal(communicationResponse(response(Array.from({length:9},() => item),1),{}),undefined);
+  assert.equal(communicationResponse(response([],2),{page:2}),undefined);
+  assert.deepEqual(communicationResponse(response([item],2),{page:2}),response([item],2));
+});
+
 await Promise.all(resources.map((resource) => test(`${resource} CLI forwards its page without interpreting its ID`, async () => {
   const read = mock.fn((input: Omit<Parameters<typeof readCommunications>[0], "fetcher" | "metadata" | "now">) => {
     assert.equal(input.resource, resource);
