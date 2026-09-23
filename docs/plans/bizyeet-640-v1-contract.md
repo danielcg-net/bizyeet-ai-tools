@@ -269,6 +269,11 @@ and operational details.
 
 ## Approval and implementation gates
 
+The remaining CRM write scope has a separate
+[BIZYEET-869 approval contract](bizyeet-869-write-approval-contract.md). Its
+planned capabilities are not advertised commands until their implementation,
+provider guarantees and release gates are verified.
+
 Before BIZYEET-641 starts, product and security must approve this document's
 scope matrix and non-goals. BIZYEET-641 must prove discovery metadata, PKCE,
 resource/audience binding, token rotation/revocation, and tenant/role
