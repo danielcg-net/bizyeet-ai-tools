@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 import { run } from "./cli.js";
+import { agentFailure } from "./agent-error.js";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const key = "22222222-2222-4222-8222-222222222222";
@@ -77,6 +78,20 @@ const runtime: NonNullable<Parameters<typeof run>[2]> = {
   getCustomer: unexpected, listCustomers: unexpected, loginBrowser: unexpected, loginDevice: unexpected, revoke: unexpected,
   previewCustomerUpdate: unexpected, executeCustomerUpdate: unexpected, customerUpdateStatus: unexpected,
 };
+
+await Promise.all(["execution_ambiguous", "execution_in_progress"].map((code) => test(`lead ${code} recovery names the lead status command`, async () => {
+  const execute = mock.fn(() => Promise.reject(new Error("Agent request failed", { cause: agentFailure(503, { error: { code, message: "private-provider-detail" } }) })));
+  const result = await run(["--json", "leads", "update", "execute", id, "--idempotency-key", key, "--receipt-stdin"], storage,
+    { ...runtime, executeLeadUpdate: execute, readApprovalReceipt: () => Promise.resolve(approval.approval_receipt) });
+  assert.equal(result.exitCode, 1);
+  assert.equal(execute.mock.callCount(), 1);
+  const output = JSON.stringify(result);
+  assert.match(output, /leads update status for a lead/u);
+  assert.match(output, /customers update status for a customer/u);
+  assert.match(output, /original preview ID and idempotency key/u);
+  assert.match(output, /Do not retry/u);
+  assert.doesNotMatch(output, /private-provider-detail|access-secret|refresh-secret|rrrrrrrr/u);
+})));
 
 await test("lead CLI routes preview, execute and status without selecting customer mutations", async () => {
   const proposed = mock.fn((input: Parameters<NonNullable<typeof runtime.previewLeadUpdate>>[0]) => {
