@@ -6,13 +6,16 @@ import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
-import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch } from "./search-contract.js";
+import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch, validSalesSearch } from "./search-contract.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
+import { validServiceReadFields } from "./service-read-contract.js";
+import { validQuoteReadFields } from "./quote-read-contract.js";
+import { validCatalogReadFields } from "./catalog-read-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -216,6 +219,53 @@ export const getLead = async (input: Parameters<typeof getCustomer>[0]): Promise
   if (!validResourceId(input.resourceId)) throw new Error("Lead ID is invalid.");
   const options = boundedReadOptions(input.options ?? {});
   return invoke({ ...input, operation: (client) => client.get("leads", input.resourceId, options) });
+};
+
+/** Discover canonical catalog facts with the shared OAuth refresh boundary. */
+export const listCatalog = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
+  const options = boundedOptions(input.options);
+  if (!validCatalogReadFields(options.fields ?? []) || !validSalesSearch(options.search ?? "")) throw new Error("Catalog read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("catalog", options) });
+};
+
+/** Read one opaque catalog handle without selecting a source. */
+export const getCatalogItem = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Catalog ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  if (!validCatalogReadFields(options.fields ?? [])) throw new Error("Catalog read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("catalog", input.resourceId, options) });
+};
+
+/** Discover quotes using the shared OAuth refresh boundary and canonical routing. */
+export const listQuotes = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
+  const options = boundedOptions(input.options);
+  if (!validQuoteReadFields(options.fields ?? [])) throw new Error("Quote fields are invalid.");
+  if (!validSalesSearch(options.search ?? "")) throw new Error("Quote read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("quotes", options) });
+};
+
+/** Read public quote facts, including revision and opaque line handles for approved edits. */
+export const getQuote = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Quote ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  if (!validQuoteReadFields(options.fields ?? [])) throw new Error("Quote fields are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("quotes", input.resourceId, options) });
+};
+
+/** Discover services only through the canonical OAuth endpoint. */
+export const listServices = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
+  const options = boundedOptions(input.options);
+  if (!validServiceReadFields(options.fields ?? [], false)) throw new Error("Service fields are invalid.");
+  if (!validSalesSearch(options.search ?? "")) throw new Error("Service read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("services", options) });
+};
+
+/** Read service detail, retaining opaque line handles and the concurrency revision. */
+export const getService = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Service ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  if (!validServiceReadFields(options.fields ?? [], true)) throw new Error("Service fields are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("services", input.resourceId, options) });
 };
 
 /** Read payment facts using the same refresh/persistence boundary and canonical API. */

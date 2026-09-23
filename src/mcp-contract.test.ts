@@ -3,7 +3,7 @@ import test from "node:test";
 import { mcpInstructions, mcpReadTools } from "./mcp-contract.js";
 
 void test("publishes only bounded, read-only MCP tools", () => {
-  assert.deepEqual(mcpReadTools.map((tool) => tool.name), ["bizyeet_customers_list", "bizyeet_customers_get", "bizyeet_leads_list", "bizyeet_leads_get", "bizyeet_payments_list", "bizyeet_payments_get", "bizyeet_payments_list_with_relationships", "bizyeet_payments_get_with_relationships", "bizyeet_payments_received_summary", "bizyeet_reports_taxes", "bizyeet_expenses_list", "bizyeet_expenses_get", "bizyeet_bookings_upcoming"]);
+  assert.deepEqual(mcpReadTools.map((tool) => tool.name), ["bizyeet_customers_list", "bizyeet_customers_get", "bizyeet_leads_list", "bizyeet_leads_get", "bizyeet_payments_list", "bizyeet_payments_get", "bizyeet_payments_list_with_relationships", "bizyeet_payments_get_with_relationships", "bizyeet_payments_received_summary", "bizyeet_reports_taxes", "bizyeet_expenses_list", "bizyeet_expenses_get", "bizyeet_bookings_upcoming", "bizyeet_services_list", "bizyeet_quotes_list", "bizyeet_quotes_get", "bizyeet_services_get", "bizyeet_catalog_list", "bizyeet_catalog_get"]);
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.annotations)));
   assert.deepEqual(mcpReadTools[0].annotations, { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: true });
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.inputSchema)));

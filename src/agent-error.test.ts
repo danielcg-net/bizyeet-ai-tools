@@ -7,8 +7,10 @@ await Promise.all([
   ["payment_provider_unsupported", "unsupported_operation", 2],
   ["payment_provider_unavailable", "provider_unavailable", 1],
   ["payment_provider_invalid_response", "invalid_response", 1],
+  ["catalog_provider_unavailable", "provider_unavailable", 1],
+  ["catalog_provider_invalid_response", "invalid_response", 1],
   ["provider_configuration_changed", "conflict", 6],
-].map(([wire, code, exit]) => test(`normalizes canonical payment failure ${String(wire)}`, () => {
+].map(([wire, code, exit]) => test(`normalizes canonical read failure ${String(wire)}`, () => {
   const failure = agentFailure(503, { error: { code: wire, retryable: false, message: "private-provider-message" } });
   assert.equal(failure.code, code);
   assert.equal(agentFailureExitCode(failure), exit);
@@ -19,6 +21,18 @@ await Promise.all([
 
 await Promise.all(["__proto__", "constructor", "toString"].map((code) => test(`error aliases reject inherited property ${code}`, () => {
   assert.equal(agentFailure(503, { error: { code } }).code, "internal_error");
+})));
+
+await Promise.all([undefined, false, true].map((retryable) => test(`catalog capacity is actionable without blind retries: ${String(retryable)}`, () => {
+  const failure = agentFailure(503, { error: { code: "catalog_provider_limit_exceeded", retryable,
+    message: "private-provider-detail", details: { token: "private-token" } } });
+  assert.equal(failure.code, "catalog_provider_limit_exceeded");
+  assert.equal(failure.retryable, false);
+  assert.equal(isAgentFailure(failure), true);
+  assert.equal(agentFailureExitCode(failure), 1);
+  assert.match(agentFailureMessage(failure), /bounded read capacity/u);
+  assert.doesNotMatch(JSON.stringify(failure) + agentFailureMessage(failure), /private-provider-detail|private-token/u);
+  assert.equal(recordedFailureCode(failure.code), undefined);
 })));
 
 await Promise.all([undefined, false, true].map((retryable) => test(`customer configuration failure is actionable and never auto-retryable: ${String(retryable)}`, () => {

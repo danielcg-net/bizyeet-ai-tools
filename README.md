@@ -223,6 +223,49 @@ routing as the dashboard. Both list and exact reads support `--fields` (at most
 20 field names); the server applies the authorized projection. Lead create,
 update and promotion commands are not yet exposed.
 
+Service reads use the same OAuth `customers.read` scope and canonical routing:
+
+```sh
+bizyeet services list --limit 25 --fields id,name,pricing_revision
+bizyeet services get service_opaque_id --fields id,items,pricing_revision
+```
+
+Line handles and revision tokens are opaque server facts, not native database IDs.
+List projections cannot include items; use detail reads. Private costs are excluded.
+These commands require a compatible server deployment; revision and line-handle
+support is not a release claim for the pending backend update. Service writes
+remain unavailable in this CLI. MCP declarations describe the matching read
+contract; availability depends on the connected server's advertised tools.
+
+Quote reads also use `customers.read` and canonical routing:
+
+```sh
+bizyeet quotes list --limit 25 --fields id,title,pricing_revision
+bizyeet quotes get quote_opaque_id --fields id,items,pricing_revision
+```
+
+Quote line handles are returned by compatible server versions and must remain
+opaque. Costs and private contact metadata are excluded. Quote editing, sending,
+acceptance, and decline are not yet exposed by this CLI; these read commands and
+matching MCP declarations do not imply those actions are deployed or authorized.
+
+Catalog reads require `customers.read` and a server deploying the canonical
+catalog OAuth endpoints (deployment is still pending):
+
+```sh
+bizyeet catalog list --limit 25 --search transfer --fields id,name,unit_price
+bizyeet catalog get catalog_opaque_id --fields id,name,unit_price
+```
+
+The server composes the permitted catalog sources; the CLI does not select a
+CRM/provider or expose private costs. Optional fields may be absent. Preserve
+opaque IDs and cursors unchanged. If catalog changes invalidate a cursor, restart
+discovery explicitly; the CLI never silently restarts. Catalog writes are not
+exposed by these commands.
+
+Catalog, quote and service search accepts at most 120 Unicode code points.
+Oversized or malformed Unicode is rejected, never truncated.
+
 List pages are capped at 100 records. Resource IDs and cursors are opaque;
 never replace them with URLs, database IDs, or tenant identifiers. All command
 results use the versioned BizYeet JSON envelope on stdout. Diagnostics and

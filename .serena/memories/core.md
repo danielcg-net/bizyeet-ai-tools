@@ -1,5 +1,7 @@
 # Core
 
+- For canonical service discovery and detail contracts, read `mem:service_reads`.
+
 - Payment reads reuse the canonical client, OAuth invocation, profile lock and protected exports. Keep payment provider selection server-owned and separate from CRM routing. Public payment fields/filters are closed; customer/service references require an additional live customers.read grant. Preserve currency and opaque IDs/cursors; never auto-page or aggregate currencies.
 - Normalize documented payment read errors through the safe alias map, not arbitrary upstream messages. Read aliases must not widen the recorded customer write-outcome vocabulary. The authenticated cross-repository MCP test checks exact public/server payment schemas. Payment-only MCP tools exclude relationship fields; separate `_with_relationships` tools require explicit relationship selection and advertise both payments.read and customers.read. Keep the CLI and REST conditional projection contract unchanged.
 
@@ -38,6 +40,7 @@
 - Write previews must echo the requested resource ID. Status audit references are independently validated opaque UUIDs, not assumed equal to the preview ID. Share the safe error-code projection with direct requests, including the legacy unsupported-operation alias.
 
 - Public repository for the OAuth-only BizYeet CLI and MCP integration.
+- Read `mem:quote_reads` for the quote CLI read boundary and deployment caveats.
 - No tenant records, credentials, operational URLs, private implementation, or customer context may enter Git history.
 - The public CLI is fail-closed until an explicitly scoped operation is implemented.
 - Value options accept --option=value for literal option-shaped values (especially --cursor=--next-page). Preserve everything after the first equals, reject mixed-form duplicates/empty values, and never interpret embedded help/JSON flags.

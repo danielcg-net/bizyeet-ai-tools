@@ -280,7 +280,7 @@ void test("unbound legacy logout is explicitly local-only without attempting net
 });
 
 void test("other commands fail closed until explicitly implemented", async (): Promise<void> => {
-  const result = await run(["quotes", "list"]);
+  const result = await run(["quotes", "delete"]);
 
   assert.equal(result.exitCode, 2);
   assert.match(result.message, /Unsupported command: quotes/u);
