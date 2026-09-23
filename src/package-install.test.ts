@@ -122,6 +122,9 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
 };
 
 const recoveryCases = Object.freeze([
+  { name: "catalog-capacity", resource: "catalog", status: 503, code: "catalog_provider_limit_exceeded", exit: 1 },
+  { name: "catalog-provider-unavailable", resource: "catalog", status: 503, code: "catalog_provider_unavailable", normalized: "provider_unavailable", exit: 7 },
+  { name: "catalog-invalid-response", resource: "catalog", status: 503, code: "catalog_provider_invalid_response", normalized: "invalid_response", exit: 7 },
   { name: "permission-denied", status: 403, code: "authorization_denied", exit: 4 },
   { name: "provider-unsupported", status: 409, code: "crm_operation_unsupported", exit: 2, normalized: "unsupported_operation" },
   { name: "provider-unavailable", status: 503, code: "provider_unavailable", exit: 7 },
@@ -172,7 +175,8 @@ void test("installed CLI bounds failure output and never follows upstream recove
         await previous;
         await context.test(scenario.name, async () => {
           const before = handler.mock.callCount();
-          const result = await runResult(process.execPath, [installedCli, "customers", "list",
+          const resource = "resource" in scenario ? scenario.resource : "customers";
+          const result = await runResult(process.execPath, [installedCli, resource, "list",
             "--limit", "1", "--fields", "id", "--search", scenario.name, "--profile", testProfile(directory)], directory, environment);
           assert.equal(result.code, scenario.exit);
           assert.equal(result.output, "");
@@ -185,7 +189,7 @@ void test("installed CLI bounds failure output and never follows upstream recove
           const requests = handler.mock.calls.slice(before).map((call) => call.arguments[0]);
           assert.equal(requests.length, 1, "A failed read must not retry or follow a provider/record instruction");
           assert.equal(requests[0]?.method, "GET");
-          assert.equal(new URL(requests[0].url ?? "/", "https://localhost").pathname, "/api/agent/customers");
+          assert.equal(new URL(requests[0].url ?? "/", "https://localhost").pathname, `/api/agent/${resource}`);
         });
       }, Promise.resolve());
       await ["revoked", "expired"].reduce(async (previous, scenario) => {

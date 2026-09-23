@@ -10,7 +10,7 @@ const codes = new Set([
   "authentication_required", "authorization_required", "authorization_denied", "invalid_request",
   "not_found", "conflict", "idempotency_conflict", "preview_expired", "approval_required",
   "invalid_cursor", "rate_limited", "internal_error", "provider_unavailable", "request_unavailable",
-  "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress", "customer_provider_not_configured",
+  "invalid_response", "unsupported_operation", "execution_ambiguous", "execution_in_progress", "customer_provider_not_configured", "catalog_provider_limit_exceeded",
 ]);
 const aliases: Readonly<Record<string, string>> = Object.freeze({
   crm_operation_unsupported: "unsupported_operation",
@@ -18,6 +18,8 @@ const aliases: Readonly<Record<string, string>> = Object.freeze({
   payment_provider_unsupported: "unsupported_operation",
   payment_provider_unavailable: "provider_unavailable",
   payment_provider_invalid_response: "invalid_response",
+  catalog_provider_unavailable: "provider_unavailable",
+  catalog_provider_invalid_response: "invalid_response",
   provider_configuration_changed: "conflict",
 });
 /** Normalize documented domain errors without interpreting provider routing. */
@@ -51,7 +53,7 @@ export const agentFailure = (status: number, body: unknown): AgentFailure => {
   const code = canonicalErrorCode(error.code) ?? "internal_error";
   const requestId = correlationReference(error.request_id);
   return Object.freeze({ kind: "agent_failure", code, status, requestId,
-    retryable: ["execution_ambiguous", "execution_in_progress", "customer_provider_not_configured"].includes(code) ? false
+    retryable: ["execution_ambiguous", "execution_in_progress", "customer_provider_not_configured", "catalog_provider_limit_exceeded"].includes(code) ? false
       : typeof error.retryable === "boolean" ? error.retryable : status === 429 || status >= 500 });
 };
 
@@ -72,6 +74,7 @@ export const agentFailureExitCode = (failure: AgentFailure): number => {
 
 /** Emits local safe recovery copy; never repeats an upstream error payload. */
 export const agentFailureMessage = (failure: AgentFailure): string => {
+  if (failure.code === "catalog_provider_limit_exceeded") return "The catalog exceeds the server's bounded read capacity. Ask your tenant administrator for help; changing the page size or signing in again will not fix this limit.";
   if (failure.code === "customer_provider_not_configured") return "Ask your tenant administrator to configure the customer provider in BizYeet settings, then retry. Signing in again will not fix provider configuration.";
   if (["execution_ambiguous", "execution_in_progress"].includes(failure.code)) return "Read the outcome with customers update status using the original preview ID and idempotency key. Do not retry with a new idempotency key or create a replacement write.";
   if (agentFailureExitCode(failure) === 3) return "Run auth login to reconnect this profile.";

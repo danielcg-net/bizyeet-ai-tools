@@ -33,6 +33,12 @@ option-like IDs/cursors, bearer headers, GET-only calls and removal of private
 cost/tenant facts returned by the fixture. These are installed-client contracts,
 not evidence of deployed server availability or provider parity.
 
+Catalog provider-unavailable and malformed-response errors retain their safe
+normalized categories. A catalog capacity error retains its explicit code, is
+not retryable, and directs the user to the tenant administrator rather than
+suggesting another login or smaller page. Installed-command fixtures confirm
+one canonical GET and no reflected upstream instructions for these errors.
+
 ## Remaining acceptance
 
 BIZYEET-648 also requires model-driven command selection and argument scoring,
