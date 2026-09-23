@@ -161,14 +161,16 @@ void test("installed CLI bounds failure output and never follows upstream recove
       if (!address || typeof address === "string") throw new Error("Expected a loopback port.");
       const archive = await packedArchive(directory);
       await runNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
-      const environment = { ...await credentialConfig(directory, `https://127.0.0.1:${String(address.port)}`), NODE_EXTRA_CA_CERTS: certificate };
-      const cli = process.env.npm_execpath;
-      if (!cli) throw new Error("Run package tests through npm test.");
+      const environment = { ...await credentialConfig(directory, `https://127.0.0.1:${String(address.port)}`), NODE_EXTRA_CA_CERTS: certificate,
+        npm_config_http_proxy: "http://127.0.0.1:1" };
+      // Measure only the installed CLI's streams. npm exec may prepend its own
+      // diagnostics (including unknown inherited npm_config_* warnings).
+      const installedCli = join(directory, "node_modules", "@bizyeet", "ai-tools", "dist", "src", "cli.js");
       await [...recoveryCases, { name: "oversized", code: "request_unavailable", exit: 7 }].reduce(async (previous, scenario) => {
         await previous;
         await context.test(scenario.name, async () => {
           const before = handler.mock.callCount();
-          const result = await runResult(process.execPath, [cli, "exec", "--offline", "--no", "--", "bizyeet", "customers", "list",
+          const result = await runResult(process.execPath, [installedCli, "customers", "list",
             "--limit", "1", "--fields", "id", "--search", scenario.name, "--profile", testProfile(directory)], directory, environment);
           assert.equal(result.code, scenario.exit);
           assert.equal(result.output, "");
@@ -189,8 +191,9 @@ void test("installed CLI bounds failure output and never follows upstream recove
         await context.test(`${scenario} session stops after rejected refresh`, async () => {
           const before = handler.mock.callCount();
           const session = { ...await credentialConfig(directory, `https://127.0.0.1:${String(address.port)}`,
-            scenario === "expired" ? "2000-01-01T00:00:00.000Z" : "2099-01-01T00:00:00.000Z"), NODE_EXTRA_CA_CERTS: certificate };
-          const result = await runResult(process.execPath, [cli, "exec", "--offline", "--no", "--", "bizyeet", "customers", "list",
+            scenario === "expired" ? "2000-01-01T00:00:00.000Z" : "2099-01-01T00:00:00.000Z"), NODE_EXTRA_CA_CERTS: certificate,
+            npm_config_http_proxy: "http://127.0.0.1:1" };
+          const result = await runResult(process.execPath, [installedCli, "customers", "list",
             "--limit", "1", "--fields", "id", "--search", scenario, "--profile", testProfile(directory)], directory, session);
           assert.equal(result.code, 3);
           assert.equal(result.output, "");
