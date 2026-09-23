@@ -52,8 +52,11 @@ canonical effect merely to keep a lower approval class.
 - Bind the stored proposal to tenant, human user, client, live grant family,
   capability, routing fingerprint, request hash, expiry and relevant record
   versions. Server-generated IDs and audit metadata are not caller authority.
-- Only the trusted dashboard approval boundary may issue the single-use
-  receipt after displaying that exact proposal. Execution accepts the receipt,
+- Only a trusted harness or server-side out-of-band approval boundary (including
+  the dashboard) may issue the single-use receipt after displaying that exact
+  proposal and obtaining human approval. The model and untrusted tool output
+  cannot mint receipts or substitute a conversational confirmation for one.
+  Execution accepts the receipt,
   preview ID and stable idempotency key, never replacement business fields.
 
 ## Execution, concurrency and provider parity
@@ -61,9 +64,12 @@ canonical effect merely to keep a lower approval class.
 Revalidate live authority, routing and the prepared proposal before effects.
 Record edits and promotion require atomic version preconditions covering the
 records whose changes would invalidate approval. A read-then-write comparison
-alone is not sufficient. Creation must detect relevant duplicate/relationship
-changes at execution rather than silently turning an approved create into an
-unreviewed merge or overwrite.
+alone is not sufficient. Creation must enforce duplicate and relationship
+preconditions atomically with the mutation, using provider-enforced uniqueness,
+a reservation, or an equivalent canonical atomic create boundary. Two approved
+creates with different idempotency keys must not both pass a read-only duplicate
+check and create duplicate records. A changed precondition rejects execution;
+it must not turn an approved create into an unreviewed merge or overwrite.
 
 Claim execution durably before contacting the canonical mutation service. A
 concurrent or repeated call with the same key cannot perform another mutation;
@@ -74,7 +80,10 @@ reconciliation is required without exposing credentials or private provider data
 
 Apply these guarantees to the tenant's selected provider. If its canonical
 boundary cannot enforce a required precondition, idempotency or lifecycle
-guarantee, return the documented unsupported outcome before effects. Record
+guarantee, return `unsupported_operation` (HTTP 422, CLI exit 2) before effects.
+The canonical `crm_operation_unsupported` alias normalizes to that public code.
+A temporarily unavailable provider returns `provider_unavailable` (HTTP 503,
+CLI exit 7), not unsupported or empty success. Record
 that provider gap as unfinished delivery; do not treat denial alone as feature
 completion, silently fall back to local storage, or implement provider rules
 inside CLI/MCP adapters.
