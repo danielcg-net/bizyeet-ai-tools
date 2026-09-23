@@ -4,11 +4,30 @@ import { catalogResponse } from "./catalog-response.js";
 import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 import { run } from "./cli.js";
 import type { listCatalog, getCatalogItem } from "./agent-client.js";
+import { mcpReadTools } from "./mcp-contract.js";
+import { MAX_CURSOR_LENGTH, validCursor } from "./cursor.js";
 
 const item = Object.freeze({ id: "opaque-catalog", name: "Transfer", active: 1, unit_price: "25.00", unit_cost: "hidden", provider_item_id: "hidden", tenant_id: "hidden" });
 const detail = Object.freeze({ data: item, meta: { contract_version: "v1" } });
 const page = Object.freeze({ data: { items: [item], total: 14 }, meta: { contract_version: "v1", next_cursor: "opaque-cursor" } });
 const forbidden = (): never => { throw new Error("Unexpected operation"); };
+
+void test("catalog MCP accepts every cursor length accepted by the transport", async () => {
+  const descriptor = mcpReadTools.find((tool) => tool.name === "bizyeet_catalog_list");
+  assert.ok(descriptor && "cursor" in descriptor.inputSchema.properties);
+  assert.equal(descriptor.inputSchema.properties.cursor.maxLength, MAX_CURSOR_LENGTH);
+  await Promise.all([513, MAX_CURSOR_LENGTH].map(async (length) => {
+    const cursor = "c".repeat(length);
+    assert.equal(validCursor(cursor), true);
+    const client = createCanonicalCrmClient({ origin: "https://example.test", getAccessToken: () => Promise.resolve("synthetic-oauth"),
+      request: (url) => {
+        assert.equal(new URL(url).searchParams.get("cursor"), cursor);
+        return Promise.resolve(Response.json({ ...page, meta: { ...page.meta, next_cursor: cursor } }));
+      } });
+    assert.equal((await client.list("catalog", { cursor })).status, 200);
+  }));
+  assert.equal(validCursor("c".repeat(MAX_CURSOR_LENGTH + 1)), false);
+});
 
 void test("catalog projection strips source/cost facts and permits source-optional fields", () => {
   assert.deepEqual(catalogResponse(detail, { fields: ["name", "active", "sku"] }, item.id)?.data, { id: item.id, name: item.name, active: 1 });

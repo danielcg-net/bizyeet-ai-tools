@@ -2,6 +2,7 @@ import { CRM_SEARCH_MAX_LENGTH, SALES_SEARCH_MAX_LENGTH } from "./search-contrac
 import { serviceReadFields } from "./service-read-contract.js";
 import { quoteReadFields } from "./quote-read-contract.js";
 import { catalogReadFields } from "./catalog-read-contract.js";
+import { MAX_CURSOR_LENGTH } from "./cursor.js";
 import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
 import { taxReportMcpTool } from "./tax-report-mcp.js";
 import { expenseMcpTools } from "./expense-mcp.js";
@@ -63,7 +64,7 @@ const quoteFieldsSchema = Object.freeze({ type: "array", maxItems: quoteReadFiel
 const catalogFieldsSchema = Object.freeze({ type: "array", maxItems: catalogReadFields.length,
   items: Object.freeze({ type: "string", enum: catalogReadFields }) });
 const catalogPageSchema = Object.freeze({ ...pageSchema, properties: Object.freeze({
-  api_version: pageSchema.properties.api_version, cursor: Object.freeze({ type: "string", minLength: 1, maxLength: 512 }),
+  api_version: pageSchema.properties.api_version, cursor: Object.freeze({ type: "string", minLength: 1, maxLength: MAX_CURSOR_LENGTH }),
   page_size: pageSchema.properties.page_size, search: Object.freeze({ type: "string", maxLength: SALES_SEARCH_MAX_LENGTH }), fields: catalogFieldsSchema,
 }) });
 const quotePageSchema = Object.freeze({ ...pageSchema, properties: Object.freeze({
