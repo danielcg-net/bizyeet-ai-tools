@@ -554,7 +554,7 @@ const crmRead = async (resource: "customers" | "leads" | "payments" | "services"
     if (command !== "list" && command !== "get") return unsupportedCommand(`${resource} ${command ?? ""}`.trim());
     const fields = command === "get" ? oneOption(target?.options ?? [], "--fields", "").split(",").filter(Boolean) : [];
     if (resource === "payments" && !validPaymentQuery({ fields })) return invalidInput("Payment read options are invalid.");
-    if (["catalog", "quotes", "services"].includes(resource) && !validSalesSearch(listOptions?.search ?? "")) return invalidInput("Search is limited to 120 UTF-16 code units and must contain well-formed Unicode.");
+    if (["catalog", "quotes", "services"].includes(resource) && !validSalesSearch(listOptions?.search ?? "")) return invalidInput("Search is limited to 120 Unicode characters and must contain well-formed Unicode.");
     if (resource === "catalog" && (!validCatalogReadFields(listOptions?.fields ?? fields)
       || (listOptions && (!Number.isInteger(listOptions.limit) || (listOptions.limit ?? 25) < 1 || (listOptions.limit ?? 25) > 100)))) return invalidInput("Catalog read options are invalid.");
     if (resource === "quotes" && (!validQuoteReadFields(listOptions?.fields ?? fields)
