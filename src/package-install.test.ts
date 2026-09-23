@@ -104,11 +104,15 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
   }
   const metadata = url.pathname === "/.well-known/oauth-authorization-server";
   const authorized = request.headers.authorization === "Bearer synthetic-access";
+  const historyQuery = ["customers", "leads", "quotes", "services", "payments"].some((resource) => url.pathname === `/api/agent/${resource}/${encodeURIComponent(opaqueId)}/communications`)
+    && request.method === "GET" && url.searchParams.size === 3 && url.searchParams.get("api_version") === "v1"
+    && url.searchParams.get("page") === "2" && url.searchParams.get("page_size") === "20";
   const statusQuery = ["/api/agent/customers/update-status", "/api/agent/leads/update-status"].includes(url.pathname)
     && request.method === "GET" && url.searchParams.size === 3 && url.searchParams.get("api_version") === "v1"
     && url.searchParams.get("preview_id") === previewId && url.searchParams.get("idempotency_key") === executionKey;
   const body = metadata ? { issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, code_challenge_methods_supported: ["S256"] }
     : !authorized ? { error: { code: "authorization_required" } }
+    : historyQuery ? { data: { items: [{ id: "synthetic-delivery", kind: "email", status: "sent" }], total: 21 }, meta: { contract_version: "v1", request_id: "synthetic-history", page: 2, page_size: 20, total_pages: 2 } }
     : statusQuery ? { data: { preview_id: previewId, state: "succeeded", retry_mutation: false, reconciliation_required: false,
       outcome: { status: 200, data: { resource: { id: opaqueId, business: "Proposed", ...(url.pathname.startsWith("/api/agent/leads/") ? { pipeline_stage: "New Lead" } : {}) }, audit_reference: previewId } } }, meta: { contract_version: "v1" } }
     : url.pathname === "/api/agent/me" ? { tenant_id: "synthetic-tenant", client_id: "public-client", scope: ["customers.read"] }
@@ -307,7 +311,16 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.match(execution, /"business":"Proposed"/u);
       assert.doesNotMatch(check + list + nextPage + detail + preview + execution + status, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
       assert.doesNotMatch(leadList + leadNext + leadDetail, /synthetic-access|synthetic-refresh/u);
-      assert.equal(handler.mock.callCount(), 24);
+      await ["customers", "leads", "quotes", "services", "payments"].reduce(async (previous, resource) => {
+        await previous;
+        const before = handler.mock.callCount();
+        const history = await runInstalled([resource, "communications", "--page", "2", "--limit", "20", "--profile", testProfile(directory), "--", opaqueId], directory, environment);
+        assert.deepEqual(JSON.parse(history) as unknown, { data: { items: [{ id: "synthetic-delivery", kind: "email", status: "sent" }], total: 21 },
+          meta: { contract_version: "v1", request_id: "synthetic-history", page: 2, page_size: 20, total_pages: 2 } });
+        assert.equal(handler.mock.callCount() - before, 1);
+        assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
+      }, Promise.resolve());
+      assert.equal(handler.mock.callCount(), 29);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
@@ -319,7 +332,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.equal(pageRequests[0].searchParams.has("filter"), false);
       assert.equal(pageRequests[0].hash, "");
       const leadRequests = handler.mock.calls.map((call) => new URL(call.arguments[0].url ?? "/", "https://localhost"))
-        .filter((url) => url.pathname.startsWith("/api/agent/leads") && !url.pathname.includes("/update-"));
+        .filter((url) => url.pathname.startsWith("/api/agent/leads") && !url.pathname.includes("/update-") && !url.pathname.endsWith("/communications"));
       assert.equal(leadRequests.length, 4);
       assert.ok(leadRequests.every((url) => url.searchParams.get("fields") === "id" && url.searchParams.get("api_version") === "v1"));
       assert.ok(leadRequests.filter((url) => url.pathname === "/api/agent/leads").every((url) => url.searchParams.get("search") === "Synthetic Lead"));

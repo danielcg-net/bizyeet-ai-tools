@@ -333,6 +333,33 @@ and unsupported providers remain explicit errors. Do not infer a bookable slot,
 provider action, or tenant from a successful count. The matching MCP tool is
 `bizyeet_bookings_upcoming` and advertises the same `bookings.read` OAuth scope.
 
+## Communication history contract (not yet released)
+
+This source contract requires the matching canonical backend deployment, which
+is still pending. It is not evidence of a published or production-ready feature.
+
+```sh
+bizyeet customers communications <opaque-id> --page 1 --limit 10
+bizyeet leads communications <opaque-id> --profile <name>
+bizyeet quotes communications <opaque-id>
+bizyeet services communications <opaque-id>
+bizyeet payments communications <opaque-id>
+```
+
+Each command requests one page of immutable BizYeet delivery metadata, not a
+provider inbox. Use server-issued opaque IDs without interpreting their format.
+Pages range from 1 to 10000; limits are 10, 20 or 50 (default 10). The server can
+clamp a page beyond the end; the response includes the actual page and total.
+There is no automatic traversal, provider selection or fallback. Unsupported
+provider operations remain errors rather than an invented empty result.
+
+Only delivery identity, kind, status, source type, role, trigger, status-event and
+timestamp metadata are permitted. Bodies, subjects, addresses, parent IDs,
+provider identifiers/errors and tenant internals are excluded. Payment history
+requires `payments.read`; the other families require `customers.read`, in
+addition to current server-side permissions. `--export` uses the protected read
+export path; neither history nor export sends a message or modifies a record.
+
 ## Read expenses
 
 Servers with the canonical expense-read contract deployed support OAuth `expenses.read`:

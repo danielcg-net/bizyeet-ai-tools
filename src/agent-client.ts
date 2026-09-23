@@ -13,6 +13,7 @@ import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contr
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
+import { validCommunicationOptions, validCommunicationResource, type CommunicationResource, type CommunicationOptions } from "./communication-contract.js";
 import { validServiceReadFields } from "./service-read-contract.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 import { validCatalogReadFields } from "./catalog-read-contract.js";
@@ -170,6 +171,12 @@ export const receivedPaymentSummary = async (input: Readonly<{
 export const upcomingBookings = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ options: BookingSummaryOptions }>): Promise<AgentResult> => {
   if (!validBookingSummaryOptions(input.options)) throw new Error("Booking summary options are invalid.");
   return invoke({ ...input, operation: (client) => client.bookingSummary(input.options) });
+};
+
+/** Read metadata through the existing OAuth refresh and credential-persistence boundary. */
+export const readCommunications = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resource: CommunicationResource; resourceId: string; options: CommunicationOptions }>): Promise<AgentResult> => {
+  if (!validCommunicationResource(input.resource) || !validResourceId(input.resourceId) || !validCommunicationOptions(input.options)) throw new Error("Communication history options are invalid.");
+  return invoke({ ...input, operation: (client) => client.communications(input.resource, input.resourceId, input.options) });
 };
 
 /** Read canonical tax reports through the shared OAuth refresh and persistence boundary. */
