@@ -79,7 +79,7 @@ const opaqueCursor = "--next:page/2?query=a+b&filter=active#offset";
 const previewId = "11111111-1111-4111-8111-111111111111";
 const executionKey = "22222222-2222-4222-8222-222222222222";
 const receipt = "r".repeat(43);
-const serveSyntheticWrite = async (request: IncomingMessage, response: ServerResponse, preview: boolean): Promise<void> => {
+const serveSyntheticWrite = async (request: IncomingMessage, response: ServerResponse, preview: boolean, lead: boolean): Promise<void> => {
   assert.equal(request.method, "POST");
   assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
   assert.equal(request.headers.authorization, "Bearer synthetic-access");
@@ -87,16 +87,16 @@ const serveSyntheticWrite = async (request: IncomingMessage, response: ServerRes
   assert.deepEqual(input, preview ? { resource_id: opaqueId, changes: { business: "Proposed" } }
     : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
   const data = preview ? { preview_id: previewId, request_hash: "b".repeat(43), expires_at: "2099-01-01T00:00:00.000Z", confirmation_class: "reversible_write",
-    resource_id: opaqueId, proposed_changes: { business: "Proposed" }, side_effects: ["Update customer"], warnings: [], idempotency_key_format: "uuid", approval_path: `/dashboard/#/agent-approvals/${previewId}` }
-    : { resource: { id: opaqueId, business: "Proposed" }, audit_reference: previewId };
+    resource_id: opaqueId, proposed_changes: { business: "Proposed", ...(lead ? { birthday: null } : {}) }, side_effects: [lead ? "Update lead without conversion" : "Update customer"], warnings: [], idempotency_key_format: "uuid", approval_path: `/dashboard/#/agent-approvals/${previewId}` }
+    : { resource: { id: opaqueId, business: "Proposed", ...(lead ? { pipeline_stage: "New Lead" } : {}) }, audit_reference: previewId };
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
 };
 const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): void => {
   const origin = `https://${request.headers.host ?? "127.0.0.1"}`;
   const url = new URL(request.url ?? "/", origin);
-  if (["/api/agent/customers/update-preview", "/api/agent/customers/update-execute"].includes(url.pathname)) {
-    void serveSyntheticWrite(request, response, url.pathname.endsWith("update-preview")).catch(() => {
+  if (["customers", "leads"].some((resource) => ["preview", "execute"].some((operation) => url.pathname === `/api/agent/${resource}/update-${operation}`))) {
+    void serveSyntheticWrite(request, response, url.pathname.endsWith("update-preview"), url.pathname.startsWith("/api/agent/leads/")).catch(() => {
       response.writeHead(500, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
     });
@@ -104,13 +104,13 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
   }
   const metadata = url.pathname === "/.well-known/oauth-authorization-server";
   const authorized = request.headers.authorization === "Bearer synthetic-access";
-  const statusQuery = url.pathname === "/api/agent/customers/update-status"
+  const statusQuery = ["/api/agent/customers/update-status", "/api/agent/leads/update-status"].includes(url.pathname)
     && request.method === "GET" && url.searchParams.size === 3 && url.searchParams.get("api_version") === "v1"
     && url.searchParams.get("preview_id") === previewId && url.searchParams.get("idempotency_key") === executionKey;
   const body = metadata ? { issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, code_challenge_methods_supported: ["S256"] }
     : !authorized ? { error: { code: "authorization_required" } }
     : statusQuery ? { data: { preview_id: previewId, state: "succeeded", retry_mutation: false, reconciliation_required: false,
-      outcome: { status: 200, data: { resource: { id: opaqueId, business: "Proposed" }, audit_reference: previewId } } }, meta: { contract_version: "v1" } }
+      outcome: { status: 200, data: { resource: { id: opaqueId, business: "Proposed", ...(url.pathname.startsWith("/api/agent/leads/") ? { pipeline_stage: "New Lead" } : {}) }, audit_reference: previewId } } }, meta: { contract_version: "v1" } }
     : url.pathname === "/api/agent/me" ? { tenant_id: "synthetic-tenant", client_id: "public-client", scope: ["customers.read"] }
     : ["catalog", "quotes", "services"].some((resource) => url.pathname === `/api/agent/${resource}`) ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId, unit_cost: "private-cost", tenant_id: "private-tenant" }], total: 1 }, meta: { contract_version: "v1", request_id: "synthetic-sales", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
     : ["catalog", "quotes", "services"].some((resource) => url.pathname === `/api/agent/${resource}/${encodeURIComponent(opaqueId)}`) ? { data: { id: opaqueId, unit_cost: "private-cost", tenant_id: "private-tenant" }, meta: { contract_version: "v1", request_id: "synthetic-sales" } }
@@ -288,6 +288,14 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const preview = await runInstalled(["customers", "update", "preview", "--input-stdin", "--profile", testProfile(directory), "--", opaqueId], directory, environment, JSON.stringify({ business: "Proposed" }));
       const execution = await runInstalled(["customers", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
       const status = await runInstalled(["customers", "update", "status", previewId, "--idempotency-key", executionKey, "--profile", testProfile(directory)], directory, environment);
+      const leadPreview = await runInstalled(["leads", "update", "preview", "--input-stdin", "--profile", testProfile(directory), "--", opaqueId], directory, environment, JSON.stringify({ business: "Proposed" }));
+      const leadExecution = await runInstalled(["leads", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
+      const leadStatus = await runInstalled(["leads", "update", "status", previewId, "--idempotency-key", executionKey, "--profile", testProfile(directory)], directory, environment);
+      assert.match(leadPreview, /"birthday":null/u);
+      assert.match(leadExecution, /"pipeline_stage":"New Lead"/u);
+      assert.match(leadStatus, /"state":"succeeded"/u);
+      assert.match(leadStatus, /"retry_mutation":false/u);
+      assert.doesNotMatch(leadPreview + leadExecution + leadStatus, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
       assert.match(status, /"state":"succeeded"/u);
       assert.match(status, /"retry_mutation":false/u);
       assert.match(status, /"business":"Proposed"/u);
@@ -299,7 +307,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.match(execution, /"business":"Proposed"/u);
       assert.doesNotMatch(check + list + nextPage + detail + preview + execution + status, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
       assert.doesNotMatch(leadList + leadNext + leadDetail, /synthetic-access|synthetic-refresh/u);
-      assert.equal(handler.mock.callCount(), 21);
+      assert.equal(handler.mock.callCount(), 24);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
@@ -311,10 +319,15 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.equal(pageRequests[0].searchParams.has("filter"), false);
       assert.equal(pageRequests[0].hash, "");
       const leadRequests = handler.mock.calls.map((call) => new URL(call.arguments[0].url ?? "/", "https://localhost"))
-        .filter((url) => url.pathname.startsWith("/api/agent/leads"));
+        .filter((url) => url.pathname.startsWith("/api/agent/leads") && !url.pathname.includes("/update-"));
       assert.equal(leadRequests.length, 4);
       assert.ok(leadRequests.every((url) => url.searchParams.get("fields") === "id" && url.searchParams.get("api_version") === "v1"));
       assert.ok(leadRequests.filter((url) => url.pathname === "/api/agent/leads").every((url) => url.searchParams.get("search") === "Synthetic Lead"));
+      const leadWrites = handler.mock.calls.map((call) => call.arguments[0])
+        .filter((request) => request.url?.startsWith("/api/agent/leads/update-"));
+      assert.deepEqual(leadWrites.map((request) => request.method), ["POST", "POST", "GET"]);
+      assert.deepEqual(leadWrites.map((request) => new URL(request.url ?? "/", "https://localhost").pathname),
+        ["/api/agent/leads/update-preview", "/api/agent/leads/update-execute", "/api/agent/leads/update-status"]);
       assert.ok(handler.mock.calls.map((call) => new URL(call.arguments[0].url ?? "/", "https://localhost"))
         .filter((url) => url.pathname === `/api/agent/customers/${encodeURIComponent(opaqueId)}`)
         .every((url) => url.searchParams.get("fields") === "id"));
