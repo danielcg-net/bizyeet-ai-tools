@@ -10,6 +10,8 @@ import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
 import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, upcomingBookings, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
 import { previewLeadUpdate, executeLeadUpdate, leadUpdateStatus } from "./agent-client.js";
+import { readCommunications } from "./agent-client.js";
+import { validCommunicationOptions, validCommunicationResource, type CommunicationResource } from "./communication-contract.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { getExpense, listExpenses } from "./agent-client.js";
 import { validExpenseListOptions } from "./expense-contract.js";
@@ -47,6 +49,7 @@ type CliStorage = Readonly<{
 }>;
 
 type CliRuntime = Readonly<{
+  readCommunications?: (input: Omit<Parameters<typeof readCommunications>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getQuote?: (input: Omit<Parameters<typeof getQuote>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getCatalogItem?: (input: Omit<Parameters<typeof getCatalogItem>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listCatalog?: (input: Omit<Parameters<typeof listCatalog>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -87,6 +90,7 @@ const storage: CliStorage = {
 };
 
 const runtime: CliRuntime = {
+  readCommunications: async (input) => readCommunications({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getQuote: async (input) => getQuote({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getCatalogItem: async (input) => getCatalogItem({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listCatalog: async (input) => listCatalog({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -148,6 +152,7 @@ const helpMessage = [
   "       bizyeet expenses list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <due|paid|skipped>] [--category <name>] [--currency <ISO>] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
   "       bizyeet expenses get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet bookings upcoming [--hours <1-720>] [--profile <name>] [--export]",
+  "       bizyeet <customers|leads|quotes|services|payments> communications <opaque-id> [--page <1-10000>] [--limit <10|20|50>] [--profile <name>] [--export]",
   "Read commands accept --export for a private local JSON file; responses above 32 KiB export automatically. No output-path argument or automatic pagination is supported.",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
   "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
@@ -525,6 +530,24 @@ const bookingRead = async (args: readonly string[], dependencies: CliStorage, ex
   } catch (error) { return requestFailure(error); }
 };
 
+const communicationRead = async (resource: CommunicationResource, args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    const target = resourceTarget(args, ["--profile", "--page", "--limit"], ["--export"]);
+    if (!target || target.options.filter((arg) => arg === "--export").length > 1
+      || ["--profile", "--page", "--limit"].some((flag) => valuesFor(target.options, flag).length > 1 || valuesFor(target.options, flag).some((value) => !value))) return invalidInput("Communication history options are invalid.");
+    const rawPage = oneOption(target.options, "--page", "1");
+    const rawLimit = oneOption(target.options, "--limit", "10");
+    const options = { page: /^[1-9]\d*$/u.test(rawPage) ? Number(rawPage) : NaN, page_size: /^[1-9]\d*$/u.test(rawLimit) ? Number(rawLimit) : NaN };
+    if (!validCommunicationOptions(options)) return invalidInput("Communication history options are invalid.");
+    const authenticated = await authenticatedProfile(target.options, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.readCommunications) return unsupportedCommand(`${resource} communications`);
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.readCommunications({ credentials: authenticated.credentials, profile: authenticated.profile,
+      resource, resourceId: target.id, options, persistCredentials }), target.options.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
 const taxReadOptions = (args: readonly string[]): TaxReportOptions | undefined => {
   try {
     const mapping = { "--range": "range", "--start-date": "start_date", "--end-date": "end_date", "--authority": "authority",
@@ -651,6 +674,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (first === "bookings" && second === "upcoming") return bookingRead(args.slice(2), dependencies, execution);
   if (first === "reports" && second === "taxes") return taxRead(args.slice(2), dependencies, execution);
   if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);
+  if (validCommunicationResource(first) && second === "communications") return communicationRead(first, args.slice(2), dependencies, execution);
   if (first === "customers" || first === "leads" || first === "payments" || first === "services" || first === "quotes" || first === "catalog") return crmRead(first, args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);

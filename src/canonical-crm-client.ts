@@ -19,6 +19,7 @@ import { validCatalogReadFields } from "./catalog-read-contract.js";
 import { catalogResponse } from "./catalog-response.js";
 import { validSalesSearch } from "./search-contract.js";
 import { validResourceId } from "./resource-id.js";
+import { communicationResponse, validCommunicationOptions, validCommunicationResource, type CommunicationOptions, type CommunicationResource } from "./communication-contract.js";
 export { validResourceId } from "./resource-id.js";
 
 export type CrmResource = "customers" | "leads";
@@ -54,6 +55,7 @@ export type ClientDependencies = Readonly<{
   wait?: (milliseconds: number) => Promise<void>;
 }>;
 export type CanonicalCrmClient = Readonly<{
+  communications: (resource: CommunicationResource, id: string, options?: CommunicationOptions) => Promise<CanonicalResult>;
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
   bookingSummary: (options?: BookingSummaryOptions) => Promise<CanonicalResult>;
   taxReport: (options?: TaxReportOptions) => Promise<CanonicalResult>;
@@ -257,6 +259,12 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     if (options.hours !== undefined) parameters.set("hours", String(options.hours));
     return reportRead("/api/agent/bookings/upcoming", parameters, (body) => bookingSummaryResponse(body, options));
   };
+  const communications = async (resource: CommunicationResource, id: string, options: CommunicationOptions = {}): Promise<CanonicalResult> => {
+    if (!validCommunicationResource(resource) || !validResourceId(id) || !validCommunicationOptions(options)) return failure(400, "invalid_request");
+    const parameters = new URLSearchParams([["api_version", "v1"], ...(options.page === undefined ? [] : [["page", String(options.page)]]),
+      ...(options.page_size === undefined ? [] : [["page_size", String(options.page_size)]])]);
+    return reportRead(`/api/agent/${resource}/${encodeURIComponent(id)}/communications`, parameters, (body) => communicationResponse(body, options));
+  };
   const taxReport = async (options: TaxReportOptions = {}): Promise<CanonicalResult> => {
     if (!validTaxReportOptions(options)) return failure(400, "invalid_request");
     const evidence = (["currency", "authority", "entry_type", "province"] as const).filter((field) => options[field] !== undefined);
@@ -319,6 +327,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     } catch { return failure(503, "request_unavailable"); }
   };
   return Object.freeze({
+    communications,
     receivedPaymentSummary,
     bookingSummary,
     taxReport,
