@@ -15,6 +15,7 @@ import { validExpenseListOptions, type ExpenseListOptions } from "./expense-cont
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { validServiceReadFields } from "./service-read-contract.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
+import { validCatalogReadFields } from "./catalog-read-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -218,6 +219,21 @@ export const getLead = async (input: Parameters<typeof getCustomer>[0]): Promise
   if (!validResourceId(input.resourceId)) throw new Error("Lead ID is invalid.");
   const options = boundedReadOptions(input.options ?? {});
   return invoke({ ...input, operation: (client) => client.get("leads", input.resourceId, options) });
+};
+
+/** Discover canonical catalog facts with the shared OAuth refresh boundary. */
+export const listCatalog = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
+  const options = boundedOptions(input.options);
+  if (!validCatalogReadFields(options.fields ?? []) || (options.search?.length ?? 0) > 120) throw new Error("Catalog read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("catalog", options) });
+};
+
+/** Read one opaque catalog handle without selecting a source. */
+export const getCatalogItem = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Catalog ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  if (!validCatalogReadFields(options.fields ?? [])) throw new Error("Catalog read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("catalog", input.resourceId, options) });
 };
 
 /** Discover quotes using the shared OAuth refresh boundary and canonical routing. */

@@ -249,6 +249,20 @@ opaque. Costs and private contact metadata are excluded. Quote editing, sending,
 acceptance, and decline are not yet exposed by this CLI; these read commands and
 matching MCP declarations do not imply those actions are deployed or authorized.
 
+Catalog reads require `customers.read` and a server deploying the canonical
+catalog OAuth endpoints (deployment is still pending):
+
+```sh
+bizyeet catalog list --limit 25 --search transfer --fields id,name,unit_price
+bizyeet catalog get catalog_opaque_id --fields id,name,unit_price
+```
+
+The server composes the permitted catalog sources; the CLI does not select a
+CRM/provider or expose private costs. Optional fields may be absent. Preserve
+opaque IDs and cursors unchanged. If catalog changes invalidate a cursor, restart
+discovery explicitly; the CLI never silently restarts. Catalog writes are not
+exposed by these commands.
+
 List pages are capped at 100 records. Resource IDs and cursors are opaque;
 never replace them with URLs, database IDs, or tenant identifiers. All command
 results use the versioned BizYeet JSON envelope on stdout. Diagnostics and
