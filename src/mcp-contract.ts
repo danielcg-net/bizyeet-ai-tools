@@ -1,6 +1,7 @@
 import { CRM_SEARCH_MAX_LENGTH } from "./search-contract.js";
 import { serviceReadFields } from "./service-read-contract.js";
 import { quoteReadFields } from "./quote-read-contract.js";
+import { catalogReadFields } from "./catalog-read-contract.js";
 import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
 import { taxReportMcpTool } from "./tax-report-mcp.js";
 import { expenseMcpTools } from "./expense-mcp.js";
@@ -59,6 +60,12 @@ const serviceFieldsSchema = Object.freeze({ type: "array", maxItems: serviceRead
   items: Object.freeze({ type: "string", enum: serviceReadFields }) });
 const quoteFieldsSchema = Object.freeze({ type: "array", maxItems: quoteReadFields.length,
   items: Object.freeze({ type: "string", enum: quoteReadFields }) });
+const catalogFieldsSchema = Object.freeze({ type: "array", maxItems: catalogReadFields.length,
+  items: Object.freeze({ type: "string", enum: catalogReadFields }) });
+const catalogPageSchema = Object.freeze({ ...pageSchema, properties: Object.freeze({
+  api_version: pageSchema.properties.api_version, cursor: Object.freeze({ type: "string", minLength: 1, maxLength: 512 }),
+  page_size: pageSchema.properties.page_size, search: Object.freeze({ type: "string", maxLength: 120 }), fields: catalogFieldsSchema,
+}) });
 const quotePageSchema = Object.freeze({ ...pageSchema, properties: Object.freeze({
   api_version: pageSchema.properties.api_version, cursor: pageSchema.properties.cursor,
   page_size: pageSchema.properties.page_size, search: pageSchema.properties.search, fields: quoteFieldsSchema,
@@ -123,4 +130,6 @@ export const mcpReadTools = Object.freeze([
   Object.freeze({ annotations: readAnnotations, description: "List public quote facts through canonical routing. Private costs and contact metadata are excluded.", inputSchema: quotePageSchema, name: "bizyeet_quotes_list", outputSchema: listOutputSchema, securitySchemes: oauthReadSecurity, title: "List quotes" }),
   Object.freeze({ annotations: readAnnotations, description: "Read a quote by opaque ID, including pricing revision and opaque line handles. This does not authorize editing or sending.", inputSchema: Object.freeze({ ...exactSchema, properties: Object.freeze({ ...exactSchema.properties, fields: quoteFieldsSchema }) }), name: "bizyeet_quotes_get", outputSchema: resourceOutputSchema, securitySchemes: oauthReadSecurity, title: "Get quote" }),
   Object.freeze({ annotations: readAnnotations, description: "Read a service by opaque ID, including pricing_revision and opaque line handles when selected. This does not authorize an update.", inputSchema: Object.freeze({ ...exactSchema, properties: Object.freeze({ ...exactSchema.properties, fields: serviceFieldsSchema }) }), name: "bizyeet_services_get", outputSchema: resourceOutputSchema, securitySchemes: oauthReadSecurity, title: "Get service" }),
+  Object.freeze({ annotations: readAnnotations, description: "Read the canonical catalog without provider selection or private costs. Restart discovery explicitly if a cursor becomes stale.", inputSchema: catalogPageSchema, name: "bizyeet_catalog_list", outputSchema: listOutputSchema, securitySchemes: oauthReadSecurity, title: "List catalog items" }),
+  Object.freeze({ annotations: readAnnotations, description: "Read a catalog item by its opaque discovery ID. Optional fields may be absent; no cost or write authority is exposed.", inputSchema: Object.freeze({ ...exactSchema, properties: Object.freeze({ ...exactSchema.properties, fields: catalogFieldsSchema }) }), name: "bizyeet_catalog_get", outputSchema: resourceOutputSchema, securitySchemes: oauthReadSecurity, title: "Get catalog item" }),
 ] as const) satisfies readonly McpTool[];
