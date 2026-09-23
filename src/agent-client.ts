@@ -13,6 +13,7 @@ import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contr
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
+import { validServiceReadFields } from "./service-read-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -216,6 +217,21 @@ export const getLead = async (input: Parameters<typeof getCustomer>[0]): Promise
   if (!validResourceId(input.resourceId)) throw new Error("Lead ID is invalid.");
   const options = boundedReadOptions(input.options ?? {});
   return invoke({ ...input, operation: (client) => client.get("leads", input.resourceId, options) });
+};
+
+/** Discover services only through the canonical OAuth endpoint. */
+export const listServices = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
+  const options = boundedOptions(input.options);
+  if (!validServiceReadFields(options.fields ?? [], false)) throw new Error("Service fields are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("services", options) });
+};
+
+/** Read service detail, retaining opaque line handles and the concurrency revision. */
+export const getService = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Service ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  if (!validServiceReadFields(options.fields ?? [], true)) throw new Error("Service fields are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("services", input.resourceId, options) });
 };
 
 /** Read payment facts using the same refresh/persistence boundary and canonical API. */

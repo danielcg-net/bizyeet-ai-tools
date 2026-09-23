@@ -11,11 +11,13 @@ import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { bookingSummaryResponse } from "./booking-response.js";
+import { validServiceReadFields } from "./service-read-contract.js";
+import { serviceResponse } from "./service-response.js";
 import { validResourceId } from "./resource-id.js";
 export { validResourceId } from "./resource-id.js";
 
 export type CrmResource = "customers" | "leads";
-export type ReadResource = CrmResource | "payments" | "expenses";
+export type ReadResource = CrmResource | "payments" | "expenses" | "services";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
 export type ListOptions = ReadOptions & Readonly<{
   page_size?: number;
@@ -59,7 +61,7 @@ export type CanonicalCrmClient = Readonly<{
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses";
+const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses" || value === "services";
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const utcTimestamp = (value: unknown): value is string => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+00:00)$/iu.test(value)) return false;
@@ -155,6 +157,8 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   const read = async (resource: ReadResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
+    if (resource === "services" && (!validServiceReadFields(options.fields ?? [], id !== null)
+      || Object.keys(options).some((key) => !(id === null ? ["fields", "page_size", "cursor", "search"] : ["fields"]).includes(key)))) return failure(400, "invalid_request");
     if (resource === "expenses") {
       if (!validExpenseListOptions(options) || (id !== null && Object.keys(options).some((key) => key !== "fields"))) return failure(400, "invalid_request");
     } else {
@@ -182,6 +186,10 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         ? { status: response.status, body } : failure(502, "invalid_response");
       if (resource === "expenses") {
         const projected = validExpenseListOptions(options) ? expenseResponse(body, options, id) : undefined;
+        return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
+      }
+      if (resource === "services") {
+        const projected = serviceResponse(body, options, id);
         return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
       }
       if (!validEnvelope(body, id, pageSize) || !record(body) || !record(body.meta)) return failure(502, "invalid_response");
