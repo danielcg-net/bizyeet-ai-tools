@@ -40,6 +40,7 @@
 - Write previews must echo the requested resource ID. Status audit references are independently validated opaque UUIDs, not assumed equal to the preview ID. Share the safe error-code projection with direct requests, including the legacy unsupported-operation alias.
 
 - Public repository for the OAuth-only BizYeet CLI and MCP integration.
+- Read `mem:quote_reads` for the quote CLI read boundary and deployment caveats.
 - No tenant records, credentials, operational URLs, private implementation, or customer context may enter Git history.
 - The public CLI is fail-closed until an explicitly scoped operation is implemented.
 - Value options accept --option=value for literal option-shaped values (especially --cursor=--next-page). Preserve everything after the first equals, reject mixed-form duplicates/empty values, and never interpret embedded help/JSON flags.

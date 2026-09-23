@@ -14,6 +14,7 @@ import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { validServiceReadFields } from "./service-read-contract.js";
+import { validQuoteReadFields } from "./quote-read-contract.js";
 
 export type CustomerListOptions = Readonly<{
   cursor?: string;
@@ -217,6 +218,21 @@ export const getLead = async (input: Parameters<typeof getCustomer>[0]): Promise
   if (!validResourceId(input.resourceId)) throw new Error("Lead ID is invalid.");
   const options = boundedReadOptions(input.options ?? {});
   return invoke({ ...input, operation: (client) => client.get("leads", input.resourceId, options) });
+};
+
+/** Discover quotes using the shared OAuth refresh boundary and canonical routing. */
+export const listQuotes = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
+  const options = boundedOptions(input.options);
+  if (!validQuoteReadFields(options.fields ?? [])) throw new Error("Quote fields are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("quotes", options) });
+};
+
+/** Read public quote facts, including revision and opaque line handles for approved edits. */
+export const getQuote = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId)) throw new Error("Quote ID is invalid.");
+  const options = boundedReadOptions(input.options ?? {});
+  if (!validQuoteReadFields(options.fields ?? [])) throw new Error("Quote fields are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("quotes", input.resourceId, options) });
 };
 
 /** Discover services only through the canonical OAuth endpoint. */

@@ -237,6 +237,18 @@ support is not a release claim for the pending backend update. Service writes
 remain unavailable in this CLI. MCP declarations describe the matching read
 contract; availability depends on the connected server's advertised tools.
 
+Quote reads also use `customers.read` and canonical routing:
+
+```sh
+bizyeet quotes list --limit 25 --fields id,title,pricing_revision
+bizyeet quotes get quote_opaque_id --fields id,items,pricing_revision
+```
+
+Quote line handles are returned by compatible server versions and must remain
+opaque. Costs and private contact metadata are excluded. Quote editing, sending,
+acceptance, and decline are not yet exposed by this CLI; these read commands and
+matching MCP declarations do not imply those actions are deployed or authorized.
+
 List pages are capped at 100 records. Resource IDs and cursors are opaque;
 never replace them with URLs, database IDs, or tenant identifiers. All command
 results use the versioned BizYeet JSON envelope on stdout. Diagnostics and

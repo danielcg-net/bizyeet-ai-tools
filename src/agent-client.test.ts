@@ -4,27 +4,38 @@ import test, { mock } from "node:test";
 import { checkIdentity, getCustomer, getLead, listCustomers, listLeads, executeCustomerUpdate, refreshPersistenceMessages } from "./agent-client.js";
 import { run } from "./cli.js";
 import { isAgentFailure } from "./agent-error.js";
-import { getService, listServices } from "./agent-client.js";
+import { getQuote, getService, listQuotes, listServices } from "./agent-client.js";
 
 const profile = { clientId: "public-client", issuer: "https://example.test" };
 const metadata = { authorization_endpoint: "https://example.test/authorize", token_endpoint: "https://example.test/token" };
 const validCredentials = { profile, accessToken: "access-token", expiresAt: "2099-01-01T00:00:00.000Z", refreshToken: "refresh-token", scope: "customers.read" };
 const header = (request: RequestInit | undefined, name: string): string | null => new Headers(request?.headers).get(name);
 
-void test("service reads refresh once and persist rotation before retrying the canonical detail", async () => {
+Object.freeze([{ resource: "services", get: getService }, { resource: "quotes", get: getQuote }]).forEach(({ resource, get }) => {
+void test(`${resource} reads refresh once and persist rotation before retrying the canonical detail`, async () => {
   const persist = mock.fn((): Promise<void> => Promise.resolve());
   const fetcher = mock.fn((url: string, init?: RequestInit): Promise<Response> => {
     if (url.endsWith("/token")) return Promise.resolve(Response.json({ access_token: "rotated-access", refresh_token: "rotated-refresh", expires_in: 300, token_type: "Bearer" }));
-    assert.equal(new URL(url).pathname, "/api/agent/services/opaque-service");
+    assert.equal(new URL(url).pathname, `/api/agent/${resource}/opaque-service`);
     if (header(init, "Authorization") === "Bearer access-token") return Promise.resolve(Response.json({ error: "invalid_token" }, { status: 401 }));
     assert.equal(header(init, "Authorization"), "Bearer rotated-access");
     assert.equal(persist.mock.callCount(), 1);
     return Promise.resolve(Response.json({ data: { id: "opaque-service", pricing_revision: 2, items: [], cost_notes: "private" }, meta: { contract_version: "v1" } }));
   });
-  const result = await getService({ credentials: validCredentials, profile, metadata, now: () => 1000,
+  const result = await get({ credentials: validCredentials, profile, metadata, now: () => 1000,
     fetcher, persistCredentials: persist, resourceId: "opaque-service", options: { fields: ["items", "pricing_revision"] } });
   assert.equal(JSON.stringify(result.response).includes("private"), false);
   assert.equal(fetcher.mock.callCount(), 3);
+});
+});
+
+void test("quote discovery validates public fields before token use", async () => {
+  const input = { credentials: validCredentials, profile, metadata, now: (): number => 1000,
+    fetcher: mock.fn((): Promise<Response> => { throw new Error("must not request"); }),
+    persistCredentials: (): Promise<void> => Promise.resolve(), options: { fields: ["notes"] } };
+  await assert.rejects(listQuotes(input), /Quote fields/u);
+  await assert.rejects(getQuote({ ...input, resourceId: "quote" }), /Quote fields/u);
+  assert.equal(input.fetcher.mock.callCount(), 0);
 });
 
 void test("service discovery preserves opaque cursors and limits before OAuth", async () => {
