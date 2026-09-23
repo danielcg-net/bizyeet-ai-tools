@@ -9,6 +9,7 @@ import { canonicalRegistrationScope } from "./oauth.js";
 import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
 import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, upcomingBookings, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
+import { previewLeadUpdate, executeLeadUpdate, leadUpdateStatus } from "./agent-client.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { getExpense, listExpenses } from "./agent-client.js";
 import { validExpenseListOptions } from "./expense-contract.js";
@@ -63,6 +64,9 @@ type CliRuntime = Readonly<{
   previewCustomerUpdate?: (input: Omit<Parameters<typeof previewCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeCustomerUpdate?: (input: Omit<Parameters<typeof executeCustomerUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   customerUpdateStatus?: (input: Omit<Parameters<typeof customerUpdateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewLeadUpdate?: (input: Omit<Parameters<typeof previewLeadUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeLeadUpdate?: (input: Omit<Parameters<typeof executeLeadUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  leadUpdateStatus?: (input: Omit<Parameters<typeof leadUpdateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readChanges?: typeof readChanges;
   readApprovalReceipt?: typeof readApprovalReceipt;
   checkIdentity?: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
@@ -103,6 +107,9 @@ const runtime: CliRuntime = {
   previewCustomerUpdate: async (input) => previewCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeCustomerUpdate: async (input) => executeCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   customerUpdateStatus: async (input) => customerUpdateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewLeadUpdate: async (input) => previewLeadUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeLeadUpdate: async (input) => executeLeadUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  leadUpdateStatus: async (input) => leadUpdateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
     const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -145,6 +152,9 @@ const helpMessage = [
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
   "       bizyeet customers update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet customers update status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet leads update preview <opaque-id> --input-stdin [--profile <name>]",
+  "       bizyeet leads update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet leads update status <preview-id> --idempotency-key <uuid> [--profile <name>]",
   "Preview reads a bounded JSON changes object from stdin; review its approval_path in your signed-in dashboard.",
   "Execution prompts for a hidden approval receipt. Harnesses use a private pipe with --receipt-stdin; never put receipts in commands, shell history or chat.",
   "Generate and retain one UUID idempotency key for this execution. Never replace it to recover an uncertain outcome.",
@@ -545,7 +555,7 @@ const taxRead = async (args: readonly string[], dependencies: CliStorage, execut
 
 const crmRead = async (resource: "customers" | "leads" | "payments" | "services" | "quotes" | "catalog", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
-  if (resource === "customers" && command === "update") return customerUpdate(options, dependencies, execution);
+  if ((resource === "customers" || resource === "leads") && command === "update") return recordUpdate(resource, options, dependencies, execution);
   try {
     if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
     const listOptions = command === "list" ? crmListOptions(resource, options) : undefined;
@@ -575,9 +585,12 @@ const crmRead = async (resource: "customers" | "leads" | "payments" | "services"
   }
 };
 
-const customerUpdate = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+const recordUpdate = async (resource: "customers" | "leads", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [mode, ...targetArgs] = args;
-  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput("Use customers update preview, execute, or status.");
+  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput(`Use ${resource} update preview, execute, or status.`);
+  const preview = resource === "customers" ? execution.previewCustomerUpdate : execution.previewLeadUpdate;
+  const executeUpdate = resource === "customers" ? execution.executeCustomerUpdate : execution.executeLeadUpdate;
+  const status = resource === "customers" ? execution.customerUpdateStatus : execution.leadUpdateStatus;
   const target = resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"], mode === "preview" ? ["--input-stdin"] : mode === "execute" ? ["--receipt-stdin"] : []);
   if (!target) return invalidInput("Unsupported update target or option. Receipts and changes must never be passed as argument values.");
   const { id, options } = target;
@@ -591,15 +604,15 @@ const customerUpdate = async (args: readonly string[], dependencies: CliStorage,
     const session = { credentials: selected.credentials, profile: selected.profile,
       persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
     if (mode === "preview") {
-      if (!execution.readChanges || !execution.previewCustomerUpdate) throw new Error("Write runtime unavailable");
-      return resourceOutput(await execution.previewCustomerUpdate({ ...session, proposal: { resource_id: id, changes: await execution.readChanges() } }));
+      if (!execution.readChanges || !preview) throw new Error("Write runtime unavailable");
+      return resourceOutput(await preview({ ...session, proposal: { resource_id: id, changes: await execution.readChanges() } }));
     }
     if (mode === "status") {
-      if (!execution.customerUpdateStatus) throw new Error("Status runtime unavailable");
-      return resourceOutput(await execution.customerUpdateStatus({ ...session, query: { preview_id: id, idempotency_key: key } }));
+      if (!status) throw new Error("Status runtime unavailable");
+      return resourceOutput(await status({ ...session, query: { preview_id: id, idempotency_key: key } }));
     }
-    if (!execution.readApprovalReceipt || !execution.executeCustomerUpdate) throw new Error("Write runtime unavailable");
-    return resourceOutput(await execution.executeCustomerUpdate({ ...session, approval: { preview_id: id, idempotency_key: key,
+    if (!execution.readApprovalReceipt || !executeUpdate) throw new Error("Write runtime unavailable");
+    return resourceOutput(await executeUpdate({ ...session, approval: { preview_id: id, idempotency_key: key,
       approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
   } catch (error) { return requestFailure(error); }
 };

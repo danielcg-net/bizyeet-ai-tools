@@ -324,3 +324,15 @@ export const executeCustomerUpdate = (input: WriteSession & Readonly<{ approval:
 /** Read the original execution outcome; no receipt, mutation or claim recovery is performed. */
 export const customerUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
   invoke({ ...input, operation: (client) => client.customerUpdateStatus(input.query) });
+
+/** Prepare an opt-in canonical lead update without replaying mutation requests. */
+export const previewLeadUpdate = (input: WriteSession & Readonly<{ proposal: CustomerUpdatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewLeadUpdate(input.proposal) });
+
+/** Execute the exact human receipt and original idempotency key; never auto-replay POST. */
+export const executeLeadUpdate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeLeadUpdate(input.approval) });
+
+/** Recover the original lead execution outcome without changing it. */
+export const leadUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.leadUpdateStatus(input.query) });
