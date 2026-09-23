@@ -17,6 +17,7 @@ import { validQuoteReadFields } from "./quote-read-contract.js";
 import { quoteResponse } from "./quote-response.js";
 import { validCatalogReadFields } from "./catalog-read-contract.js";
 import { catalogResponse } from "./catalog-response.js";
+import { validSalesSearch } from "./search-contract.js";
 import { validResourceId } from "./resource-id.js";
 export { validResourceId } from "./resource-id.js";
 
@@ -161,8 +162,8 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   const read = async (resource: ReadResource, id: string | null, options: ListOptions): Promise<CanonicalResult> => {
     if (!validResource(resource)) return failure(400, "invalid_request");
+    if (["catalog", "quotes", "services"].includes(resource) && !validSalesSearch(options.search ?? "")) return failure(400, "invalid_request");
     if (resource === "catalog" && (!validCatalogReadFields(options.fields ?? [])
-      || (options.search !== undefined && (typeof options.search !== "string" || options.search.length > 120))
       || Object.keys(options).some((key) => !(id === null ? ["fields", "page_size", "cursor", "search"] : ["fields"]).includes(key)))) return failure(400, "invalid_request");
     if (resource === "quotes" && (!validQuoteReadFields(options.fields ?? [])
       || Object.keys(options).some((key) => !(id === null ? ["fields", "page_size", "cursor", "search"] : ["fields"]).includes(key)))) return failure(400, "invalid_request");

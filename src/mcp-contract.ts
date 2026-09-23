@@ -1,4 +1,4 @@
-import { CRM_SEARCH_MAX_LENGTH } from "./search-contract.js";
+import { CRM_SEARCH_MAX_LENGTH, SALES_SEARCH_MAX_LENGTH } from "./search-contract.js";
 import { serviceReadFields } from "./service-read-contract.js";
 import { quoteReadFields } from "./quote-read-contract.js";
 import { catalogReadFields } from "./catalog-read-contract.js";
@@ -64,15 +64,15 @@ const catalogFieldsSchema = Object.freeze({ type: "array", maxItems: catalogRead
   items: Object.freeze({ type: "string", enum: catalogReadFields }) });
 const catalogPageSchema = Object.freeze({ ...pageSchema, properties: Object.freeze({
   api_version: pageSchema.properties.api_version, cursor: Object.freeze({ type: "string", minLength: 1, maxLength: 512 }),
-  page_size: pageSchema.properties.page_size, search: Object.freeze({ type: "string", maxLength: 120 }), fields: catalogFieldsSchema,
+  page_size: pageSchema.properties.page_size, search: Object.freeze({ type: "string", maxLength: SALES_SEARCH_MAX_LENGTH }), fields: catalogFieldsSchema,
 }) });
 const quotePageSchema = Object.freeze({ ...pageSchema, properties: Object.freeze({
   api_version: pageSchema.properties.api_version, cursor: pageSchema.properties.cursor,
-  page_size: pageSchema.properties.page_size, search: pageSchema.properties.search, fields: quoteFieldsSchema,
+  page_size: pageSchema.properties.page_size, search: Object.freeze({ type: "string", maxLength: SALES_SEARCH_MAX_LENGTH }), fields: quoteFieldsSchema,
 }) });
 const servicePageSchema = Object.freeze({ ...pageSchema, properties: Object.freeze({
   api_version: pageSchema.properties.api_version, cursor: pageSchema.properties.cursor,
-  page_size: pageSchema.properties.page_size, search: pageSchema.properties.search,
+  page_size: pageSchema.properties.page_size, search: Object.freeze({ type: "string", maxLength: SALES_SEARCH_MAX_LENGTH }),
   fields: Object.freeze({ ...serviceFieldsSchema, items: Object.freeze({ type: "string", enum: Object.freeze(serviceReadFields.filter((field) => field !== "items")) }) }),
 }) });
 const oauthPaymentSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["payments.read"] as const), type: "oauth2" as const })]);

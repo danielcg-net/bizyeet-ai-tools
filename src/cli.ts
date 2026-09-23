@@ -16,7 +16,7 @@ import { readChanges, readApprovalReceipt } from "./write-input.js";
 import { credentialStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validResourceId } from "./canonical-crm-client.js";
-import { CRM_SEARCH_LIMIT_MESSAGE } from "./search-contract.js";
+import { CRM_SEARCH_LIMIT_MESSAGE, validSalesSearch } from "./search-contract.js";
 import { receivedPaymentSummary } from "./agent-client.js";
 import { validPaymentSummaryOptions } from "./payment-summary-contract.js";
 import { readTaxReport } from "./agent-client.js";
@@ -215,6 +215,7 @@ const safeValidationMessages = new Set([
   "Service ID is invalid.", "Service fields are invalid.",
   "Quote ID is invalid.", "Quote fields are invalid.",
   "Catalog ID is invalid.", "Catalog read options are invalid.",
+  "Quote read options are invalid.", "Service read options are invalid.",
   "catalog list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
   "quotes list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
   "services list accepts --cursor, --fields, --limit, --profile, --search, and --export only.",
@@ -553,8 +554,9 @@ const crmRead = async (resource: "customers" | "leads" | "payments" | "services"
     if (command !== "list" && command !== "get") return unsupportedCommand(`${resource} ${command ?? ""}`.trim());
     const fields = command === "get" ? oneOption(target?.options ?? [], "--fields", "").split(",").filter(Boolean) : [];
     if (resource === "payments" && !validPaymentQuery({ fields })) return invalidInput("Payment read options are invalid.");
+    if (["catalog", "quotes", "services"].includes(resource) && !validSalesSearch(listOptions?.search ?? "")) return invalidInput("Search is limited to 120 UTF-16 code units and must contain well-formed Unicode.");
     if (resource === "catalog" && (!validCatalogReadFields(listOptions?.fields ?? fields)
-      || (listOptions && (!Number.isInteger(listOptions.limit) || (listOptions.limit ?? 25) < 1 || (listOptions.limit ?? 25) > 100 || (listOptions.search?.length ?? 0) > 120)))) return invalidInput("Catalog read options are invalid.");
+      || (listOptions && (!Number.isInteger(listOptions.limit) || (listOptions.limit ?? 25) < 1 || (listOptions.limit ?? 25) > 100)))) return invalidInput("Catalog read options are invalid.");
     if (resource === "quotes" && (!validQuoteReadFields(listOptions?.fields ?? fields)
       || (listOptions && (!Number.isInteger(listOptions.limit) || (listOptions.limit ?? 25) < 1 || (listOptions.limit ?? 25) > 100)))) return invalidInput("Quote read options are invalid.");
     if (resource === "services" && (!validServiceReadFields(listOptions?.fields ?? fields, command === "get")

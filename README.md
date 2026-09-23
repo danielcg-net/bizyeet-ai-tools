@@ -263,6 +263,10 @@ opaque IDs and cursors unchanged. If catalog changes invalidate a cursor, restar
 discovery explicitly; the CLI never silently restarts. Catalog writes are not
 exposed by these commands.
 
+Catalog, quote and service search accepts at most 120 UTF-16 code units (60
+characters when every character is an emoji represented by a surrogate pair).
+Oversized or malformed Unicode is rejected, never truncated.
+
 List pages are capped at 100 records. Resource IDs and cursors are opaque;
 never replace them with URLs, database IDs, or tenant identifiers. All command
 results use the versioned BizYeet JSON envelope on stdout. Diagnostics and

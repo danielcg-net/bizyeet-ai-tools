@@ -6,7 +6,7 @@ import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
-import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch } from "./search-contract.js";
+import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch, validSalesSearch } from "./search-contract.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
@@ -224,7 +224,7 @@ export const getLead = async (input: Parameters<typeof getCustomer>[0]): Promise
 /** Discover canonical catalog facts with the shared OAuth refresh boundary. */
 export const listCatalog = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
   const options = boundedOptions(input.options);
-  if (!validCatalogReadFields(options.fields ?? []) || (options.search?.length ?? 0) > 120) throw new Error("Catalog read options are invalid.");
+  if (!validCatalogReadFields(options.fields ?? []) || !validSalesSearch(options.search ?? "")) throw new Error("Catalog read options are invalid.");
   return invoke({ ...input, operation: (client) => client.list("catalog", options) });
 };
 
@@ -240,6 +240,7 @@ export const getCatalogItem = async (input: Parameters<typeof getCustomer>[0]): 
 export const listQuotes = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
   const options = boundedOptions(input.options);
   if (!validQuoteReadFields(options.fields ?? [])) throw new Error("Quote fields are invalid.");
+  if (!validSalesSearch(options.search ?? "")) throw new Error("Quote read options are invalid.");
   return invoke({ ...input, operation: (client) => client.list("quotes", options) });
 };
 
@@ -255,6 +256,7 @@ export const getQuote = async (input: Parameters<typeof getCustomer>[0]): Promis
 export const listServices = async (input: Parameters<typeof listCustomers>[0]): Promise<AgentResult> => {
   const options = boundedOptions(input.options);
   if (!validServiceReadFields(options.fields ?? [], false)) throw new Error("Service fields are invalid.");
+  if (!validSalesSearch(options.search ?? "")) throw new Error("Service read options are invalid.");
   return invoke({ ...input, operation: (client) => client.list("services", options) });
 };
 
