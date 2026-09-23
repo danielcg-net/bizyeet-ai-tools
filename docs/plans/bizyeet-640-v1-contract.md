@@ -173,8 +173,13 @@ Errors use one stable envelope:
 
 V1 error codes are `authentication_required`, `authorization_denied`,
 `invalid_request`, `not_found`, `conflict`, `idempotency_conflict`,
-`preview_expired`, `approval_required`, `invalid_cursor`, `rate_limited`, and
-`internal_error`. `not_found` must be indistinguishable from an unauthorized
+`preview_expired`, `approval_required`, `invalid_cursor`, `rate_limited`,
+`unsupported_operation`, `provider_unavailable`, and `internal_error`.
+An unsupported provider capability returns `unsupported_operation` (HTTP 422,
+CLI exit 2) before effects; the canonical `crm_operation_unsupported` alias
+normalizes to this public code. Temporary provider unavailability returns
+`provider_unavailable` (HTTP 503, CLI exit 7), never false empty success.
+`not_found` must be indistinguishable from an unauthorized
 cross-tenant lookup where that avoids disclosure.
 
 CLI failures write the envelope to stderr and use exit codes: `0` success, `2`
@@ -268,6 +273,11 @@ implementations, infrastructure, tenant configuration, provider credentials,
 and operational details.
 
 ## Approval and implementation gates
+
+The remaining CRM write scope has a separate
+[BIZYEET-869 approval contract](bizyeet-869-write-approval-contract.md). Its
+planned capabilities are not advertised commands until their implementation,
+provider guarantees and release gates are verified.
 
 Before BIZYEET-641 starts, product and security must approve this document's
 scope matrix and non-goals. BIZYEET-641 must prove discovery metadata, PKCE,
