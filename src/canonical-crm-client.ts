@@ -76,6 +76,9 @@ const utcTimestamp = (value: unknown): value is string => {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 19) === value.slice(0, 19).toUpperCase();
 };
+const leadPreviewFields = Object.freeze(["business", "company", "contactName", "email", "phone", "birthday",
+  "service", "serviceType", "pain", "urgency", "location", "consultationType", "qualification", "nextAction",
+  "pipelineStage", "leadSource", "notes", "preferredLocale", "communicationLocaleSource"]);
 const validWrite = (body: unknown, preview: boolean, resource: CrmResource = "customers"): boolean => {
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return false;
   const data = body.data;
@@ -88,6 +91,8 @@ const validWrite = (body: unknown, preview: boolean, resource: CrmResource = "cu
     && utcTimestamp(data.expires_at)
     && data.approval_path === `/dashboard/#/agent-approvals/${data.preview_id}`
     && record(data.proposed_changes) && Object.values(data.proposed_changes).every((value) => typeof value === "string" || (resource === "leads" && value === null))
+    && (resource !== "leads" || (typeof data.proposed_changes.business === "string" && data.proposed_changes.business.length > 0
+      && Object.keys(data.proposed_changes).every((field) => leadPreviewFields.includes(field))))
     && Array.isArray(data.side_effects) && data.side_effects.every((value: unknown) => typeof value === "string")
     && Array.isArray(data.warnings) && data.warnings.every((value: unknown) => typeof value === "string")
     && data.idempotency_key_format === "uuid";

@@ -14,6 +14,25 @@ const preview = { preview_id: id, request_hash: "a".repeat(43), expires_at: "209
   resource_id: resource, proposed_changes: { business: "Revised", company: "Revised", birthday: null },
   side_effects: ["Update lead without conversion"], warnings: [], idempotency_key_format: "uuid", approval_path: `/dashboard/#/agent-approvals/${id}` };
 
+await Promise.all([
+  {}, { business: "" }, { business: "Revised", notes: { private: "secret" } },
+  ...["tenant_id", "write_version", "access_token", "provider_payload"].map((field) => ({ business: "Revised", [field]: "secret" })),
+].map((proposed_changes, index) => test(`rejects widened or malformed lead preview fields ${String(index)}`, async () => {
+  const request = mock.fn(() => Promise.resolve(Response.json(envelope({ ...preview, proposed_changes }))));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request });
+  assert.deepEqual(await client.previewLeadUpdate(proposal), { status: 502, body: { error: { code: "invalid_response" } } });
+  assert.equal(request.mock.callCount(), 1);
+})));
+
+await test("preserves the complete canonical lead preview contract including locale provenance", async () => {
+  const proposed_changes = { business: "Revised", company: "Revised", contactName: "Contact", email: "", phone: "", birthday: null,
+    service: "", serviceType: "", pain: "", urgency: "", location: "", consultationType: "", qualification: "", nextAction: "",
+    pipelineStage: "New Lead", leadSource: "", notes: "Review this note", preferredLocale: "en", communicationLocaleSource: "default" };
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"),
+    request: () => Promise.resolve(Response.json(envelope({ ...preview, proposed_changes }))) });
+  assert.deepEqual((await client.previewLeadUpdate(proposal)).body, envelope({ ...preview, proposed_changes }));
+});
+
 await test("lead writes use only canonical endpoints and preserve nullable approved values", async () => {
   const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
     assert.equal(new Headers(init.headers).get("Authorization"), "Bearer oauth-token");
