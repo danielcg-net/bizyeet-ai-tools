@@ -27,6 +27,12 @@ isolation. The existing successful-path fixture verifies bounded list and
 exact-read arguments, private exports, and explicit preview/execute/status
 transport, not human approval or server-side idempotency enforcement.
 
+Installed catalog, quote and service commands also exercise list, continuation
+and exact read against synthetic canonical HTTPS endpoints. Tests verify opaque
+option-like IDs/cursors, bearer headers, GET-only calls and removal of private
+cost/tenant facts returned by the fixture. These are installed-client contracts,
+not evidence of deployed server availability or provider parity.
+
 ## Remaining acceptance
 
 BIZYEET-648 also requires model-driven command selection and argument scoring,
