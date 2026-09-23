@@ -76,7 +76,7 @@ export const agentFailureExitCode = (failure: AgentFailure): number => {
 export const agentFailureMessage = (failure: AgentFailure): string => {
   if (failure.code === "catalog_provider_limit_exceeded") return "The catalog exceeds the server's bounded read capacity. Ask your tenant administrator for help; changing the page size or signing in again will not fix this limit.";
   if (failure.code === "customer_provider_not_configured") return "Ask your tenant administrator to configure the customer provider in BizYeet settings, then retry. Signing in again will not fix provider configuration.";
-  if (["execution_ambiguous", "execution_in_progress"].includes(failure.code)) return "Read the outcome with customers update status using the original preview ID and idempotency key. Do not retry with a new idempotency key or create a replacement write.";
+  if (["execution_ambiguous", "execution_in_progress"].includes(failure.code)) return "Read the outcome with the matching resource's status command: leads update status for a lead, or customers update status for a customer. Use the original preview ID and idempotency key. Do not retry with a new idempotency key or create a replacement write.";
   if (agentFailureExitCode(failure) === 3) return "Run auth login to reconnect this profile.";
   if (failure.code === "invalid_cursor") return "Start a fresh list request without the expired or incompatible cursor.";
   if (failure.code === "authorization_denied") return "You do not have permission for this operation.";

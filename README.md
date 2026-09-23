@@ -462,6 +462,22 @@ succeeded, not that the mutation did: inspect `data.state` and `data.outcome`.
 elapsed time is not proof of failure. Unknown or ambiguous outcomes require
 operator reconciliation. Status never releases a claim or retries a mutation.
 
+## Lead update contract (not yet released)
+
+The draft CLI also includes `leads update preview`, `leads update execute`, and
+`leads update status`, with the same input, receipt, OAuth `customers.write`,
+profile-locking and original-idempotency-key rules described above. These commands
+require the matching backend's explicit lead-write rollout. Source availability
+does not mean the capability is deployed or enabled; stop on unavailable or
+unsupported responses. Never fall back to a customer or provider-specific route.
+
+Preview uses `--input-stdin`; execution requires the human-approved preview UUID
+and `--idempotency-key`, with receipt input through the protected prompt or
+`--receipt-stdin`. Status uses only the original preview UUID and key. Review all
+server-proposed saved values, including preserved defaults and null values,
+before approving. Lead edits cannot convert a lead to a customer or send a
+message. Create and conversion commands remain outside this implemented surface.
+
 ## Codex and compatible harnesses
 
 The repository includes a companion [BizYeet Codex skill](skills/bizyeet/SKILL.md)

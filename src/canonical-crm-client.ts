@@ -62,6 +62,9 @@ export type CanonicalCrmClient = Readonly<{
   previewCustomerUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
   executeCustomerUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   customerUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewLeadUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
+  executeLeadUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  leadUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
 }>;
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -73,18 +76,23 @@ const utcTimestamp = (value: unknown): value is string => {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 19) === value.slice(0, 19).toUpperCase();
 };
-const validWrite = (body: unknown, preview: boolean): boolean => {
+const leadPreviewFields = Object.freeze(["business", "company", "contactName", "email", "phone", "birthday",
+  "service", "serviceType", "pain", "urgency", "location", "consultationType", "qualification", "nextAction",
+  "pipelineStage", "leadSource", "notes", "preferredLocale", "communicationLocaleSource"]);
+const validWrite = (body: unknown, preview: boolean, resource: CrmResource = "customers"): boolean => {
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return false;
   const data = body.data;
   if (!preview) return uuid(data.audit_reference) && record(data.resource) && validResourceId(data.resource.id)
-    && Object.keys(data.resource).every((key) => ["id", "business", "company", "contact_name", "updated_at"].includes(key))
+    && Object.keys(data.resource).every((key) => ["id", "business", "company", "contact_name", "updated_at", ...(resource === "leads" ? ["pipeline_stage"] : [])].includes(key))
     && Object.values(data.resource).every((value) => value === null || typeof value === "string")
     && (data.resource.updated_at == null || utcTimestamp(data.resource.updated_at));
   return uuid(data.preview_id) && validResourceId(data.resource_id) && data.confirmation_class === "reversible_write"
     && typeof data.request_hash === "string" && /^[A-Za-z0-9_-]{43}$/u.test(data.request_hash)
     && utcTimestamp(data.expires_at)
     && data.approval_path === `/dashboard/#/agent-approvals/${data.preview_id}`
-    && record(data.proposed_changes) && Object.values(data.proposed_changes).every((value) => typeof value === "string")
+    && record(data.proposed_changes) && Object.values(data.proposed_changes).every((value) => typeof value === "string" || (resource === "leads" && value === null))
+    && (resource !== "leads" || (typeof data.proposed_changes.business === "string" && data.proposed_changes.business.length > 0
+      && Object.keys(data.proposed_changes).every((field) => leadPreviewFields.includes(field))))
     && Array.isArray(data.side_effects) && data.side_effects.every((value: unknown) => typeof value === "string")
     && Array.isArray(data.warnings) && data.warnings.every((value: unknown) => typeof value === "string")
     && data.idempotency_key_format === "uuid";
@@ -98,7 +106,7 @@ const resourceOrigin = (input: string): string => {
   }
   return url.origin;
 };
-const statusData = (body: unknown, previewId: string): Readonly<Record<string, unknown>> | undefined => {
+const statusData = (body: unknown, previewId: string, resource: CrmResource): Readonly<Record<string, unknown>> | undefined => {
   if (!record(body) || !record(body.meta) || body.meta.contract_version !== "v1" || !record(body.data)) return undefined;
   const data = body.data;
   if (data.preview_id !== previewId || data.retry_mutation !== false
@@ -110,7 +118,7 @@ const statusData = (body: unknown, previewId: string): Readonly<Record<string, u
   if (data.state === "pending" || data.state === "unknown") return outcome === null ? projected(null) : undefined;
   if (!record(outcome)) return undefined;
   if (data.state === "succeeded") {
-    if (outcome.status !== 200 || !validWrite({ data: outcome.data, meta: body.meta }, false)
+    if (outcome.status !== 200 || !validWrite({ data: outcome.data, meta: body.meta }, false, resource)
       || !record(outcome.data)) return undefined;
     return projected({ status: 200, data: { resource: outcome.data.resource, audit_reference: outcome.data.audit_reference } });
   }
@@ -257,7 +265,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
     return reportRead("/api/agent/reports/taxes", parameters, (body) => taxReportResponse(body, options));
   };
-  const write = async (input: CustomerUpdatePreview | CustomerUpdateExecution, preview: boolean): Promise<CanonicalResult> => {
+  const write = async (input: CustomerUpdatePreview | CustomerUpdateExecution, preview: boolean, resource: CrmResource): Promise<CanonicalResult> => {
     if (!record(input)) return failure(400, "invalid_request");
     const keys = preview ? ["resource_id", "changes"] : ["preview_id", "approval_receipt", "idempotency_key"];
     if (Object.keys(input).length !== keys.length || !keys.every((key) => Object.hasOwn(input, key))) return failure(400, "invalid_request");
@@ -272,13 +280,13 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/.test(token)) return failure(401, "authorization_required");
-      const response = await request(`${origin}/api/agent/customers/${preview ? "update-preview" : "update-execute"}?api_version=v1`, {
+      const response = await request(`${origin}/api/agent/${resource}/${preview ? "update-preview" : "update-execute"}?api_version=v1`, {
         method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
         body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
       });
       const body = await boundedResponse(response, 32_768);
       if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
-      if (!validWrite(body, preview) || !record(body) || !record(body.data)) return failure(502, preview ? "invalid_response" : "execution_ambiguous");
+      if (!validWrite(body, preview, resource) || !record(body) || !record(body.data)) return failure(502, preview ? "invalid_response" : "execution_ambiguous");
       if (preview && "resource_id" in input && body.data.resource_id !== input.resource_id) return failure(502, "invalid_response");
       // Only documented fields cross the agent boundary. Never reflect a receipt,
       // extra private record fields or server diagnostics from a success response.
@@ -291,19 +299,19 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return failure(503, preview ? "request_unavailable" : "execution_ambiguous");
     }
   };
-  const customerUpdateStatus = async (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => {
+  const updateStatus = async (input: CustomerUpdateStatusQuery, resource: CrmResource): Promise<CanonicalResult> => {
     if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
       const queryString = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key }).toString();
-      const response = await requestRead(`${origin}/api/agent/customers/update-status?${queryString}`, {
+      const response = await requestRead(`${origin}/api/agent/${resource}/update-status?${queryString}`, {
         method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         redirect: "error", signal: AbortSignal.timeout(15_000),
       });
       const body = await boundedResponse(response, 32_768);
       if (!response.ok) return { status: response.status, body };
-      const data = statusData(body, input.preview_id);
+      const data = statusData(body, input.preview_id, resource);
       if (!data) return failure(502, "invalid_response");
       const metadata = record(body) && record(body.meta) ? body.meta : {};
       return { status: response.status, body: { data,
@@ -316,8 +324,11 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     taxReport,
     list: (resource: ReadResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
     get: (resource: ReadResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
-    previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true),
-    executeCustomerUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => write(input, false),
-    customerUpdateStatus,
+    previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true, "customers"),
+    executeCustomerUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => write(input, false, "customers"),
+    customerUpdateStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => updateStatus(input, "customers"),
+    previewLeadUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true, "leads"),
+    executeLeadUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => write(input, false, "leads"),
+    leadUpdateStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => updateStatus(input, "leads"),
   });
 };
