@@ -35,7 +35,7 @@
     "@eslint/js": "^10.0.0",
     "@types/node": "^26.5.1",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "eslint": "^10.10.0",
+    "eslint": "^10.11.0",
     "marked": "18.0.13",
     "shell-quote": "1.10.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
