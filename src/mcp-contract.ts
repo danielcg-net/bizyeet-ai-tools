@@ -77,6 +77,48 @@ const servicePageSchema = Object.freeze({ ...pageSchema, properties: Object.free
   fields: Object.freeze({ ...serviceFieldsSchema, items: Object.freeze({ type: "string", enum: Object.freeze(serviceReadFields.filter((field) => field !== "items")) }) }),
 }) });
 const oauthPaymentSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["payments.read"] as const), type: "oauth2" as const })]);
+const communicationInputProperties = Object.freeze({
+  api_version: Object.freeze({ type: "string", const: "v1" }),
+  id: Object.freeze({ type: "string", minLength: 1, maxLength: 512 }),
+  page: Object.freeze({ type: "integer", minimum: 1, maximum: 10000 }),
+  page_size: Object.freeze({ type: "integer", enum: Object.freeze([10, 20, 50]) }),
+});
+const communicationInputSchema = Object.freeze({ type: "object", properties: communicationInputProperties,
+  required: Object.freeze(["api_version", "id"]), additionalProperties: false });
+const communicationOutputSchema = Object.freeze({ type: "object", required: Object.freeze(["data", "meta"]), properties: Object.freeze({
+  data: Object.freeze({ type: "object", required: Object.freeze(["items", "total"]), properties: Object.freeze({
+    items: Object.freeze({ type: "array", maxItems: 50, items: Object.freeze({ type: "object" }) }),
+    total: Object.freeze({ type: "integer", minimum: 0 }),
+  }) }),
+  meta: Object.freeze({ type: "object", required: Object.freeze(["contract_version", "page", "page_size", "total_pages"]), properties: Object.freeze({
+    contract_version: Object.freeze({ type: "string", const: "v1" }),
+    page: Object.freeze({ type: "integer", minimum: 1 }),
+    page_size: Object.freeze({ type: "integer", enum: Object.freeze([10, 20, 50]) }),
+    total_pages: Object.freeze({ type: "integer", minimum: 1 }),
+  }) }),
+}) });
+type CommunicationMcpTool = Readonly<{
+  name: `bizyeet_${"customers" | "leads" | "quotes" | "services" | "payments"}_communications`;
+  title: string;
+  description: string;
+  inputSchema: typeof communicationInputSchema;
+  outputSchema: typeof communicationOutputSchema;
+  securitySchemes: typeof oauthReadSecurity | typeof oauthPaymentSecurity;
+  annotations: typeof readAnnotations;
+}>;
+const communicationMcpTool = (resource: "customers" | "leads" | "quotes" | "services" | "payments"): CommunicationMcpTool => Object.freeze({
+  name: `bizyeet_${resource}_communications` as const,
+  title: `Read ${resource} communication history`,
+  description: "Read a bounded page of immutable BizYeet delivery metadata for one canonical resource ID. Excludes message bodies, subjects, recipients and provider identifiers. This is not access to the provider inbox. Never send or modify messages.",
+  inputSchema: communicationInputSchema,
+  outputSchema: communicationOutputSchema,
+  securitySchemes: resource === "payments" ? oauthPaymentSecurity : oauthReadSecurity,
+  annotations: readAnnotations,
+});
+const communicationMcpTools = Object.freeze([
+  communicationMcpTool("customers"), communicationMcpTool("leads"), communicationMcpTool("quotes"),
+  communicationMcpTool("services"), communicationMcpTool("payments"),
+] as const);
 const oauthBookingSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["bookings.read"] as const), type: "oauth2" as const })]);
 const paymentFieldsSchema = Object.freeze({ type: "array", maxItems: paymentReadFields.length, items: Object.freeze({ type: "string", enum: Object.freeze(paymentReadFields.filter((field) => field !== "customer" && field !== "service")) }) });
 const relationshipFieldsSchema = Object.freeze({ ...paymentFieldsSchema, items: Object.freeze({ type: "string", enum: paymentReadFields }), contains: Object.freeze({ enum: Object.freeze(["customer", "service"]) }) });
@@ -119,6 +161,7 @@ export const mcpReadTools = Object.freeze([
     title: "List leads",
   }),
   Object.freeze({ annotations: readAnnotations, description: "Return one privacy-safe lead by its opaque BizYeet ID.", inputSchema: exactSchema, name: "bizyeet_leads_get", outputSchema: resourceOutputSchema, securitySchemes: oauthReadSecurity, title: "Get lead" }),
+  ...communicationMcpTools,
   Object.freeze({ annotations: readAnnotations, description: "Return a bounded page of payments using status and UTC date filters. Use the relationship tool for customer/service fields. Never combine currencies implicitly.", inputSchema: paymentPageSchema, name: "bizyeet_payments_list", outputSchema: listOutputSchema, securitySchemes: oauthPaymentSecurity, title: "List payments" }),
   Object.freeze({ annotations: readAnnotations, description: "Return one payment by its opaque BizYeet ID. Use the relationship tool for customer/service fields.", inputSchema: Object.freeze({ ...exactSchema, properties: Object.freeze({ ...exactSchema.properties, fields: paymentFieldsSchema }) }), name: "bizyeet_payments_get", outputSchema: resourceOutputSchema, securitySchemes: oauthPaymentSecurity, title: "Get payment" }),
   Object.freeze({ annotations: readAnnotations, description: "Return a bounded payment page with explicitly selected customer/service relationships. Requires payments.read and customers.read. Never combine currencies implicitly.", inputSchema: Object.freeze({ ...paymentPageSchema, properties: Object.freeze({ ...paymentPageSchema.properties, fields: relationshipFieldsSchema }), required: Object.freeze(["api_version", "fields"]) }), name: "bizyeet_payments_list_with_relationships", outputSchema: listOutputSchema, securitySchemes: oauthPaymentRelationshipSecurity, title: "List payments with relationships" }),
