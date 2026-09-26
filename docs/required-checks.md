@@ -1,9 +1,9 @@
 # Required checks and fork validation
 
-This is the BIZYEET-741 rollout checklist, not a claim that fork validation or
-release authorization is complete. Re-read live protection before changing it.
-The inspected `main` configuration on 2026-09-09 requires an up-to-date branch
-and the four checks below; the package matrix is not yet required.
+This is the BIZYEET-741 rollout checklist, not release authorization. Re-read
+live protection before changing it. The inspected `main` configuration on
+2026-09-26 requires an up-to-date branch and the four checks below; the package
+matrix is not yet required until the reviewed promotion is applied and verified.
 
 | Check context | Workflow | What it proves |
 | --- | --- | --- |
@@ -18,6 +18,26 @@ names when configuring protection. The existing Dependabot exception applies onl
 to delivery metadata, not the other checks.
 
 ## Package matrix promotion
+
+The approved [external-fork canary PR #62](https://github.com/danielcg-net/bizyeet-ai-tools/pull/62)
+was closed unmerged after all four existing checks and all six package jobs
+passed at head `7143156391375f71b9925a0c174d752eed31f020`. The package
+[run](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/36214804618)
+used GitHub-hosted Ubuntu, macOS and Windows runners; each job reported a
+read-only Contents token and `Secret source: None`. Live check-run evidence
+identified `github-actions` app ID `15368` for each exact package context.
+The full sanitized evidence and protection readback are in BIZYEET-741.
+
+After this reviewed configuration change merges, an administrator can inspect
+the additive plan with `GH_TOKEN=… npm run security:required-checks`, then apply
+it with `GH_TOKEN=… npm run security:required-checks -- --apply`. Use a token
+obtained through the configured `dcgomesbr` GitHub profile; never commit or print
+it. The script refuses non-strict or unexpected protection, retains every
+existing required context, binds only the six package contexts to the observed
+Actions app, and verifies the live readback. After applying, separately re-read
+full `main` protection to verify strictness, existing checks, signed commits,
+admin enforcement, linear history, conversation resolution and force-push/delete
+denials remain intact. Do not treat package-check promotion as publication.
 
 Release Verification runs these additional contexts on pull requests:
 
