@@ -52,6 +52,12 @@ void test("communication MCP tools advertise bounded metadata-only history with 
     assert.equal(tool.inputSchema.properties.page.maximum, 10000);
     assert.deepEqual(tool.inputSchema.properties.page_size.enum, [10, 20, 50]);
     assert.equal(tool.outputSchema.properties.data.properties.items.maxItems, 50);
+    assert.equal(tool.outputSchema.properties.data.properties.items.items.additionalProperties, false);
+    assert.deepEqual(tool.outputSchema.properties.data.properties.items.items.required, ["id", "kind", "status"]);
+    assert.deepEqual(Object.keys(tool.outputSchema.properties.data.properties.items.items.properties), [
+      "id", "kind", "status", "source_type", "recipient_role", "trigger_mode", "from_status", "to_status",
+      "last_event", "sent_at", "created_at", "scheduled_at",
+    ]);
     assert.deepEqual(tool.outputSchema.properties.meta.required, ["contract_version", "page", "page_size", "total_pages"]);
     assert.deepEqual(tool.securitySchemes[0]?.scopes, [resource === "payments" ? "payments.read" : "customers.read"]);
     assert.match(tool.description, /Excludes message bodies, subjects, recipients and provider identifiers/u);

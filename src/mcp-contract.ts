@@ -85,9 +85,23 @@ const communicationInputProperties = Object.freeze({
 });
 const communicationInputSchema = Object.freeze({ type: "object", properties: communicationInputProperties,
   required: Object.freeze(["api_version", "id"]), additionalProperties: false });
+const communicationOptionalMetadata = Object.freeze({ type: Object.freeze(["string", "null"]), maxLength: 1024 });
+const communicationItemProperties = Object.freeze({
+  id: Object.freeze({ type: "string", minLength: 1, maxLength: 512 }),
+  kind: Object.freeze({ type: "string", maxLength: 1024 }),
+  status: Object.freeze({ type: "string", maxLength: 1024 }),
+  source_type: communicationOptionalMetadata, recipient_role: communicationOptionalMetadata,
+  trigger_mode: communicationOptionalMetadata, from_status: communicationOptionalMetadata,
+  to_status: communicationOptionalMetadata, last_event: communicationOptionalMetadata,
+  sent_at: communicationOptionalMetadata, created_at: communicationOptionalMetadata,
+  scheduled_at: communicationOptionalMetadata,
+});
 const communicationOutputSchema = Object.freeze({ type: "object", required: Object.freeze(["data", "meta"]), properties: Object.freeze({
   data: Object.freeze({ type: "object", required: Object.freeze(["items", "total"]), properties: Object.freeze({
-    items: Object.freeze({ type: "array", maxItems: 50, items: Object.freeze({ type: "object" }) }),
+    items: Object.freeze({ type: "array", maxItems: 50, items: Object.freeze({
+      type: "object", properties: communicationItemProperties,
+      required: Object.freeze(["id", "kind", "status"]), additionalProperties: false,
+    }) }),
     total: Object.freeze({ type: "integer", minimum: 0 }),
   }) }),
   meta: Object.freeze({ type: "object", required: Object.freeze(["contract_version", "page", "page_size", "total_pages"]), properties: Object.freeze({
