@@ -14,7 +14,7 @@ const runtime: NonNullable<Parameters<typeof run>[2]> = {
 };
 
 void test("quote preview reads one private JSON proposal and preserves canonical shape", async () => {
-  const quote = { customer_id: "opaque-customer", title: "Transfer", items: [{ description: "Transfer", quantity: "1", unit_price: "25.00" }] };
+  const quote = { customerId: "opaque-customer", title: "Transfer", items: [{ description: "Transfer", quantity: "1", unitPrice: "25.00" }] };
   const preview = mock.fn((input: Parameters<NonNullable<typeof runtime.previewQuoteCreate>>[0]) => {
     assert.deepEqual(input.proposal, { quote });
     return Promise.resolve({ credentials, response: { data: { preview_id: previewId }, meta: { contract_version: "v1" } } });

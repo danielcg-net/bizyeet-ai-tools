@@ -6,7 +6,7 @@ const previewId = "11111111-1111-4111-8111-111111111111";
 const key = "22222222-2222-4222-8222-222222222222";
 const receipt = "r".repeat(43);
 const meta = { contract_version: "v1", request_id: "synthetic-request", private: "hidden" };
-const proposal = { quote: { customer_id: "opaque-customer", title: "Transfer", items: [{ description: "Transfer", quantity: "1", unit_price: "25.00" }] } };
+const proposal = { quote: { customerId: "opaque-customer", title: "Transfer", items: [{ description: "Transfer", quantity: "1", unitPrice: "25.00" }] } };
 const preview = { data: { preview_id: previewId, request_hash: "h".repeat(43), expires_at: "2030-01-01T00:00:00.000Z",
   confirmation_class: "reversible_write", operation: "quote_create", resource_id: "opaque-customer", resource_label: "Customer",
   proposed_changes: { quoteTitle: "Transfer", parentType: "Customer", lineItems: "1 × Transfer — 25.00", totalAmount: "25.00", pricingCurrency: "CAD" }, side_effects: ["Create draft"], warnings: [],
@@ -20,6 +20,7 @@ void test("quote create uses canonical OAuth POST and projects only approved fie
     assert.equal(init.method, "POST");
     assert.equal(new Headers(init.headers).get("Authorization"), "Bearer oauth-token");
     assert.equal(init.redirect, "error");
+    if (url.includes("preview")) assert.deepEqual(JSON.parse(String(init.body)), proposal);
     return Promise.resolve(Response.json(url.includes("preview") ? preview : completed, { status: url.includes("preview") ? 200 : 201 }));
   });
   const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request });

@@ -497,8 +497,16 @@ supports preview, execute and status; this does not send a quote, accept it or
 publish a package release. Use only an authorized tenant profile and the
 matching deployed backend.
 
-Supply the quote proposal as bounded JSON through a private pipe. Preview makes
-no business change and returns an `approval_path` for dashboard review:
+Supply the quote proposal as bounded JSON through a private pipe. Use the
+canonical request's `customerId` or `leadId` and camelCase line-item fields;
+read the opaque parent ID first. For example, a synthetic `quote.json` is:
+
+```json
+{"customerId":"opaque-customer-id","title":"Transfer","items":[{"description":"Transfer","quantity":"1","unitPrice":"25.00"}]}
+```
+
+Preview makes no business change and returns an `approval_path` for dashboard
+review:
 
 ```sh
 bizyeet quotes create preview --input-stdin < quote.json
