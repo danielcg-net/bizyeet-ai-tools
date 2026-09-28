@@ -525,6 +525,32 @@ For uncertain or ambiguous outcomes, reconcile that original execution; never
 retry with a new key. The CLI neither retries a quote-create POST nor selects a
 provider-specific route.
 
+## Draft quote updates (source command, not yet released)
+
+The source CLI supports an approved revision of one existing draft quote through
+`customers.write`. First read the quote with `--fields id,pricing_revision,items`.
+Use its opaque quote ID as the preview target and its returned, quote-bound
+line-item IDs for lines you want to keep. Do not use dashboard-native IDs or
+include private cost fields. A bounded JSON proposal uses the current pricing
+revision, for example:
+
+```json
+{"title":"Revised transfer","expectedPricingRevision":2,"items":[{"id":"opaque-quote-bound-line-id","description":"Transfer","quantity":"2","unitPrice":"25.00"}]}
+```
+
+```sh
+bizyeet quotes update preview "$QUOTE_ID" --input-stdin < quote-update.json
+bizyeet quotes update execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Preview is side-effect free. Execute requires a dashboard-approved receipt
+entered in the hidden prompt or a private `--receipt-stdin` pipe. Status reads
+the original outcome with the same key; never use a new key to repeat an
+uncertain update. This source command does not send, accept, or decline a quote,
+and must not be treated as usable until its matching backend is deployed and a
+package release is explicitly authorized.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and

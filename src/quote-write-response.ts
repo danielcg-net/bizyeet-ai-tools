@@ -37,6 +37,32 @@ export const quoteCreatePreviewResponse = (body: unknown): Readonly<Record<strin
     approval_path: data.approval_path }, meta: metadata };
 };
 
+/** Project only the documented quote-update preview, including its bound quote identity. */
+export const quoteUpdatePreviewResponse = (body: unknown, resourceId: string): Readonly<Record<string, unknown>> | undefined => {
+  if (!record(body) || !record(body.data)) return undefined;
+  const metadata = meta(body);
+  const data = body.data;
+  const changes = data.proposed_changes;
+  const changeFields = ["quoteTitle", "lineItems", "totalAmount", "pricingCurrency", "grossAmount", "discountAmount",
+    "discountCode", "discountCodeId", "deliveryDate", "deliveryOption", "notes"];
+  const requiredChanges = changeFields.slice(0, 8);
+  if (!metadata || !isUuid(data.preview_id) || !hash(data.request_hash) || !timestamp(data.expires_at)
+    || data.confirmation_class !== "reversible_write" || data.operation !== "quote_update"
+    || data.resource_id !== resourceId || !validResourceId(data.resource_id) || typeof data.resource_label !== "string"
+    || !record(changes) || !requiredChanges.every((field) => Object.hasOwn(changes, field))
+    || !Object.keys(changes).every((field) => changeFields.includes(field))
+    || !Object.values(changes).every((value) => typeof value === "string")
+    || !Array.isArray(data.side_effects) || !data.side_effects.every((value: unknown) => typeof value === "string")
+    || !Array.isArray(data.warnings) || !data.warnings.every((value: unknown) => typeof value === "string")
+    || data.idempotency_key_format !== "uuid"
+    || data.approval_path !== `/dashboard/#/agent-approvals/${data.preview_id}`) return undefined;
+  return { data: { preview_id: data.preview_id, request_hash: data.request_hash, expires_at: data.expires_at,
+    confirmation_class: data.confirmation_class, operation: data.operation, resource_id: data.resource_id,
+    resource_label: data.resource_label, proposed_changes: data.proposed_changes,
+    side_effects: data.side_effects, warnings: data.warnings, idempotency_key_format: data.idempotency_key_format,
+    approval_path: data.approval_path }, meta: metadata };
+};
+
 /** Validate a quote-create result against the public quote projection. */
 export const quoteCreateExecutionResponse = (body: unknown): Readonly<Record<string, unknown>> | undefined => {
   if (!record(body) || !record(body.data) || !record(body.data.resource) || !isUuid(body.data.audit_reference)) return undefined;
@@ -44,8 +70,11 @@ export const quoteCreateExecutionResponse = (body: unknown): Readonly<Record<str
   return projected && record(projected.data) ? { data: { resource: projected.data, audit_reference: body.data.audit_reference }, meta: projected.meta } : undefined;
 };
 
+/** Quote-update execution uses the same public resource envelope as creation. */
+export const quoteUpdateExecutionResponse = quoteCreateExecutionResponse;
+
 /** Project original outcome only; uncertain mutations must be reconciled, never replayed. */
-export const quoteCreateStatusResponse = (body: unknown, previewId: string): Readonly<Record<string, unknown>> | undefined => {
+const quoteWriteStatusResponse = (body: unknown, previewId: string, successStatus: 200 | 201): Readonly<Record<string, unknown>> | undefined => {
   if (!record(body) || !record(body.data)) return undefined;
   const metadata = meta(body);
   const data = body.data;
@@ -58,8 +87,8 @@ export const quoteCreateStatusResponse = (body: unknown, previewId: string): Rea
   if (!record(data.outcome)) return undefined;
   if (data.state === "succeeded") {
     const projected = quoteCreateExecutionResponse({ data: data.outcome.data, meta: body.meta });
-    return data.outcome.status === 201 && projected && record(projected.data)
-      ? { data: { ...common, outcome: { status: 201, data: projected.data } }, meta: metadata } : undefined;
+    return data.outcome.status === successStatus && projected && record(projected.data)
+      ? { data: { ...common, outcome: { status: successStatus, data: projected.data } }, meta: metadata } : undefined;
   }
   if (!record(data.outcome.error) || typeof data.outcome.status !== "number" || !Number.isInteger(data.outcome.status)
     || data.outcome.status < 400 || data.outcome.status > 599) return undefined;
@@ -68,3 +97,11 @@ export const quoteCreateStatusResponse = (body: unknown, previewId: string): Rea
     : code === undefined || ["execution_ambiguous", "execution_in_progress"].includes(code)) return undefined;
   return { data: { ...common, outcome: { status: data.outcome.status, error: { code } } }, meta: metadata };
 };
+
+/** Reconcile a quote-create execution without replaying it. */
+export const quoteCreateStatusResponse = (body: unknown, previewId: string): Readonly<Record<string, unknown>> | undefined =>
+  quoteWriteStatusResponse(body, previewId, 201);
+
+/** Reconcile a quote-update execution without replaying it. */
+export const quoteUpdateStatusResponse = (body: unknown, previewId: string): Readonly<Record<string, unknown>> | undefined =>
+  quoteWriteStatusResponse(body, previewId, 200);
