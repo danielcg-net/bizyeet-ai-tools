@@ -489,6 +489,42 @@ succeeded, not that the mutation did: inspect `data.state` and `data.outcome`.
 elapsed time is not proof of failure. Unknown or ambiguous outcomes require
 operator reconciliation. Status never releases a claim or retries a mutation.
 
+## Draft quote creation (source command, not yet released)
+
+The canonical quote-create API accepts a draft quote through the same
+`customers.write`, human approval and idempotency boundary. The CLI source now
+supports preview, execute and status; this does not send a quote, accept it or
+publish a package release. Use only an authorized tenant profile and the
+matching deployed backend.
+
+Supply the quote proposal as bounded JSON through a private pipe. Use the
+canonical request's `customerId` or `leadId` and camelCase line-item fields;
+read the opaque parent ID first. For example, a synthetic `quote.json` is:
+
+```json
+{"customerId":"opaque-customer-id","title":"Transfer","items":[{"description":"Transfer","quantity":"1","unitPrice":"25.00"}]}
+```
+
+Preview makes no business change and returns an `approval_path` for dashboard
+review:
+
+```sh
+bizyeet quotes create preview --input-stdin < quote.json
+```
+
+After approval, retain one UUID execution key and pass the receipt only through
+the hidden prompt or a private `--receipt-stdin` pipe:
+
+```sh
+bizyeet quotes create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes create status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+The status command reads the original outcome without a receipt or mutation.
+For uncertain or ambiguous outcomes, reconcile that original execution; never
+retry with a new key. The CLI neither retries a quote-create POST nor selects a
+provider-specific route.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and
