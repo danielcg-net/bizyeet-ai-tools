@@ -3,7 +3,7 @@ import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validOAuthScope } from "./oauth-scope.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type RecordCreatePreview, type QuoteCreatePreview, type QuoteUpdatePreview } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type RecordCreatePreview, type LeadPromotionPreview, type QuoteCreatePreview, type QuoteUpdatePreview } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch, validSalesSearch } from "./search-contract.js";
@@ -367,6 +367,18 @@ export const executeLeadCreate = (input: WriteSession & Readonly<{ approval: Cus
 /** Read the original lead-create outcome without a write. */
 export const leadCreateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
   invoke({ ...input, operation: (client) => client.leadCreateStatus(input.query) });
+
+/** Prepare a separate, create-only lead lifecycle effect under its dedicated OAuth grant. */
+export const previewLeadPromotion = (input: WriteSession & Readonly<{ proposal: LeadPromotionPreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewLeadPromotion(input.proposal) });
+
+/** Execute only the exact approved promotion once; never replay a mutation POST. */
+export const executeLeadPromotion = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeLeadPromotion(input.approval) });
+
+/** Reconcile the original promotion outcome without retrying its business effect. */
+export const leadPromotionStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.leadPromotionStatus(input.query) });
 
 /** Preview one draft quote without replaying the mutation POST. */
 export const previewQuoteCreate = (input: WriteSession & Readonly<{ proposal: QuoteCreatePreview }>): Promise<AgentResult> =>

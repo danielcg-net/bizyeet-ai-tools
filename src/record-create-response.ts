@@ -54,6 +54,29 @@ export const recordCreatePreviewResponse = (body: unknown, kind: CreateResource)
     warnings: data.warnings, idempotency_key_format: data.idempotency_key_format, approval_path: data.approval_path }, meta };
 };
 
+/** Project only the separate create-only lead-promotion lifecycle proposal. */
+export const leadPromotionPreviewResponse = (body: unknown, leadId: string): Readonly<Record<string, unknown>> | undefined => {
+  if (!record(body) || !record(body.data)) return undefined;
+  const meta = metadata(body);
+  const data = body.data;
+  const changes = data.proposed_changes;
+  if (!meta || !isUuid(data.preview_id) || !hash(data.request_hash) || !timestamp(data.expires_at)
+    || data.confirmation_class !== "lifecycle_transition" || data.operation !== "leads.promote"
+    || data.resource_id !== leadId || !validResourceId(data.resource_id)
+    || typeof data.resource_label !== "string" || !data.resource_label
+    || !record(changes) || Object.keys(changes).length !== 4
+    || changes.lead_id !== leadId || typeof changes.customer_business !== "string" || !changes.customer_business
+    || !email(changes.customer_email) || changes.lead_pipeline_stage !== "Won"
+    || !Array.isArray(data.side_effects) || !data.side_effects.every((value: unknown) => typeof value === "string")
+    || !Array.isArray(data.warnings) || !data.warnings.every((value: unknown) => typeof value === "string")
+    || data.idempotency_key_format !== "uuid"
+    || data.approval_path !== `/dashboard/#/agent-approvals/${data.preview_id}`) return undefined;
+  return { data: { preview_id: data.preview_id, request_hash: data.request_hash, expires_at: data.expires_at,
+    confirmation_class: data.confirmation_class, operation: data.operation, resource_id: data.resource_id,
+    resource_label: data.resource_label, proposed_changes: changes, side_effects: data.side_effects,
+    warnings: data.warnings, idempotency_key_format: data.idempotency_key_format, approval_path: data.approval_path }, meta };
+};
+
 /** Project only the safe canonical identity and summary returned by a create effect. */
 export const recordCreateExecutionResponse = (body: unknown, kind: CreateResource): Readonly<Record<string, unknown>> | undefined => {
   if (!record(body) || !record(body.data)) return undefined;

@@ -12,6 +12,7 @@ import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgent
 import { previewLeadUpdate, executeLeadUpdate, leadUpdateStatus } from "./agent-client.js";
 import { previewCustomerCreate, executeCustomerCreate, customerCreateStatus,
   previewLeadCreate, executeLeadCreate, leadCreateStatus } from "./agent-client.js";
+import { previewLeadPromotion, executeLeadPromotion, leadPromotionStatus } from "./agent-client.js";
 import { previewQuoteCreate, executeQuoteCreate, quoteCreateStatus,
   previewQuoteUpdate, executeQuoteUpdate, quoteUpdateStatus } from "./agent-client.js";
 import { readCommunications } from "./agent-client.js";
@@ -80,6 +81,9 @@ type CliRuntime = Readonly<{
   previewLeadCreate?: (input: Omit<Parameters<typeof previewLeadCreate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeLeadCreate?: (input: Omit<Parameters<typeof executeLeadCreate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   leadCreateStatus?: (input: Omit<Parameters<typeof leadCreateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewLeadPromotion?: (input: Omit<Parameters<typeof previewLeadPromotion>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeLeadPromotion?: (input: Omit<Parameters<typeof executeLeadPromotion>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  leadPromotionStatus?: (input: Omit<Parameters<typeof leadPromotionStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   previewQuoteCreate?: (input: Omit<Parameters<typeof previewQuoteCreate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeQuoteCreate?: (input: Omit<Parameters<typeof executeQuoteCreate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   quoteCreateStatus?: (input: Omit<Parameters<typeof quoteCreateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -140,6 +144,9 @@ const runtime: CliRuntime = {
   previewLeadCreate: async (input) => previewLeadCreate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeLeadCreate: async (input) => executeLeadCreate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   leadCreateStatus: async (input) => leadCreateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewLeadPromotion: async (input) => previewLeadPromotion({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeLeadPromotion: async (input) => executeLeadPromotion({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  leadPromotionStatus: async (input) => leadPromotionStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   previewQuoteCreate: async (input) => previewQuoteCreate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeQuoteCreate: async (input) => executeQuoteCreate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   quoteCreateStatus: async (input) => quoteCreateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -198,6 +205,9 @@ const helpMessage = [
   "       bizyeet leads create preview --input-stdin [--profile <name>]",
   "       bizyeet leads create execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet leads create status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet leads promote preview <opaque-lead-id> [--profile <name>]",
+  "       bizyeet leads promote execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet leads promote status <preview-id> --idempotency-key <uuid> [--profile <name>]",
   "       bizyeet quotes create preview --input-stdin [--profile <name>]",
   "       bizyeet quotes create execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet quotes create status <preview-id> --idempotency-key <uuid> [--profile <name>]",
@@ -625,6 +635,7 @@ const taxRead = async (args: readonly string[], dependencies: CliStorage, execut
 const crmRead = async (resource: "customers" | "leads" | "payments" | "services" | "quotes" | "catalog", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
   if ((resource === "customers" || resource === "leads") && command === "create") return recordCreate(resource, options, dependencies, execution);
+  if (resource === "leads" && command === "promote") return leadPromotion(options, dependencies, execution);
   if ((resource === "customers" || resource === "leads") && command === "update") return recordUpdate(resource, options, dependencies, execution);
   if (resource === "quotes" && (command === "create" || command === "update")) return quoteWrite(command, options, dependencies, execution);
   try {
@@ -689,6 +700,33 @@ const recordCreate = async (resource: "customers" | "leads", args: readonly stri
     if (!execution.readApprovalReceipt || !executeCreate) throw new Error("Record write runtime unavailable");
     return resourceOutput(await executeCreate({ ...session, approval: { preview_id: target?.id ?? "", idempotency_key: key,
       approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
+  } catch (error) { return requestFailure(error); }
+};
+
+const leadPromotion = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const [mode, ...targetArgs] = args;
+  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput("Use leads promote preview, execute, or status.");
+  const target = resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"],
+    mode === "execute" ? ["--receipt-stdin"] : []);
+  if (!target) return invalidInput("Promotion requires one opaque lead ID or preview ID with safe options.");
+  const key = mode === "preview" ? "" : oneOption(target.options, "--idempotency-key", "");
+  if (mode !== "preview" && (!isUuid(target.id) || !isUuid(key))) return invalidInput("Promotion execution and status require a preview UUID and --idempotency-key UUID.");
+  try {
+    const selected = await authenticatedProfile(target.options, dependencies);
+    if ("exitCode" in selected) return selected;
+    const session = { credentials: selected.credentials, profile: selected.profile,
+      persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
+    if (mode === "preview") {
+      if (!execution.previewLeadPromotion) throw new Error("Promotion runtime unavailable");
+      return resourceOutput(await execution.previewLeadPromotion({ ...session, proposal: { record: { leadId: target.id } } }));
+    }
+    if (mode === "status") {
+      if (!execution.leadPromotionStatus) throw new Error("Promotion status runtime unavailable");
+      return resourceOutput(await execution.leadPromotionStatus({ ...session, query: { preview_id: target.id, idempotency_key: key } }));
+    }
+    if (!execution.readApprovalReceipt || !execution.executeLeadPromotion) throw new Error("Promotion runtime unavailable");
+    return resourceOutput(await execution.executeLeadPromotion({ ...session, approval: { preview_id: target.id, idempotency_key: key,
+      approval_receipt: await execution.readApprovalReceipt(target.options.includes("--receipt-stdin")) } }));
   } catch (error) { return requestFailure(error); }
 };
 
