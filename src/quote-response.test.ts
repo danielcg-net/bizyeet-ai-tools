@@ -5,13 +5,13 @@ import { quoteResponse } from "./quote-response.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 
 const detail = Object.freeze({ data: { id: "opaque-quote", pricing_revision: 2, sent_count: 0, notes: "hidden",
-  items: [{ id: "opaque-quote-line", description: "Transfer", quantity: "2", unit_price: "25.00", unit_cost: "hidden" }] },
+  items: [{ description: "Transfer", quantity: "2", unit_price: "25.00", unit_cost: "hidden" }] },
 meta: { contract_version: "v1", secret: "hidden" } });
 
 void test("quote reads retain edit prerequisites but remove private fields", () => {
   const result = quoteResponse(detail, { fields: ["pricing_revision", "items"] }, "opaque-quote");
   assert.deepEqual(result?.data, { id: "opaque-quote", pricing_revision: 2,
-    items: [{ id: "opaque-quote-line", description: "Transfer", quantity: "2", unit_price: "25.00" }] });
+    items: [{ description: "Transfer", quantity: "2", unit_price: "25.00" }] });
   assert.equal(JSON.stringify(result).includes("hidden"), false);
   assert.equal(quoteResponse(detail, {}, "other"), undefined);
   assert.equal(validQuoteReadFields(["pricing_revision", "items"]), true);
@@ -20,7 +20,8 @@ void test("quote reads retain edit prerequisites but remove private fields", () 
     assert.equal(quoteResponse({ ...detail, data: { ...detail.data, pricing_revision } }, {}, "opaque-quote"), undefined);
   });
   assert.equal(quoteResponse({ ...detail, data: { ...detail.data, sent_count: -1 } }, {}, "opaque-quote"), undefined);
-  assert.equal(quoteResponse({ ...detail, data: { ...detail.data, items: [{ description: "Missing handle" }] } }, {}, "opaque-quote"), undefined);
+  assert.equal(quoteResponse({ ...detail, data: { ...detail.data, items: [{ description: "Incomplete line" }] } }, {}, "opaque-quote"), undefined);
+  assert.equal(quoteResponse({ ...detail, data: { ...detail.data, items: [{ id: "bad\0id", description: "Transfer", quantity: "2", unit_price: "25.00" }] } }, {}, "opaque-quote"), undefined);
 });
 
 void test("quote requests use canonical OAuth transport and deny unsupported fields before auth", async () => {
