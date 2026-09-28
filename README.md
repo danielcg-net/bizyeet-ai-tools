@@ -565,7 +565,34 @@ and `--idempotency-key`, with receipt input through the protected prompt or
 `--receipt-stdin`. Status uses only the original preview UUID and key. Review all
 server-proposed saved values, including preserved defaults and null values,
 before approving. Lead edits cannot convert a lead to a customer or send a
-message. Create and conversion commands remain outside this implemented surface.
+message. Conversion remains outside this implemented surface.
+
+## Draft customer and lead creation (source command, not yet released)
+
+The source CLI includes create-only `customers create` and `leads create`
+preview, execute, and status commands. The matching server capability is
+separately gated and must be deployed and enabled before use. Source availability
+is not a release or production-availability claim. These commands require an
+explicit `customers.write` grant, a signed-in human dashboard approval, and one
+original UUID idempotency key; they never fall back to provider-specific routes.
+
+Supply a bounded JSON object with `business` and `email` through a private pipe.
+For example, `record.json` might contain
+`{"business":"Example business","email":"person@example.invalid"}`. Preview
+checks create-only preconditions and returns a dashboard `approval_path`; it
+does not create a record.
+
+```sh
+bizyeet customers create preview --input-stdin < record.json
+bizyeet customers create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet customers create status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use `leads` instead of `customers` for a lead. Pass the receipt only through
+the hidden prompt or a private `--receipt-stdin` pipe. Status reads the
+original outcome without a receipt or mutation. An uncertain execution must be
+reconciled using that same preview ID and key; do not submit a new key or a
+replacement create. No conversion, quote, message, or outbound send is implied.
 
 ## Codex and compatible harnesses
 

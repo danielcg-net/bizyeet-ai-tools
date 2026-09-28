@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { Readable } from "node:stream";
+import { validRecordCreateInput, type CreateResource } from "./record-create-response.js";
 
 const invalid = (): never => { throw new Error("Write input is invalid, oversized, cancelled or expired."); };
 // Node types describe stdin as a TTY even when the actual stream is a pipe.
@@ -85,6 +86,17 @@ export const readQuoteProposal = async (): Promise<Readonly<Record<string, unkno
     const value: unknown = JSON.parse(await collectWriteInput(() => nextInput(deadline), 16_384));
     if (typeof value !== "object" || value === null || Array.isArray(value)) return invalid();
     return value as Readonly<Record<string, unknown>>;
+  } catch { return invalid(); }
+};
+
+/** Read one bounded, documented CRM create proposal from an explicit pipe. */
+export const readRecordProposal = async (kind: CreateResource): Promise<Readonly<Record<string, string | null>>> => {
+  if (terminalInput()) throw new Error("Record preview requires piped JSON with --input-stdin.");
+  const deadline = Date.now() + 30_000;
+  try {
+    const value: unknown = JSON.parse(await collectWriteInput(() => nextInput(deadline), 16_384));
+    if (!validRecordCreateInput(value, kind)) return invalid();
+    return value as Readonly<Record<string, string | null>>;
   } catch { return invalid(); }
 };
 
