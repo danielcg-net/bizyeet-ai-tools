@@ -228,6 +228,7 @@ const safeValidationMessages = new Set([
   "Windows OAuth credentials require the native credential manager; plaintext fallback is unavailable.",
   "Write input is invalid, oversized, cancelled or expired.",
   "Preview changes require piped JSON with --input-stdin.",
+  "Quote preview requires piped JSON with --input-stdin.",
   "Use hidden terminal entry, or --receipt-stdin with a pipe.",
   "--limit must be an integer from 1 to 100.", "Cursor is invalid.", "Customer ID is invalid.", "Lead ID is invalid.",
   CRM_SEARCH_LIMIT_MESSAGE, "Requested fields are invalid.",

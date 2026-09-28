@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { run } from "./cli.js";
+import { agentFailure } from "./agent-error.js";
 
 const previewId = "11111111-1111-4111-8111-111111111111";
 const key = "22222222-2222-4222-8222-222222222222";
@@ -44,6 +45,24 @@ void test("quote execution keeps the caller key and private receipt; status is r
   assert.equal(execute.mock.callCount(), 1);
   assert.equal(status.mock.callCount(), 1);
   assert.doesNotMatch(JSON.stringify([created, observed]), /rrrrrrrr|access-secret|refresh-secret/u);
+});
+
+void test("ambiguous quote execution names quote status and never prints the receipt", async () => {
+  const result = await run(["quotes", "create", "execute", previewId, "--idempotency-key", key, "--receipt-stdin"], storage,
+    { ...runtime, readApprovalReceipt: () => Promise.resolve("r".repeat(43)), executeQuoteCreate: () => Promise.reject(new Error("private receipt", {
+      cause: agentFailure(503, { error: { code: "execution_ambiguous" } }),
+    })) });
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.message, /quotes create status/u);
+  assert.match(result.message, /Do not retry/u);
+  assert.doesNotMatch(result.message, /private receipt|rrrrrrrr/u);
+});
+
+void test("quote preview without a pipe is classified as invalid input", async () => {
+  const result = await run(["quotes", "create", "preview", "--input-stdin"], storage,
+    { ...runtime, previewQuoteCreate: unexpected, readQuoteProposal: () => Promise.reject(new Error("Quote preview requires piped JSON with --input-stdin.")) });
+  assert.equal(result.exitCode, 2);
+  assert.match(result.message, /Quote preview requires piped JSON/u);
 });
 
 await Promise.all([

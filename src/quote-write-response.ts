@@ -58,7 +58,7 @@ export const quoteCreateStatusResponse = (body: unknown, previewId: string): Rea
   if (!record(data.outcome)) return undefined;
   if (data.state === "succeeded") {
     const projected = quoteCreateExecutionResponse({ data: data.outcome.data, meta: body.meta });
-    return data.outcome.status === 201 && projected && record(projected.data) && projected.data.audit_reference === previewId
+    return data.outcome.status === 201 && projected && record(projected.data)
       ? { data: { ...common, outcome: { status: 201, data: projected.data } }, meta: metadata } : undefined;
   }
   if (!record(data.outcome.error) || typeof data.outcome.status !== "number" || !Number.isInteger(data.outcome.status)

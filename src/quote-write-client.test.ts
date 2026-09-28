@@ -20,7 +20,10 @@ void test("quote create uses canonical OAuth POST and projects only approved fie
     assert.equal(init.method, "POST");
     assert.equal(new Headers(init.headers).get("Authorization"), "Bearer oauth-token");
     assert.equal(init.redirect, "error");
-    if (url.includes("preview")) assert.deepEqual(JSON.parse(String(init.body)), proposal);
+    if (url.includes("preview")) {
+      assert.ok(typeof init.body === "string");
+      assert.deepEqual(JSON.parse(init.body), proposal);
+    }
     return Promise.resolve(Response.json(url.includes("preview") ? preview : completed, { status: url.includes("preview") ? 200 : 201 }));
   });
   const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request });
@@ -48,17 +51,19 @@ void test("quote create does not retry ambiguous execute and rejects malformed p
 });
 
 void test("quote status validates a 201 outcome and strips private data without mutation", async () => {
+  const auditId = "33333333-3333-4333-8333-333333333333";
   const request = mock.fn((url: string, init: RequestInit) => {
     assert.equal(new URL(url).pathname, "/api/agent/quotes/create-status");
     assert.equal(new URL(url).searchParams.get("preview_id"), previewId);
     assert.equal(new URL(url).searchParams.get("idempotency_key"), key);
     assert.equal(init.method, "GET");
     return Promise.resolve(Response.json({ data: { preview_id: previewId, state: "succeeded", retry_mutation: false,
-      reconciliation_required: false, outcome: { status: 201, data: completed.data } }, meta }));
+      reconciliation_required: false, outcome: { status: 201, data: { ...completed.data, audit_reference: auditId } } }, meta }));
   });
   const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request });
   const result = await client.quoteCreateStatus({ preview_id: previewId, idempotency_key: key });
   assert.equal(result.status, 200);
+  assert.equal((result.body as { data: { outcome: { data: { audit_reference: string } } } }).data.outcome.data.audit_reference, auditId);
   assert.equal(JSON.stringify(result).includes("hidden"), false);
   assert.equal(request.mock.callCount(), 1);
 });
