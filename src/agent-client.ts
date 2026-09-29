@@ -367,3 +367,15 @@ export const executeQuoteUpdate = (input: WriteSession & Readonly<{ approval: Cu
 /** Read the original quote-update outcome without repeating the mutation. */
 export const quoteUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
   invoke({ ...input, operation: (client) => client.quoteUpdateStatus(input.query) });
+
+/** Preview one irreversible quote-to-service transition without executing it. */
+export const previewQuoteAccept = (input: WriteSession & Readonly<{ proposal: Readonly<{ resource_id: string }> }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteAccept(input.proposal) });
+
+/** Execute only the exact dashboard-approved acceptance; never replay the POST. */
+export const executeQuoteAccept = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteAccept(input.approval) });
+
+/** Reconcile an uncertain acceptance without repeating the lifecycle action. */
+export const quoteAcceptStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteAcceptStatus(input.query) });

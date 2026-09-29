@@ -547,9 +547,29 @@ bizyeet quotes update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
 Preview is side-effect free. Execute requires a dashboard-approved receipt
 entered in the hidden prompt or a private `--receipt-stdin` pipe. Status reads
 the original outcome with the same key; never use a new key to repeat an
-uncertain update. This source command does not send, accept, or decline a quote,
+uncertain update. The update command does not send, accept, or decline a quote,
 and must not be treated as usable until its matching backend is deployed and a
 package release is explicitly authorized.
+
+## Quote acceptance (source command, not yet released)
+
+The source CLI can prepare acceptance of one exact quote through the canonical
+OAuth lifecycle endpoint. The server requires `customers.write`; when automatic
+service-status email is configured, it also requires `mail.send`. Preview does
+not accept the quote or send mail. It shows that acceptance can create a service,
+promote a lead, and send the configured email. A signed-in human must inspect
+the returned `approval_path` and approve that exact preview before execution.
+
+```sh
+bizyeet quotes accept preview "$QUOTE_ID"
+bizyeet quotes accept execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes accept status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Pass the receipt only through the hidden prompt or a private `--receipt-stdin`
+pipe. Keep the original UUID execution key. If execution is uncertain, use
+`status` to reconcile it; do not repeat acceptance with a new key. This source
+command is not a package release or a production canary.
 
 ## Lead update contract (not yet released)
 
