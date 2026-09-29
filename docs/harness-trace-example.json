@@ -1,9 +1,4 @@
 {
-  "scenario": {
-    "kind": "read_exact",
-    "resource": "customers",
-    "exactId": "cust-synthetic-1"
-  },
   "events": [
     { "kind": "identity", "verified": true },
     { "kind": "discovery", "operations": ["customers.list", "customers.get"] },

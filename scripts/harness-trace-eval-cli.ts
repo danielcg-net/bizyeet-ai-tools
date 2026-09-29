@@ -1,29 +1,35 @@
 import { readFile, stat } from "node:fs/promises";
-import { evaluateHarnessTrace, parseHarnessTrace } from "./harness-trace-eval.js";
+import { evaluateHarnessTrace, parseHarnessScenario, parseHarnessTrace } from "./harness-trace-eval.js";
 
 const maximumTraceBytes = 262_144;
+const maximumPolicyBytes = 4096;
 
-const scoreFile = async (path: string): Promise<number> => {
+const readJson = async (path: string, maximum: number): Promise<unknown> => {
+  const file = await stat(path);
+  if (!file.isFile() || file.size > maximum) throw new Error("invalid_input");
+  return JSON.parse(await readFile(path, "utf8")) as unknown;
+};
+
+const scoreFiles = async (policyPath: string, tracePath: string): Promise<number> => {
   try {
-    const file = await stat(path);
-    if (!file.isFile() || file.size > maximumTraceBytes) throw new Error("invalid_trace");
-    const value: unknown = JSON.parse(await readFile(path, "utf8"));
-    const trace = parseHarnessTrace(value);
-    if (!trace) throw new Error("invalid_trace");
-    const score = evaluateHarnessTrace(trace);
+    const policy = parseHarnessScenario(await readJson(policyPath, maximumPolicyBytes));
+    const trace = parseHarnessTrace(await readJson(tracePath, maximumTraceBytes));
+    if (!policy || !trace) throw new Error("invalid_input");
+    const score = evaluateHarnessTrace(policy, trace);
     process.stdout.write(`${JSON.stringify(score)}\n`);
     return score.passed ? 0 : 1;
   } catch {
-    // Never echo a trace path, content, parser diagnostic, or secret-like value.
+    // Never echo an input path, content, parser diagnostic, or secret-like value.
     process.stderr.write('{"error":"invalid_trace"}\n');
     return 2;
   }
 };
 
-const path = process.argv[2];
-if (!path || process.argv.length !== 3) {
+const policyPath = process.argv[2];
+const tracePath = process.argv[3];
+if (!policyPath || !tracePath || process.argv.length !== 4) {
   process.stderr.write('{"error":"usage"}\n');
   process.exit(2);
 }
 
-process.exit(await scoreFile(path));
+process.exit(await scoreFiles(policyPath, tracePath));
