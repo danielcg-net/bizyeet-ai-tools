@@ -39,6 +39,26 @@ not retryable, and directs the user to the tenant administrator rather than
 suggesting another login or smaller page. Installed-command fixtures confirm
 one canonical GET and no reflected upstream instructions for these errors.
 
+## Synthetic agent trace scoring
+
+An instrumented local agent run can save **sanitized call metadata only** in
+the format of `docs/harness-trace-example.json`. Build, then score it with
+`node dist/scripts/harness-trace-eval-cli.js <trace.json>`; the scorer exits 0
+for a pass, 1 for policy violations and 2 for malformed input, and never echoes
+the trace file. The evaluator requires verified identity and discovered
+capabilities before business calls, bounded list-to-exact-read, terminal error
+stops, and exact preview/approval/single-execute ordering. Its tests reject
+hostile-record follow-up actions, oversized output, cross-tenant IDs, retries,
+repeated writes, mismatched approval and recorded receipt values. It accepts
+an authentication-stop trace only when no business operation follows.
+
+The harness must record *all* calls, including calls induced by record text or
+tool output; it must not put record contents, credentials, approval receipts,
+or production identifiers in the trace. These unit fixtures verify the scorer,
+not a model's behavior. A fresh Codex run must still produce an observed trace
+for each acceptance scenario, with model/client/package versions and trusted
+approval evidence recorded separately before claiming model-driven success.
+
 ## Remaining acceptance
 
 BIZYEET-648 also requires model-driven command selection and argument scoring,
