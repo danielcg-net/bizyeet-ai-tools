@@ -14,6 +14,9 @@ const permittedPermissions: Readonly<Record<string, readonly string[]>> = {
   "pull-requests": ["read"],
   "security-events": ["write"],
 };
+const deepseekAction = "danielcg-net/deepseek-review-gate@0919d69e14b8d540495a7b971eaa19d5a4186528";
+const githubScriptAction = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3";
+const trustedReviewCondition = "${{ github.event.pull_request.head.repo.full_name == github.repository }}";
 
 const isRecord = (value: unknown): value is Workflow => typeof value === "object" && value !== null && !Array.isArray(value);
 const isStringArray = (value: unknown): value is readonly string[] => Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -48,10 +51,33 @@ const hasLeastPrivilegePermissions = (permissions: unknown): boolean =>
     ([scope, access]) => typeof access === "string" && permittedPermissions[scope]?.includes(access) === true,
   );
 
+const permitsTrustedDeepseekReview = (fileName: string, workflow: Workflow, jobId: string, job: Workflow): boolean => {
+  if (fileName !== "deepseek-cr.yml" || jobId !== "review" || !isRecord(workflow.on)
+    || Object.keys(workflow.on).length !== 1 || !isRecord(workflow.on.pull_request)
+    || !isRecord(workflow.jobs) || Object.keys(workflow.jobs).length !== 1
+    || job.if !== trustedReviewCondition || job["runs-on"] !== "ubuntu-latest"
+    || !isRecord(job.permissions) || Object.keys(job.permissions).length !== 2
+    || job.permissions.contents !== "read" || job.permissions["pull-requests"] !== "write"
+    || !Array.isArray(job.steps) || job.steps.length !== 2) return false;
+  const steps = job.steps as readonly unknown[];
+  const guard = steps.at(0);
+  const review = steps.at(1);
+  return isRecord(guard) && guard.uses === githubScriptAction && isRecord(guard.with)
+    && typeof guard.with.script === "string" && guard.with.script.includes("github.rest.pulls.listCommits")
+    && guard.with.script.includes("text.includes('skip review')")
+    && guard.with.script.includes("text.includes('skip cr')") && guard.with.script.includes("core.setFailed(")
+    && isRecord(review) && review.uses === deepseekAction && isRecord(review.with)
+    && review.with["chat-token"] === "${{ secrets.DEEPSEEK_API_KEY }}"
+    && review.with["github-token"] === "${{ github.token }}"
+    && review.with["reconcile-threads"] === "false"
+    && !steps.some((step) => isRecord(step) && ("run" in step || "env" in step));
+};
+
 const jobPermissionsAreSafe = (fileName: string, workflow: Workflow): boolean =>
   isRecord(workflow.jobs) && Object.entries(workflow.jobs).every(([jobId, job]) =>
     isRecord(job) && (!("permissions" in job) || hasLeastPrivilegePermissions(job.permissions)
-      || permitsTrustedAttestation(fileName, workflow, jobId, job)),
+      || permitsTrustedAttestation(fileName, workflow, jobId, job)
+      || permitsTrustedDeepseekReview(fileName, workflow, jobId, job)),
   );
 
 const triggerNames = (value: unknown): readonly string[] =>

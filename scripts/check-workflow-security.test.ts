@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -55,4 +55,23 @@ void test("requires immutable references for reusable workflows as well as steps
   const reference = "example/security/.github/workflows/check.yml";
   assert.deepEqual(validateWorkflow("test.yml", workflow(`  check:\n    uses: ${reference}@main\n`)), [`test.yml: action must use a full commit SHA (${reference}@main)`]);
   assert.deepEqual(validateWorkflow("test.yml", workflow(`  check:\n    uses: ${reference}@${"a".repeat(40)}\n`)), []);
+});
+
+void test("only the isolated same-repository DeepSeek review may write PR comments", async (): Promise<void> => {
+  const source = await readFile(new URL("../../.github/workflows/deepseek-cr.yml", import.meta.url), "utf8");
+  assert.deepEqual(validateWorkflow("deepseek-cr.yml", source), []);
+  assert.deepEqual(validateWorkflow("other.yml", source), ["other.yml: job permissions must use the approved least-privilege mapping"]);
+  const unsafe = [
+    source.replace("github.event.pull_request.head.repo.full_name == github.repository", "github.event.pull_request.number > 0"),
+    source.replace("runs-on: ubuntu-latest", "runs-on: [self-hosted, bizyeet]"),
+    source.replace("reconcile-threads: \"false\"", "reconcile-threads: \"true\""),
+    source.replace("contents: read\n      pull-requests: write", "contents: write\n      pull-requests: write"),
+    source.replace("      # No checkout", "      - run: echo untrusted\n      # No checkout"),
+    source.replace("github.rest.pulls.listCommits", "github.rest.pulls.get"),
+  ];
+  unsafe.forEach((variant) => {
+    assert.notDeepEqual(validateWorkflow("deepseek-cr.yml", variant), []);
+  });
+  assert.deepEqual(validateWorkflow("deepseek-cr.yml", source.replace("pull_request:", "pull_request_target:")),
+    ["deepseek-cr.yml: pull_request_target is forbidden", "deepseek-cr.yml: job permissions must use the approved least-privilege mapping"]);
 });
