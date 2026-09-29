@@ -79,3 +79,17 @@ void test("quote decline projects ambiguous status without leaking server detail
   assert.deepEqual((result.body as { data: { outcome: unknown } }).data.outcome,
     { status: 503, error: { code: "execution_ambiguous" } });
 });
+
+await Promise.all(["draft", "open", undefined].map((status) => test(`quote decline rejects successful HTTP response without declined status: ${String(status)}`, async () => {
+  const quote = { ...completed.data.quote, status };
+  const response = { ...completed, data: { ...completed.data, quote } };
+  const request = mock.fn((url: string) => Promise.resolve(Response.json(url.includes("-status")
+    ? { data: { preview_id: previewId, state: "succeeded", retry_mutation: false,
+      reconciliation_required: false, outcome: { status: 200, data: response.data } }, meta }
+    : response)));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request });
+  const executed = await client.executeQuoteDecline({ preview_id: previewId, approval_receipt: "r".repeat(43), idempotency_key: key });
+  assert.deepEqual(executed.body, { error: { code: "execution_ambiguous" } });
+  assert.equal((await client.quoteDeclineStatus({ preview_id: previewId, idempotency_key: key })).status, 502);
+  assert.equal(request.mock.callCount(), 2);
+})));

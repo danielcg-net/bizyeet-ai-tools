@@ -39,7 +39,8 @@ export const quoteDeclineExecutionResponse = (body: unknown): Readonly<Record<st
   if (!record(body) || !record(body.data)) return undefined;
   const meta = metadata(body);
   const data = body.data;
-  if (!meta || !record(data.quote) || !validResourceId(data.quote.id) || !isUuid(data.audit_reference)) return undefined;
+  if (!meta || !record(data.quote) || !validResourceId(data.quote.id)
+    || data.quote.status !== "declined" || !isUuid(data.audit_reference)) return undefined;
   const quote = quoteResponse({ data: data.quote, meta: body.meta }, {}, data.quote.id);
   return quote && record(quote.data) ? { data: { quote: quote.data, audit_reference: data.audit_reference }, meta } : undefined;
 };
