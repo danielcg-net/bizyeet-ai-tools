@@ -452,7 +452,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   };
   const serviceCreate = async (input: unknown, preview: boolean): Promise<CanonicalResult> => {
     if (!record(input) || (preview
-      ? Object.keys(input).length !== 1 || !record(input.service)
+      ? Object.keys(input).length !== 1 || !record(input.service) || !validResourceId(input.service.customerId)
       : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
         || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) return failure(400, "invalid_request");
     const serialized = ((): string => { try { return JSON.stringify(input); } catch { return ""; } })();
@@ -466,7 +466,8 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       });
       const body = await boundedResponse(response, 32_768);
       if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
-      const projected = preview ? serviceCreatePreviewResponse(body) : serviceCreateExecutionResponse(body);
+      const projected = preview && "service" in input && record(input.service) && typeof input.service.customerId === "string"
+        ? serviceCreatePreviewResponse(body, input.service.customerId) : serviceCreateExecutionResponse(body);
       return projected && response.status === (preview ? 200 : 201) ? { status: response.status, body: projected }
         : failure(502, preview ? "invalid_response" : "execution_ambiguous");
     } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }

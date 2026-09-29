@@ -14,14 +14,15 @@ const summaryFields = Object.freeze(["serviceName", "description", "lineItems", 
   "discountTerms", "pricingCurrency", "status", "customerDocuments", "notification"]);
 
 /** Project the reviewed service-create summary without exposing provider/private fields. */
-export const serviceCreatePreviewResponse = (body: unknown): Readonly<Record<string, unknown>> | undefined => {
+export const serviceCreatePreviewResponse = (body: unknown, customerId: string): Readonly<Record<string, unknown>> | undefined => {
   if (!record(body) || !record(body.data)) return undefined;
   const meta = metadata(body);
   const data = body.data;
   const changes = data.proposed_changes;
-  if (!meta || !isUuid(data.preview_id) || !/^[A-Za-z0-9_-]{43}$/u.test(String(data.request_hash))
+  if (!meta || !isUuid(data.preview_id) || typeof data.request_hash !== "string"
+    || !/^[A-Za-z0-9_-]{43}$/u.test(data.request_hash)
     || !timestamp(data.expires_at) || data.confirmation_class !== "lifecycle_transition"
-    || data.operation !== "service_create" || !validResourceId(data.resource_id)
+    || data.operation !== "service_create" || !validResourceId(data.resource_id) || data.resource_id !== customerId
     || typeof data.resource_label !== "string" || !record(changes)
     || !summaryFields.every((field) => typeof changes[field] === "string")
     || changes.status !== "backlog" || !(changes.durationMinutes === undefined || changes.durationMinutes === null

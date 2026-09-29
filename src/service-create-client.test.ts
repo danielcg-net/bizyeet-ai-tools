@@ -54,6 +54,23 @@ void test("service creation rejects malformed preview and never retries ambiguou
   assert.equal(request.mock.callCount(), 2);
 });
 
+void test("service-create preview binds the approved customer to the requested canonical customer", async () => {
+  const request = mock.fn(() => Promise.resolve(Response.json({ ...preview,
+    data: { ...preview.data, resource_id: "sales1.fingerprint.customers.other" } })));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request });
+  assert.equal((await client.previewServiceCreate({ service: proposal })).status, 502);
+  assert.equal(request.mock.callCount(), 1);
+  const invalid = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => { throw new Error("unexpected authentication"); } });
+  assert.equal((await invalid.previewServiceCreate({ service: { ...proposal, customerId: "/bad" } })).status, 400);
+});
+
+void test("service-create preview rejects a non-string request hash before displaying approval details", async () => {
+  const request = mock.fn(() => Promise.resolve(Response.json({ ...preview,
+    data: { ...preview.data, request_hash: ["h".repeat(43)] } })));
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request });
+  assert.equal((await client.previewServiceCreate({ service: proposal })).status, 502);
+});
+
 void test("service-create status reconciles one outcome through a read-only request", async () => {
   const request = mock.fn((url: string, init: RequestInit) => {
     assert.equal(new URL(url).pathname, "/api/agent/services/create-status");
