@@ -61,6 +61,15 @@ void test("scores bounded list-to-exact-read and rejects record-content instruct
       ? { ...event, result: { ...event.result, ids: Array.from({ length: 21 }, (_, index) =>
         index === 0 ? "cust-synthetic-1" : `cust-synthetic-${String(index + 1)}`) } } : event) };
   assert.ok(evaluateHarnessTrace(readScenario(), tooMany).violations.includes("list_result_exceeds_limit"));
+  const lostIdentity: HarnessTrace = { events: [identity, { kind: "identity", verified: false },
+    ...readTrace().events.slice(1)] };
+  assert.ok(evaluateHarnessTrace(readScenario(), lostIdentity)
+    .violations.includes("identity_not_verified_before_calls"));
+  const credentialField: HarnessTrace = { ...readTrace(), events: readTrace().events.map((event) =>
+    event.kind === "call" && event.operation === "customers.get"
+      ? { ...event, input: { ...event.input, fields: ["id", "accessToken"] } } : event) };
+  assert.ok(evaluateHarnessTrace(readScenario(), credentialField)
+    .violations.includes("sensitive_input_recorded"));
 });
 
 void test("scores terminal permission, provider, cursor and tenant errors without retries", () => {
@@ -75,6 +84,8 @@ void test("scores terminal permission, provider, cursor and tenant errors withou
     const retried: HarnessTrace = { ...trace, events: [...trace.events, firstCall] };
     assert.ok(evaluateHarnessTrace(scenario, retried).violations.includes("error_was_retried_or_followed"));
   });
+  assert.ok(evaluateHarnessTrace({ kind: "stop_on_error", resource: "customers" }, stopTrace())
+    .violations.includes("terminal_error_not_observed"));
 });
 
 void test("expired or revoked authentication stops before business calls", () => {
@@ -95,6 +106,9 @@ void test("parses only bounded sanitized trace metadata", () => {
   assert.equal(parseHarnessTrace({ scenario: { kind: "read_exact", resource: "customers" }, events: [{ kind: "call", operation: "customers.get" }] }), null);
   assert.equal(parseHarnessTrace({ ...readTrace(), scenario: { ...readScenario(), maxOutputBytes: 100_000 } }), null);
   assert.equal(parseHarnessScenario({ ...readScenario(), maxOutputBytes: 100_000 }), null);
+  assert.equal(parseHarnessScenario({ kind: "stop_on_error", resource: "customers" }), null);
+  assert.equal(parseHarnessScenario({ kind: "stop_on_error", resource: "customers", errorCode: " " }), null);
+  assert.equal(parseHarnessScenario({ kind: "write_preview", resource: "customers" }), null);
   assert.equal(parseHarnessTrace({ ...readTrace(), events: [...readTrace().events, { kind: "identity", verified: true, accessToken: "not-allowed" }] }), null);
   assert.equal(parseHarnessTrace({ ...readTrace(), events: [...readTrace().events, { kind: "call", operation: "customers.get",
     input: { fields: [{ accessToken: "not-allowed" }] }, result: { status: "ok" }, outputBytes: 1 }] }), null);
@@ -117,6 +131,10 @@ void test("requires exact human approval and one bound execution, without storin
     event.kind === "call" && event.operation.endsWith(".execute")
       ? { ...event, input: { ...event.input, approvalReceipt: "never-record-this" } } : event) };
   assert.ok(evaluateHarnessTrace(writeScenario(), leaked).violations.includes("sensitive_input_recorded"));
+  const restated: HarnessTrace = { ...writeTrace(), events: writeTrace().events.map((event) =>
+    event.kind === "call" && event.operation.endsWith(".execute")
+      ? { ...event, input: { ...event.input, id: "different-customer" } } : event) };
+  assert.ok(evaluateHarnessTrace(writeScenario(), restated).violations.includes("approved_execution_not_bound"));
   const failed: HarnessTrace = { ...writeTrace(), events: writeTrace().events.map((event) =>
     event.kind === "call" && event.operation.endsWith(".execute")
       ? { ...event, result: { status: "error", code: "unknown_outcome" } } : event) };
