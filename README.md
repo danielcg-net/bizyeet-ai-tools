@@ -587,6 +587,24 @@ Pass the approval receipt through the hidden prompt or private
 uncertainty with `status`; never repeat decline with a new key. This remains
 source-only, without a package release or production canary.
 
+The source CLI can prepare a customer-bound backlog service through the
+canonical OAuth endpoint. Provide one bounded service JSON proposal through
+`--input-stdin`. Preview shows priced line items, discounts, customer-document
+requirements, and any configured email or calendar effect. The server requires
+`customers.write`, plus `mail.send` when those external effects are configured.
+A signed-in human must approve the exact dashboard preview before creation.
+
+```sh
+bizyeet services create preview --input-stdin
+bizyeet services create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services create status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use the hidden receipt prompt or private `--receipt-stdin` pipe. Retain the
+original UUID execution key and reconcile uncertain results with read-only
+`status`; never create a replacement service. This remains source-only, not a
+package release or production canary.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and
