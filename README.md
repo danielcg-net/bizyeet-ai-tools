@@ -403,6 +403,28 @@ timezone, allowing the request's 15-second timeout window to cross midnight.
 The CLI command does not imply that a server has deployed the corresponding
 endpoint; unsupported or unauthorized requests fail explicitly.
 
+## Margin reports
+
+Servers with the canonical margin-report contract deployed support:
+
+```sh
+bizyeet reports margin --kind completed_services --range month --limit 25
+bizyeet reports margin --kind active_services --range custom --start-date 2026-03-01 --end-date 2026-03-31 --fields revenue,actual_cost,margin_amount --export
+```
+
+Margin reads require `reports.read` and the user's live tenant-admin role. The
+canonical server selects the tenant, provider, timezone and source; unsupported
+providers fail explicitly. The report separates currency totals and distinguishes
+missing costs from zero costs. `sent_quotes` is forecast, `active_services` is
+exposure, and `completed_services` is realized activity; the CLI does not merge
+those views or recalculate margins. Custom date labels are inclusive in the
+tenant timezone, while returned UTC instants are inclusive-start/exclusive-end.
+`source.readCompletedAt` is freshness evidence, not a snapshot guarantee.
+`--page` and `--limit` bound pagination to 50 rows per request; private cost
+fields require explicit `--fields`. The client strips unrequested row fields and
+never treats a provider error as an empty report. This source command is not a
+package release or evidence of a live tenant read.
+
 ## Received-payment summaries
 
 Servers with the received-summary contract deployed support:
