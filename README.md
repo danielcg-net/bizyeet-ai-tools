@@ -571,6 +571,22 @@ pipe. Keep the original UUID execution key. If execution is uncertain, use
 `status` to reconcile it; do not repeat acceptance with a new key. This source
 command is not a package release or a production canary.
 
+The source CLI can also decline one open quote through the canonical OAuth
+lifecycle endpoint with `customers.write`. Preview makes no change. Decline
+requires a signed-in human to approve the exact `approval_path`, creates no
+service or payment, and sends no customer communication.
+
+```sh
+bizyeet quotes decline preview "$QUOTE_ID"
+bizyeet quotes decline execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes decline status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Pass the approval receipt through the hidden prompt or private
+`--receipt-stdin` pipe. Retain the original UUID execution key and reconcile
+uncertainty with `status`; never repeat decline with a new key. This remains
+source-only, without a package release or production canary.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and

@@ -135,11 +135,36 @@ const serveSyntheticQuoteAccept = async (request: IncomingMessage, response: Ser
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
 };
+const syntheticQuoteDecline = { quote: { id: quoteId, title: "Transfer", status: "declined", private_cost: "hidden" },
+  audit_reference: previewId };
+const serveSyntheticQuoteDecline = async (request: IncomingMessage, response: ServerResponse, preview: boolean): Promise<void> => {
+  assert.equal(request.method, "POST");
+  assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
+  assert.equal(request.headers.authorization, "Bearer synthetic-access");
+  const input: unknown = JSON.parse(await text(request));
+  assert.deepEqual(input, preview ? { resource_id: quoteId }
+    : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
+  const data = preview ? { preview_id: previewId, request_hash: "h".repeat(43), expires_at: "2099-01-01T00:00:00.000Z",
+    confirmation_class: "lifecycle_transition", operation: "quote_decline", resource_id: quoteId, resource_label: "Transfer",
+    proposed_changes: { quoteTitle: "Transfer", lifecycleAction: "Decline quote. No service or customer communication is created." },
+    side_effects: ["Decline one open quote. No service, payment, or customer communication is created."],
+    warnings: ["This lifecycle action cannot be undone by the agent."], idempotency_key_format: "uuid",
+    approval_path: `/dashboard/#/agent-approvals/${previewId}` } : syntheticQuoteDecline;
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
+};
 const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): void => {
   const origin = `https://${request.headers.host ?? "127.0.0.1"}`;
   const url = new URL(request.url ?? "/", origin);
   if (["/api/agent/quotes/accept-preview", "/api/agent/quotes/accept-execute"].includes(url.pathname)) {
     void serveSyntheticQuoteAccept(request, response, url.pathname.endsWith("accept-preview")).catch(() => {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
+    });
+    return;
+  }
+  if (["/api/agent/quotes/decline-preview", "/api/agent/quotes/decline-execute"].includes(url.pathname)) {
+    void serveSyntheticQuoteDecline(request, response, url.pathname.endsWith("decline-preview")).catch(() => {
       response.writeHead(500, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
     });
@@ -165,7 +190,7 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
     && request.method === "GET" && url.searchParams.size === 3 && url.searchParams.get("api_version") === "v1"
     && url.searchParams.get("page") === "2" && url.searchParams.get("page_size") === "20";
   const statusQuery = ["/api/agent/customers/update-status", "/api/agent/leads/update-status", "/api/agent/quotes/update-status",
-    "/api/agent/quotes/accept-status"].includes(url.pathname)
+    "/api/agent/quotes/accept-status", "/api/agent/quotes/decline-status"].includes(url.pathname)
     && request.method === "GET" && url.searchParams.size === 3 && url.searchParams.get("api_version") === "v1"
     && url.searchParams.get("preview_id") === previewId && url.searchParams.get("idempotency_key") === executionKey;
   const body = metadata ? { issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, code_challenge_methods_supported: ["S256"] }
@@ -173,6 +198,9 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
     : historyQuery ? { data: { items: [{ id: "synthetic-delivery", kind: "email", status: "sent" }], total: 21 }, meta: { contract_version: "v1", request_id: "synthetic-history", page: 2, page_size: 20, total_pages: 2 } }
     : statusQuery && url.pathname === "/api/agent/quotes/accept-status" ? { data: { preview_id: previewId, state: "succeeded",
       retry_mutation: false, reconciliation_required: false, outcome: { status: 200, data: syntheticQuoteAcceptance } },
+      meta: { contract_version: "v1" } }
+    : statusQuery && url.pathname === "/api/agent/quotes/decline-status" ? { data: { preview_id: previewId, state: "succeeded",
+      retry_mutation: false, reconciliation_required: false, outcome: { status: 200, data: syntheticQuoteDecline } },
       meta: { contract_version: "v1" } }
     : statusQuery ? { data: { preview_id: previewId, state: "succeeded", retry_mutation: false, reconciliation_required: false,
       outcome: { status: 200, data: { resource: url.pathname.startsWith("/api/agent/quotes/")
@@ -375,6 +403,16 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.match(acceptStatus, /"state":"succeeded"/u);
       assert.doesNotMatch(acceptPreview + acceptExecution + acceptStatus,
         /private_cost|synthetic-access|synthetic-refresh|rrrrrrrr/u);
+      const declinePreview = await runInstalled(["quotes", "decline", "preview", quoteId, "--profile", testProfile(directory)], directory, environment);
+      const declineExecution = await runInstalled(["quotes", "decline", "execute", previewId, "--idempotency-key", executionKey,
+        "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
+      const declineStatus = await runInstalled(["quotes", "decline", "status", previewId, "--idempotency-key", executionKey,
+        "--profile", testProfile(directory)], directory, environment);
+      assert.match(declinePreview, /"operation":"quote_decline"/u);
+      assert.match(declineExecution, /"status":"declined"/u);
+      assert.match(declineStatus, /"state":"succeeded"/u);
+      assert.doesNotMatch(declinePreview + declineExecution + declineStatus,
+        /private_cost|synthetic-access|synthetic-refresh|rrrrrrrr/u);
       assert.match(leadPreview, /"birthday":null/u);
       assert.match(leadExecution, /"pipeline_stage":"New Lead"/u);
       assert.match(leadStatus, /"state":"succeeded"/u);
@@ -400,7 +438,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
         assert.equal(handler.mock.callCount() - before, 1);
         assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
       }, Promise.resolve());
-      assert.equal(handler.mock.callCount(), 35);
+      assert.equal(handler.mock.callCount(), 38);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);

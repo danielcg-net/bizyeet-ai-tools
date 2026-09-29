@@ -13,6 +13,7 @@ import { previewLeadUpdate, executeLeadUpdate, leadUpdateStatus } from "./agent-
 import { previewQuoteCreate, executeQuoteCreate, quoteCreateStatus,
   previewQuoteUpdate, executeQuoteUpdate, quoteUpdateStatus } from "./agent-client.js";
 import { previewQuoteAccept, executeQuoteAccept, quoteAcceptStatus } from "./agent-client.js";
+import { previewQuoteDecline, executeQuoteDecline, quoteDeclineStatus } from "./agent-client.js";
 import { readCommunications } from "./agent-client.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource } from "./communication-contract.js";
 import { validPaymentQuery } from "./payment-contract.js";
@@ -82,6 +83,9 @@ type CliRuntime = Readonly<{
   previewQuoteAccept?: (input: Omit<Parameters<typeof previewQuoteAccept>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeQuoteAccept?: (input: Omit<Parameters<typeof executeQuoteAccept>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   quoteAcceptStatus?: (input: Omit<Parameters<typeof quoteAcceptStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewQuoteDecline?: (input: Omit<Parameters<typeof previewQuoteDecline>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeQuoteDecline?: (input: Omit<Parameters<typeof executeQuoteDecline>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  quoteDeclineStatus?: (input: Omit<Parameters<typeof quoteDeclineStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readChanges?: typeof readChanges;
   readQuoteProposal?: typeof readQuoteProposal;
   readApprovalReceipt?: typeof readApprovalReceipt;
@@ -137,6 +141,9 @@ const runtime: CliRuntime = {
   previewQuoteAccept: async (input) => previewQuoteAccept({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeQuoteAccept: async (input) => executeQuoteAccept({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   quoteAcceptStatus: async (input) => quoteAcceptStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewQuoteDecline: async (input) => previewQuoteDecline({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeQuoteDecline: async (input) => executeQuoteDecline({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  quoteDeclineStatus: async (input) => quoteDeclineStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
     const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -192,7 +199,11 @@ const helpMessage = [
   "       bizyeet quotes accept preview <opaque-quote-id> [--profile <name>]",
   "       bizyeet quotes accept execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet quotes accept status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet quotes decline preview <opaque-quote-id> [--profile <name>]",
+  "       bizyeet quotes decline execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet quotes decline status <preview-id> --idempotency-key <uuid> [--profile <name>]",
   "Quote acceptance can create a service, promote a lead, and trigger configured email; only the signed-in dashboard can approve it.",
+  "Quote decline changes only the quote lifecycle; it creates no service, payment, or customer communication and requires dashboard approval.",
   "Preview reads a bounded JSON changes object from stdin; review its approval_path in your signed-in dashboard.",
   "Execution prompts for a hidden approval receipt. Harnesses use a private pipe with --receipt-stdin; never put receipts in commands, shell history or chat.",
   "Generate and retain one UUID idempotency key for this execution. Never replace it to recover an uncertain outcome.",
@@ -613,7 +624,7 @@ const taxRead = async (args: readonly string[], dependencies: CliStorage, execut
 const crmRead = async (resource: "customers" | "leads" | "payments" | "services" | "quotes" | "catalog", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
   if ((resource === "customers" || resource === "leads") && command === "update") return recordUpdate(resource, options, dependencies, execution);
-  if (resource === "quotes" && (command === "create" || command === "update" || command === "accept")) return quoteWrite(command, options, dependencies, execution);
+  if (resource === "quotes" && (command === "create" || command === "update" || command === "accept" || command === "decline")) return quoteWrite(command, options, dependencies, execution);
   try {
     if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
     const listOptions = command === "list" ? crmListOptions(resource, options) : undefined;
@@ -675,17 +686,18 @@ const recordUpdate = async (resource: "customers" | "leads", args: readonly stri
   } catch (error) { return requestFailure(error); }
 };
 
-const quoteWrite = async (operation: "create" | "update" | "accept", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+const quoteWrite = async (operation: "create" | "update" | "accept" | "decline", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [mode, ...targetArgs] = args;
   if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput(`Use quotes ${operation} preview, execute, or status.`);
+  const lifecycle = operation === "accept" || operation === "decline";
   const target = mode === "preview" && operation === "create" ? undefined
     : resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"],
-      mode === "preview" ? operation === "accept" ? [] : ["--input-stdin"] : mode === "execute" ? ["--receipt-stdin"] : []);
+      mode === "preview" ? lifecycle ? [] : ["--input-stdin"] : mode === "execute" ? ["--receipt-stdin"] : []);
   if (mode === "preview" && ((operation === "create" && !hasOnlyOptions(targetArgs, ["--profile"], ["--input-stdin"]))
     || (operation === "update" && (!target || !validResourceId(target.id)))
-    || (operation === "accept" && (!target || !validResourceId(target.id)))
-    || (operation !== "accept" && targetArgs.filter((arg) => arg === "--input-stdin").length !== 1))) return invalidInput(
-      operation === "accept" ? "Quote acceptance preview requires one opaque quote ID and optional --profile."
+    || (lifecycle && (!target || !validResourceId(target.id)))
+    || (!lifecycle && targetArgs.filter((arg) => arg === "--input-stdin").length !== 1))) return invalidInput(
+      lifecycle ? `Quote ${operation} preview requires one opaque quote ID and optional --profile.`
         : "Quote preview requires piped JSON with --input-stdin.");
   if (mode !== "preview" && !target) return invalidInput("Quote execution and status require a preview ID and idempotency key.");
   if ((target?.options.filter((arg) => arg === "--receipt-stdin").length ?? 0) > 1) return invalidInput("Use --receipt-stdin only once.");
@@ -698,9 +710,10 @@ const quoteWrite = async (operation: "create" | "update" | "accept", args: reado
     const session = { credentials: selected.credentials, profile: selected.profile,
       persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
     if (mode === "preview") {
-      if (operation === "accept") {
-        if (!execution.previewQuoteAccept) throw new Error("Quote acceptance runtime unavailable");
-        return resourceOutput(await execution.previewQuoteAccept({ ...session, proposal: { resource_id: target?.id ?? "" } }));
+      if (lifecycle) {
+        const preview = operation === "accept" ? execution.previewQuoteAccept : execution.previewQuoteDecline;
+        if (!preview) throw new Error(`Quote ${operation} runtime unavailable`);
+        return resourceOutput(await preview({ ...session, proposal: { resource_id: target?.id ?? "" } }));
       }
       if (!execution.readQuoteProposal) throw new Error("Quote write runtime unavailable");
       const quote = await execution.readQuoteProposal();
@@ -713,12 +726,14 @@ const quoteWrite = async (operation: "create" | "update" | "accept", args: reado
     }
     if (mode === "status") {
       const status = operation === "create" ? execution.quoteCreateStatus
-        : operation === "update" ? execution.quoteUpdateStatus : execution.quoteAcceptStatus;
+        : operation === "update" ? execution.quoteUpdateStatus
+          : operation === "accept" ? execution.quoteAcceptStatus : execution.quoteDeclineStatus;
       if (!status) throw new Error("Quote status runtime unavailable");
       return resourceOutput(await status({ ...session, query: { preview_id: target?.id ?? "", idempotency_key: key } }));
     }
     const execute = operation === "create" ? execution.executeQuoteCreate
-      : operation === "update" ? execution.executeQuoteUpdate : execution.executeQuoteAccept;
+      : operation === "update" ? execution.executeQuoteUpdate
+        : operation === "accept" ? execution.executeQuoteAccept : execution.executeQuoteDecline;
     if (!execution.readApprovalReceipt || !execute) throw new Error("Quote write runtime unavailable");
     return resourceOutput(await execute({ ...session, approval: { preview_id: target?.id ?? "", idempotency_key: key,
       approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
