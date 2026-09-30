@@ -115,6 +115,34 @@ const serveSyntheticQuoteUpdate = async (request: IncomingMessage, response: Ser
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
 };
+const serveSyntheticRecordCreate = async (request: IncomingMessage, response: ServerResponse, kind: "customers" | "leads", operation: string): Promise<void> => {
+  assert.equal(request.headers.authorization, "Bearer synthetic-access");
+  const url = new URL(request.url ?? "/", "https://localhost");
+  assert.equal(url.searchParams.get("api_version"), "v1");
+  const resource = { id: `crm1.${"a".repeat(64)}.${kind}.123`, business: "Proposed", company: "Proposed",
+    contact_name: null, updated_at: "2026-09-28T00:00:00.000Z", ...(kind === "leads" ? { pipeline_stage: "New Lead" } : {}) };
+  const execution = { resource, audit_reference: previewId };
+  if (operation === "status") {
+    assert.equal(request.method, "GET");
+    assert.equal(url.searchParams.get("preview_id"), previewId);
+    assert.equal(url.searchParams.get("idempotency_key"), executionKey);
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ data: { preview_id: previewId, state: "succeeded", retry_mutation: false,
+      reconciliation_required: false, outcome: { status: 201, data: execution } }, meta: { contract_version: "v1" } }));
+    return;
+  }
+  assert.equal(request.method, "POST");
+  const input: unknown = JSON.parse(await text(request));
+  assert.deepEqual(input, operation === "preview" ? { record: { business: "Proposed", email: "new@example.invalid" } }
+    : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
+  const data = operation === "preview" ? { preview_id: previewId, request_hash: "h".repeat(43),
+    expires_at: "2099-01-01T00:00:00.000Z", confirmation_class: "reversible_write", operation: `${kind}.create`,
+    resource_id: "new@example.invalid", resource_label: "Proposed", proposed_changes: { business: "Proposed", email: "new@example.invalid" },
+    side_effects: ["Create one record"], warnings: [], idempotency_key_format: "uuid",
+    approval_path: `/dashboard/#/agent-approvals/${previewId}` } : execution;
+  response.writeHead(operation === "preview" ? 200 : 201, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
+};
 const syntheticQuoteAcceptance = { quote: { id: quoteId, title: "Transfer", status: "accepted", private_cost: "hidden" },
   service: { id: serviceId, name: "Transfer", status: "scheduled", private_cost: "hidden" },
   already_accepted: false, notification: { attempted: true, sent: false, reconciliation_required: false }, audit_reference: previewId };
@@ -198,6 +226,14 @@ const serveSyntheticServiceUpdate = async (request: IncomingMessage, response: S
 const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): void => {
   const origin = `https://${request.headers.host ?? "127.0.0.1"}`;
   const url = new URL(request.url ?? "/", origin);
+  const createMatch = /^\/api\/agent\/(customers|leads)\/create-(preview|execute|status)$/u.exec(url.pathname);
+  if (createMatch) {
+    void serveSyntheticRecordCreate(request, response, createMatch[1] as "customers" | "leads", createMatch[2] ?? "").catch(() => {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
+    });
+    return;
+  }
   if (["/api/agent/quotes/accept-preview", "/api/agent/quotes/accept-execute"].includes(url.pathname)) {
     void serveSyntheticQuoteAccept(request, response, url.pathname.endsWith("accept-preview")).catch(() => {
       response.writeHead(500, { "Content-Type": "application/json" });
@@ -478,6 +514,19 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const quotePreview = await runInstalled(["quotes", "update", "preview", quoteId, "--input-stdin", "--profile", testProfile(directory)], directory, environment, JSON.stringify(quoteRevision));
       const quoteExecution = await runInstalled(["quotes", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
       const quoteStatus = await runInstalled(["quotes", "update", "status", previewId, "--idempotency-key", executionKey, "--profile", testProfile(directory)], directory, environment);
+      await ["customers", "leads"].reduce(async (previous, kind) => {
+        await previous;
+        const proposed = await runInstalled([kind, "create", "preview", "--input-stdin", "--profile", testProfile(directory)],
+          directory, environment, JSON.stringify({ business: "Proposed", email: "new@example.invalid" }));
+        const created = await runInstalled([kind, "create", "execute", previewId, "--idempotency-key", executionKey,
+          "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
+        const reconciled = await runInstalled([kind, "create", "status", previewId, "--idempotency-key", executionKey,
+          "--profile", testProfile(directory)], directory, environment);
+        assert.match(proposed, new RegExp(`"operation":"${kind}\\.create"`, "u"));
+        assert.match(created, /"audit_reference":"11111111-1111-4111-8111-111111111111"/u);
+        assert.match(reconciled, /"state":"succeeded"/u);
+        assert.doesNotMatch(proposed + created + reconciled, /synthetic-access|synthetic-refresh|rrrrrrrr/u);
+      }, Promise.resolve());
       assert.match(quotePreview, /"operation":"quote_update"/u);
       assert.match(quoteExecution, /"unit_price":"25\.00"/u);
       assert.match(quoteStatus, /"state":"succeeded"/u);
@@ -549,7 +598,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
         assert.equal(handler.mock.callCount() - before, 1);
         assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
       }, Promise.resolve());
-      assert.equal(handler.mock.callCount(), 46);
+      assert.equal(handler.mock.callCount(), 52);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
@@ -561,7 +610,8 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.equal(pageRequests[0].searchParams.has("filter"), false);
       assert.equal(pageRequests[0].hash, "");
       const leadRequests = handler.mock.calls.map((call) => new URL(call.arguments[0].url ?? "/", "https://localhost"))
-        .filter((url) => url.pathname.startsWith("/api/agent/leads") && !url.pathname.includes("/update-") && !url.pathname.endsWith("/communications"));
+        .filter((url) => url.pathname.startsWith("/api/agent/leads") && !url.pathname.includes("/update-")
+          && !url.pathname.includes("/create-") && !url.pathname.endsWith("/communications"));
       assert.equal(leadRequests.length, 4);
       assert.ok(leadRequests.every((url) => url.searchParams.get("fields") === "id" && url.searchParams.get("api_version") === "v1"));
       assert.ok(leadRequests.filter((url) => url.pathname === "/api/agent/leads").every((url) => url.searchParams.get("search") === "Synthetic Lead"));

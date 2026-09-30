@@ -22,6 +22,8 @@ import { validQuoteReadFields } from "./quote-read-contract.js";
 import { quoteResponse } from "./quote-response.js";
 import { quoteCreateExecutionResponse, quoteCreatePreviewResponse, quoteCreateStatusResponse,
   quoteUpdateExecutionResponse, quoteUpdatePreviewResponse, quoteUpdateStatusResponse } from "./quote-write-response.js";
+import { recordCreateExecutionResponse, recordCreatePreviewResponse, recordCreateStatusResponse,
+  leadPromotionPreviewResponse, validRecordCreateInput } from "./record-create-response.js";
 import { quoteAcceptExecutionResponse, quoteAcceptPreviewResponse, quoteAcceptStatusResponse } from "./quote-accept-response.js";
 import { quoteDeclineExecutionResponse, quoteDeclinePreviewResponse, quoteDeclineStatusResponse } from "./quote-decline-response.js";
 import { validCatalogReadFields } from "./catalog-read-contract.js";
@@ -54,6 +56,8 @@ export type ListOptions = ReadOptions & Readonly<{
 }>;
 export type CanonicalResult = Readonly<{ status: number; body: unknown }>;
 export type CustomerUpdatePreview = Readonly<{ resource_id: string; changes: Readonly<Record<string, string>> }>;
+export type RecordCreatePreview = Readonly<{ record: Readonly<Record<string, string | null>> }>;
+export type LeadPromotionPreview = Readonly<{ record: Readonly<{ leadId: string }> }>;
 export type CustomerUpdateExecution = Readonly<{ preview_id: string; approval_receipt: string; idempotency_key: string }>;
 export type CustomerUpdateStatusQuery = Readonly<{ preview_id: string; idempotency_key: string }>;
 export type QuoteCreatePreview = Readonly<{ quote: Readonly<Record<string, unknown>> }>;
@@ -83,6 +87,15 @@ export type CanonicalCrmClient = Readonly<{
   previewLeadUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
   executeLeadUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   leadUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewCustomerCreate: (input: RecordCreatePreview) => Promise<CanonicalResult>;
+  executeCustomerCreate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  customerCreateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewLeadCreate: (input: RecordCreatePreview) => Promise<CanonicalResult>;
+  executeLeadCreate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  leadCreateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewLeadPromotion: (input: LeadPromotionPreview) => Promise<CanonicalResult>;
+  executeLeadPromotion: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  leadPromotionStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
   previewQuoteCreate: (input: QuoteCreatePreview) => Promise<CanonicalResult>;
   executeQuoteCreate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   quoteCreateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
@@ -369,6 +382,51 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         meta: { contract_version: "v1", request_id: correlationReference(metadata.request_id) } } };
     } catch { return failure(503, "request_unavailable"); }
   };
+  const recordCreate = async (input: unknown,
+    preview: boolean, resource: CrmResource | "promotion"): Promise<CanonicalResult> => {
+    if (!record(input) || (preview
+      ? Object.keys(input).length !== 1 || (resource === "promotion"
+        ? !record(input.record) || Object.keys(input.record).length !== 1 || !validResourceId(input.record.leadId)
+        : !validRecordCreateInput(input.record, resource))
+      : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
+        || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) {
+      return failure(400, "invalid_request");
+    }
+    const serialized = ((): string => { try { return JSON.stringify(input); } catch { return ""; } })();
+    if (!serialized || new TextEncoder().encode(serialized).byteLength > 16_384) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await request(`${origin}/api/agent/${resource === "promotion" ? "leads/promotion" : `${resource}/create`}-${preview ? "preview" : "execute"}?api_version=v1`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
+      const projected = preview ? resource === "promotion"
+        ? leadPromotionPreviewResponse(body, (input as LeadPromotionPreview).record.leadId)
+        : recordCreatePreviewResponse(body, resource)
+        : recordCreateExecutionResponse(body, resource === "promotion" ? "customers" : resource);
+      return projected && response.status === (preview ? 200 : 201)
+        ? { status: response.status, body: projected } : failure(502, preview ? "invalid_response" : "execution_ambiguous");
+    } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
+  };
+  const recordCreateStatus = async (input: CustomerUpdateStatusQuery, resource: CrmResource | "promotion"): Promise<CanonicalResult> => {
+    if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const parameters = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key });
+      const response = await requestRead(`${origin}/api/agent/${resource === "promotion" ? "leads/promotion" : `${resource}/create`}-status?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return { status: response.status, body };
+      const projected = recordCreateStatusResponse(body, resource === "promotion" ? "customers" : resource, input.preview_id);
+      return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
   const quoteCreate = async (input: unknown, preview: boolean): Promise<CanonicalResult> => {
     if (!record(input) || (preview
       ? Object.keys(input).length !== 1 || !record(input.quote)
@@ -560,6 +618,15 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     previewLeadUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true, "leads"),
     executeLeadUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => write(input, false, "leads"),
     leadUpdateStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => updateStatus(input, "leads"),
+    previewCustomerCreate: (input: RecordCreatePreview): Promise<CanonicalResult> => recordCreate(input, true, "customers"),
+    executeCustomerCreate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => recordCreate(input, false, "customers"),
+    customerCreateStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => recordCreateStatus(input, "customers"),
+    previewLeadCreate: (input: RecordCreatePreview): Promise<CanonicalResult> => recordCreate(input, true, "leads"),
+    executeLeadCreate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => recordCreate(input, false, "leads"),
+    leadCreateStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => recordCreateStatus(input, "leads"),
+    previewLeadPromotion: (input: LeadPromotionPreview): Promise<CanonicalResult> => recordCreate(input, true, "promotion"),
+    executeLeadPromotion: (input: CustomerUpdateExecution): Promise<CanonicalResult> => recordCreate(input, false, "promotion"),
+    leadPromotionStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => recordCreateStatus(input, "promotion"),
     previewQuoteCreate: (input: QuoteCreatePreview): Promise<CanonicalResult> => quoteCreate(input, true),
     executeQuoteCreate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => quoteCreate(input, false),
     quoteCreateStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => quoteStatus(input, "create"),

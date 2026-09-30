@@ -220,8 +220,8 @@ bizyeet leads get lead_opaque_id --fields id,name
 
 Customer and lead reads use `customers.read` and the same canonical provider
 routing as the dashboard. Both list and exact reads support `--fields` (at most
-20 field names); the server applies the authorized projection. Lead create,
-update and promotion commands are not yet exposed.
+20 field names); the server applies the authorized projection. Draft lead
+write source commands are described below; they are not released.
 
 Service reads use the same OAuth `customers.read` scope and canonical routing:
 
@@ -671,7 +671,54 @@ and `--idempotency-key`, with receipt input through the protected prompt or
 `--receipt-stdin`. Status uses only the original preview UUID and key. Review all
 server-proposed saved values, including preserved defaults and null values,
 before approving. Lead edits cannot convert a lead to a customer or send a
-message. Create and conversion commands remain outside this implemented surface.
+message. Conversion remains outside this implemented surface.
+
+## Draft customer and lead creation (source command, not yet released)
+
+The source CLI includes create-only `customers create` and `leads create`
+preview, execute, and status commands. The matching server capability is
+separately gated and must be deployed and enabled before use. Source availability
+is not a release or production-availability claim. These commands require an
+explicit `customers.write` grant, a signed-in human dashboard approval, and one
+original UUID idempotency key; they never fall back to provider-specific routes.
+
+Supply a bounded JSON object with `business` and `email` through a private pipe.
+For example, `record.json` might contain
+`{"business":"Example business","email":"person@example.invalid"}`. Preview
+checks create-only preconditions and returns a dashboard `approval_path`; it
+does not create a record.
+
+```sh
+bizyeet customers create preview --input-stdin < record.json
+bizyeet customers create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet customers create status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use `leads` instead of `customers` for a lead. Pass the receipt only through
+the hidden prompt or a private `--receipt-stdin` pipe. Status reads the
+original outcome without a receipt or mutation. An uncertain execution must be
+reconciled using that same preview ID and key; do not submit a new key or a
+replacement create. No conversion, quote, message, or outbound send is implied.
+
+## Draft lead promotion (source command, not yet released)
+
+The opt-in source CLI includes `leads promote preview`, `execute`, and `status`.
+It requires a separate `leads.promote` OAuth grant, an enabled server capability,
+and exact dashboard human approval. It is not enabled in production. The
+create-only effect atomically creates and links one new customer, then marks the
+lead Won; a matching existing customer is a conflict, never an update or reuse.
+No message is sent.
+
+```sh
+bizyeet leads promote preview "$LEAD_ID"
+bizyeet leads promote execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet leads promote status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Review the exact lifecycle effects at the returned dashboard approval path.
+Enter the receipt at the hidden prompt or through a private `--receipt-stdin`
+pipe. Retain the original UUID key; uncertain outcomes require status
+reconciliation, never a replacement execution.
 
 ## Codex and compatible harnesses
 
