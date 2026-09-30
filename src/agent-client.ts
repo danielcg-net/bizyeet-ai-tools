@@ -13,6 +13,7 @@ import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./paymen
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
+import { validExpenseScheduleGetOptions, validExpenseScheduleListOptions, type ExpenseScheduleListOptions } from "./expense-schedule-contract.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource, type CommunicationOptions } from "./communication-contract.js";
 import { validServiceReadFields } from "./service-read-contract.js";
@@ -329,6 +330,19 @@ export const getExpense = async (input: Parameters<typeof getCustomer>[0]): Prom
   if (!validResourceId(input.resourceId) || !validExpenseListOptions(options)
     || Object.keys(options).some((key) => key !== "fields")) throw new Error("Expense read options are invalid.");
   return invoke({ ...input, operation: (client) => client.get("expenses", input.resourceId, options) });
+};
+
+/** Read recurring expense schedules without creating or materializing expenses. */
+export const listExpenseSchedules = async (input: WriteSession & Readonly<{ options: ExpenseScheduleListOptions }>): Promise<AgentResult> => {
+  if (!validExpenseScheduleListOptions(input.options)) throw new Error("Expense schedule read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("expense-schedules", input.options) });
+};
+
+/** Keep a schedule handle opaque and distinct from an individual expense ID. */
+export const getExpenseSchedule = async (input: WriteSession & Readonly<{ resourceId: string; options?: Pick<ExpenseScheduleListOptions, "fields"> }>): Promise<AgentResult> => {
+  const options = input.options ?? {};
+  if (!validResourceId(input.resourceId) || !validExpenseScheduleGetOptions(options)) throw new Error("Expense schedule read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("expense-schedules", input.resourceId, options) });
 };
 
 /** Refresh before preview; canonical server owns validation, routing and approval policy. */

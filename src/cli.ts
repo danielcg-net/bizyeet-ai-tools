@@ -21,6 +21,8 @@ import { validCommunicationOptions, validCommunicationResource, type Communicati
 import { validPaymentQuery } from "./payment-contract.js";
 import { getExpense, listExpenses } from "./agent-client.js";
 import { validExpenseListOptions } from "./expense-contract.js";
+import { getExpenseSchedule, listExpenseSchedules } from "./agent-client.js";
+import { validExpenseScheduleListOptions } from "./expense-schedule-contract.js";
 import { readChanges, readApprovalReceipt, readQuoteProposal, readServiceProposal } from "./write-input.js";
 import { credentialStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
@@ -70,6 +72,8 @@ type CliRuntime = Readonly<{
   readMarginReport?: (input: Omit<Parameters<typeof readMarginReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getExpense?: (input: Omit<Parameters<typeof getExpense>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listExpenses?: (input: Omit<Parameters<typeof listExpenses>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  getExpenseSchedule?: (input: Omit<Parameters<typeof getExpenseSchedule>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  listExpenseSchedules?: (input: Omit<Parameters<typeof listExpenseSchedules>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   receivedPaymentSummary?: (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getPayment?: (input: Omit<Parameters<typeof getAgentPayment>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listPayments?: (input: Omit<Parameters<typeof listAgentPayments>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -133,6 +137,8 @@ const runtime: CliRuntime = {
   readMarginReport: async (input) => readMarginReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getExpense: async (input) => getExpense({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listExpenses: async (input) => listExpenses({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  getExpenseSchedule: async (input) => getExpenseSchedule({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  listExpenseSchedules: async (input) => listExpenseSchedules({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   receivedPaymentSummary: async (input) => receivedPaymentSummary({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getPayment: async (input) => getAgentPayment({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listPayments: async (input) => listAgentPayments({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -203,6 +209,8 @@ const helpMessage = [
   "       bizyeet payments get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet expenses list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <due|paid|skipped>] [--category <name>] [--currency <ISO>] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
   "       bizyeet expenses get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet expenses schedules list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--category <name>] [--currency <ISO>] [--frequency <daily|weekly|monthly|quarterly|yearly>] [--active <0|1>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
+  "       bizyeet expenses schedules get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet bookings upcoming [--hours <1-720>] [--profile <name>] [--export]",
   "       bizyeet bookings capabilities [--profile <name>] [--export]",
   "       bizyeet <customers|leads|quotes|services|payments> communications <opaque-id> [--page <1-10000>] [--limit <10|20|50>] [--profile <name>] [--export]",
@@ -575,6 +583,33 @@ const expenseRead = async (input: readonly string[], dependencies: CliStorage, e
   } catch (error) { return requestFailure(error); }
 };
 
+const expenseScheduleRead = async (input: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const [command, ...rawOptions] = input;
+  if (command !== "list" && command !== "get") return unsupportedCommand(`expenses schedules ${command ?? ""}`.trim());
+  try {
+    const target = command === "get" ? resourceTarget(rawOptions, ["--profile", "--fields"], ["--export"]) : undefined;
+    if (command === "get" && !target) return invalidInput("expenses schedules get requires one opaque ID.");
+    const args = target?.options ?? rawOptions;
+    const filters = Object.freeze(["cursor", "search", "sort", "dir", "category", "currency", "frequency", "active"]);
+    const valueOptions = ["--profile", "--fields", ...(command === "list" ? ["--limit", ...filters.map((key) => `--${key}`)] : [])];
+    if (!hasOnlyOptions(args, valueOptions, ["--export"])
+      || valueOptions.some((key) => valuesFor(args, key).length > 1 || valuesFor(args, key).some((value) => !value))
+      || args.filter((arg) => arg === "--export").length > 1) return invalidInput("Expense schedule read options are invalid.");
+    const fields = valuesFor(args, "--fields").length > 0 ? { fields: oneOption(args, "--fields", "").split(",") } : {};
+    const options = command === "get" ? fields : { ...fields, page_size: Number(oneOption(args, "--limit", "25")),
+      ...Object.fromEntries(filters.filter((key) => valuesFor(args, `--${key}`).length > 0).map((key) => [key, oneOption(args, `--${key}`, "")])),
+    };
+    if (!validExpenseScheduleListOptions(options)) return invalidInput("Expense schedule read options are invalid.");
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    const session = { credentials: authenticated.credentials, profile: authenticated.profile,
+      persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(authenticated.name, credentials) };
+    if (command === "list" && execution.listExpenseSchedules) return await readOutput(await execution.listExpenseSchedules({ ...session, options }), args.includes("--export"), execution);
+    if (target && execution.getExpenseSchedule) return await readOutput(await execution.getExpenseSchedule({ ...session, resourceId: target.id, options }), args.includes("--export"), execution);
+    return unsupportedCommand(`expenses schedules ${command}`);
+  } catch (error) { return requestFailure(error); }
+};
+
 const summaryRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   try {
     if (!hasOnlyOptions(args, ["--range", "--start-date", "--end-date", "--profile"], ["--export"])
@@ -888,7 +923,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
       return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
     }
   }
-  if (first === "expenses" && second === "schedules") return unsupportedCommand("expenses schedules");
+  if (first === "expenses" && second === "schedules") return expenseScheduleRead(args.slice(2), dependencies, execution);
   if (first === "expenses") return expenseRead(args.slice(1), dependencies, execution);
   if (first === "bookings" && second === "upcoming") return bookingRead(args.slice(2), dependencies, execution);
   if (first === "bookings" && second === "capabilities") return bookingCapabilityRead(args.slice(2), dependencies, execution);

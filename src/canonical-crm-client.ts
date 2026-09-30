@@ -11,6 +11,8 @@ import { marginReportResponse } from "./margin-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
+import { validExpenseScheduleGetOptions, validExpenseScheduleListOptions } from "./expense-schedule-contract.js";
+import { expenseScheduleResponse } from "./expense-schedule-response.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { bookingSummaryResponse } from "./booking-response.js";
 import { bookingCapabilitiesResponse } from "./booking-capabilities-response.js";
@@ -32,7 +34,7 @@ import { communicationResponse, validCommunicationOptions, validCommunicationRes
 export { validResourceId } from "./resource-id.js";
 
 export type CrmResource = "customers" | "leads";
-export type ReadResource = CrmResource | "payments" | "expenses" | "services" | "quotes" | "catalog";
+export type ReadResource = CrmResource | "payments" | "expenses" | "expense-schedules" | "services" | "quotes" | "catalog";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
 export type ListOptions = ReadOptions & Readonly<{
   page_size?: number;
@@ -105,7 +107,7 @@ export type CanonicalCrmClient = Readonly<{
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses" || value === "services" || value === "quotes" || value === "catalog";
+const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses" || value === "expense-schedules" || value === "services" || value === "quotes" || value === "catalog";
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const utcTimestamp = (value: unknown): value is string => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+00:00)$/iu.test(value)) return false;
@@ -213,7 +215,9 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       || Object.keys(options).some((key) => !(id === null ? ["fields", "page_size", "cursor", "search"] : ["fields"]).includes(key)))) return failure(400, "invalid_request");
     if (resource === "services" && (!validServiceReadFields(options.fields ?? [], id !== null)
       || Object.keys(options).some((key) => !(id === null ? ["fields", "page_size", "cursor", "search"] : ["fields"]).includes(key)))) return failure(400, "invalid_request");
-    if (resource === "expenses") {
+    if (resource === "expense-schedules") {
+      if (id === null ? !validExpenseScheduleListOptions(options) : !validExpenseScheduleGetOptions(options)) return failure(400, "invalid_request");
+    } else if (resource === "expenses") {
       if (!validExpenseListOptions(options) || (id !== null && Object.keys(options).some((key) => key !== "fields"))) return failure(400, "invalid_request");
     } else {
       if ([options.category, options.currency, options.schedule, options.start_date, options.end_date, options.frequency, options.active].some((value) => value !== undefined)) return failure(400, "invalid_request");
@@ -240,6 +244,11 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         ? { status: response.status, body } : failure(502, "invalid_response");
       if (resource === "expenses") {
         const projected = validExpenseListOptions(options) ? expenseResponse(body, options, id) : undefined;
+        return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
+      }
+      if (resource === "expense-schedules") {
+        const validOptions = id === null ? validExpenseScheduleListOptions(options) : validExpenseScheduleGetOptions(options);
+        const projected = validOptions ? expenseScheduleResponse(body, options, id) : undefined;
         return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
       }
       if (resource === "services") {
