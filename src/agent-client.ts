@@ -4,7 +4,7 @@ import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError }
 import { validOAuthScope } from "./oauth-scope.js";
 import { validMarginReportOptions, type MarginReportOptions } from "./margin-report-contract.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type QuoteCreatePreview, type QuoteUpdatePreview, type ServiceCreatePreview, type ServiceUpdatePreview } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type QuoteCreatePreview, type QuoteUpdatePreview, type ServiceCreatePreview, type ServiceUpdatePreview, type ServiceTransitionPreview } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch, validSalesSearch } from "./search-contract.js";
@@ -454,3 +454,15 @@ export const executeServiceUpdate = (input: WriteSession & Readonly<{ approval: 
 /** Reconcile the stored update outcome without repeating the mutation. */
 export const serviceUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
   invoke({ ...input, operation: (client) => client.serviceUpdateStatus(input.query) });
+
+/** Preview a non-delivery service lifecycle transition without applying effects. */
+export const previewServiceTransition = (input: WriteSession & Readonly<{ proposal: ServiceTransitionPreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewServiceTransition(input.proposal) });
+
+/** Execute only a dashboard-approved transition; never replay the mutation POST. */
+export const executeServiceTransition = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeServiceTransition(input.approval) });
+
+/** Reconcile a stored transition outcome without repeating its lifecycle effects. */
+export const serviceTransitionStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.serviceTransitionStatus(input.query) });

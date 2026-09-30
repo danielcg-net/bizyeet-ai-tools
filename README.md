@@ -673,6 +673,25 @@ original execution UUID; on an uncertain result, query read-only `status`
 instead of sending another update. This is source-only and not a package
 release or production canary.
 
+The source CLI can preview a non-delivery service lifecycle change through the
+canonical OAuth transition endpoint. Use an opaque service ID from `services
+get`; `delivered` is intentionally excluded and has a separate delivery
+action. The server requires `customers.write` and also `mail.send` if tenant
+configuration could send status email or a calendar invitation. Preview has no
+effect; a signed-in human must approve the exact dashboard preview before
+execution.
+
+```sh
+bizyeet services transition preview "$SERVICE_ID" --status in_progress
+bizyeet services transition execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services transition status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use the hidden receipt prompt or private `--receipt-stdin` pipe. Retain the
+original execution UUID; reconcile uncertainty with read-only `status`, never
+another mutation. The command is source-only until a package release and is
+not an authenticated tenant canary.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and
