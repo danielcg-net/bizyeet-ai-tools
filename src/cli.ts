@@ -17,6 +17,7 @@ import { previewQuoteDecline, executeQuoteDecline, quoteDeclineStatus } from "./
 import { previewServiceCreate, executeServiceCreate, serviceCreateStatus } from "./agent-client.js";
 import { previewServiceUpdate, executeServiceUpdate, serviceUpdateStatus } from "./agent-client.js";
 import { previewServiceTransition, executeServiceTransition, serviceTransitionStatus } from "./agent-client.js";
+import { previewServiceDelivery, executeServiceDelivery, serviceDeliveryStatus } from "./agent-client.js";
 import { readServiceHistory, readServicePayments } from "./agent-client.js";
 import { validServiceHistoryOptions } from "./service-history-contract.js";
 import { validServicePaymentOptions } from "./service-payment-contract.js";
@@ -111,6 +112,9 @@ type CliRuntime = Readonly<{
   previewServiceTransition?: (input: Omit<Parameters<typeof previewServiceTransition>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeServiceTransition?: (input: Omit<Parameters<typeof executeServiceTransition>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   serviceTransitionStatus?: (input: Omit<Parameters<typeof serviceTransitionStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewServiceDelivery?: (input: Omit<Parameters<typeof previewServiceDelivery>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeServiceDelivery?: (input: Omit<Parameters<typeof executeServiceDelivery>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  serviceDeliveryStatus?: (input: Omit<Parameters<typeof serviceDeliveryStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readChanges?: typeof readChanges;
   readQuoteProposal?: typeof readQuoteProposal;
   readServiceProposal?: typeof readServiceProposal;
@@ -186,6 +190,9 @@ const runtime: CliRuntime = {
   previewServiceTransition: async (input) => previewServiceTransition({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeServiceTransition: async (input) => executeServiceTransition({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   serviceTransitionStatus: async (input) => serviceTransitionStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewServiceDelivery: async (input) => previewServiceDelivery({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeServiceDelivery: async (input) => executeServiceDelivery({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  serviceDeliveryStatus: async (input) => serviceDeliveryStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
     const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -258,6 +265,9 @@ const helpMessage = [
   "       bizyeet services transition preview <service-id> --status <backlog|in_progress|executed|cancelled> [--profile <name>]",
   "       bizyeet services transition execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet services transition status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet services deliver preview <service-id> [--profile <name>]",
+  "       bizyeet services deliver execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet services deliver status <preview-id> --idempotency-key <uuid> [--profile <name>]",
   "Quote acceptance can create a service, promote a lead, and trigger configured email; only the signed-in dashboard can approve it.",
   "Quote decline changes only the quote lifecycle; it creates no service, payment, or customer communication and requires dashboard approval.",
   "Service creation may send configured email or a calendar invite; inspect the dashboard preview before approval.",
@@ -790,7 +800,7 @@ const crmRead = async (resource: "customers" | "leads" | "payments" | "services"
   if ((resource === "customers" || resource === "leads") && command === "update") return recordUpdate(resource, options, dependencies, execution);
   if (resource === "quotes" && (command === "create" || command === "update" || command === "accept" || command === "decline")) return quoteWrite(command, options, dependencies, execution);
   if (resource === "services" && (command === "create" || command === "update")) return serviceWrite(command, options, dependencies, execution);
-  if (resource === "services" && command === "transition") return serviceTransitionWrite(options, dependencies, execution);
+  if (resource === "services" && (command === "transition" || command === "deliver")) return serviceLifecycleWrite(command, options, dependencies, execution);
   try {
     if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
     const listOptions = command === "list" ? crmListOptions(resource, options) : undefined;
@@ -950,41 +960,49 @@ const serviceWrite = async (operation: "create" | "update", args: readonly strin
   } catch (error) { return requestFailure(error); }
 };
 
-const serviceTransitionWrite = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+const serviceLifecycleWrite = async (action: "transition" | "deliver", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [mode, ...targetArgs] = args;
-  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput("Use services transition preview, execute, or status.");
-  const target = resourceTarget(targetArgs, mode === "preview" ? ["--profile", "--status"] : ["--profile", "--idempotency-key"],
+  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput(`Use services ${action} preview, execute, or status.`);
+  const target = resourceTarget(targetArgs, mode === "preview" ? action === "transition" ? ["--profile", "--status"] : ["--profile"]
+    : ["--profile", "--idempotency-key"],
     mode === "execute" ? ["--receipt-stdin"] : []);
-  if (!target) return invalidInput("Service transition requires one opaque service or preview ID.");
+  if (!target) return invalidInput(`Service ${action} requires one opaque service or preview ID.`);
   const options = target.options;
   if (valuesFor(options, "--profile").length > 1) return invalidInput("Use --profile only once.");
   const statusValues = valuesFor(options, "--status");
   const keyValues = valuesFor(options, "--idempotency-key");
   const toStatus = mode === "preview" && statusValues.length === 1 ? statusValues[0] ?? "" : "";
   const key = mode !== "preview" && keyValues.length === 1 ? keyValues[0] ?? "" : "";
-  if (mode === "preview" && (!validResourceId(target.id) || statusValues.length !== 1
+  if (mode === "preview" && !validResourceId(target.id)) return invalidInput("Preview requires one opaque service ID.");
+  if (mode === "preview" && action === "transition" && (statusValues.length !== 1
     || !["backlog", "in_progress", "executed", "cancelled"].includes(toStatus))) return invalidInput(
       "Transition preview requires one opaque service ID and --status backlog, in_progress, executed, or cancelled. Delivery is separate.");
   if (mode !== "preview" && (!isUuid(target.id) || !isUuid(key) || keyValues.length !== 1
     || (mode === "status" && options.includes("--receipt-stdin"))
     || (mode === "execute" && options.filter((value) => value === "--receipt-stdin").length > 1))) return invalidInput(
-      "Transition execution and status require a preview UUID and one --idempotency-key UUID.");
+      `${action} execution and status require a preview UUID and one --idempotency-key UUID.`);
   try {
     const selected = await authenticatedProfile(options, dependencies);
     if ("exitCode" in selected) return selected;
     const session = { credentials: selected.credentials, profile: selected.profile,
       persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
     if (mode === "preview") {
+      if (action === "deliver") {
+        if (!execution.previewServiceDelivery) throw new Error("Service delivery runtime unavailable");
+        return resourceOutput(await execution.previewServiceDelivery({ ...session, proposal: { resource_id: target.id } }));
+      }
       if (!execution.previewServiceTransition) throw new Error("Service transition runtime unavailable");
       return resourceOutput(await execution.previewServiceTransition({ ...session, proposal: { resource_id: target.id,
         status: toStatus as "backlog" | "in_progress" | "executed" | "cancelled" } }));
     }
     if (mode === "status") {
-      if (!execution.serviceTransitionStatus) throw new Error("Service transition status runtime unavailable");
-      return resourceOutput(await execution.serviceTransitionStatus({ ...session, query: { preview_id: target.id, idempotency_key: key } }));
+      const status = action === "deliver" ? execution.serviceDeliveryStatus : execution.serviceTransitionStatus;
+      if (!status) throw new Error("Service lifecycle status runtime unavailable");
+      return resourceOutput(await status({ ...session, query: { preview_id: target.id, idempotency_key: key } }));
     }
-    if (!execution.readApprovalReceipt || !execution.executeServiceTransition) throw new Error("Service transition runtime unavailable");
-    return resourceOutput(await execution.executeServiceTransition({ ...session, approval: { preview_id: target.id,
+    const execute = action === "deliver" ? execution.executeServiceDelivery : execution.executeServiceTransition;
+    if (!execution.readApprovalReceipt || !execute) throw new Error("Service lifecycle runtime unavailable");
+    return resourceOutput(await execute({ ...session, approval: { preview_id: target.id,
       idempotency_key: key, approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
   } catch (error) { return requestFailure(error); }
 };

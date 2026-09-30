@@ -692,6 +692,24 @@ original execution UUID; reconcile uncertainty with read-only `status`, never
 another mutation. The command is source-only until a package release and is
 not an authenticated tenant canary.
 
+Service delivery is a separate irreversible lifecycle action, not a value of
+`services transition --status`. The source CLI previews one opaque service ID
+through the canonical OAuth delivery endpoint. The server requires
+`customers.write`, plus `mail.send` if automatic status email is configured,
+and checks live role, service version, document requirements and human approval.
+Preview does not mark the service delivered or send mail.
+
+```sh
+bizyeet services deliver preview "$SERVICE_ID"
+bizyeet services deliver execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services deliver status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Approve the exact preview in the dashboard and provide its receipt through the
+hidden prompt or private `--receipt-stdin` pipe. Never repeat the execute POST
+with a new key after uncertainty; query read-only `status` with the original
+key. This source command is not a package release or a live tenant canary.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and
