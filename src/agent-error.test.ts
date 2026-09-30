@@ -52,6 +52,7 @@ await Promise.all(["execution_ambiguous", "execution_in_progress"].map((code) =>
   assert.match(agentFailureMessage(failure), /quotes accept status for an acceptance/u);
   assert.match(agentFailureMessage(failure), /quotes decline status for a decline/u);
   assert.match(agentFailureMessage(failure), /services create status for a new service/u);
+  assert.match(agentFailureMessage(failure), /services update status for a revised service/u);
   assert.match(agentFailureMessage(failure), /original preview ID and idempotency key/u);
   assert.match(agentFailureMessage(failure), /Do not retry/u);
   assert.doesNotMatch(agentFailureMessage(failure), /private-provider-detail/u);
