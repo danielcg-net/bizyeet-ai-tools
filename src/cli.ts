@@ -766,13 +766,16 @@ const serviceCreateWrite = async (args: readonly string[], dependencies: CliStor
     const options = target?.options ?? targetArgs;
     const key = mode === "preview" ? "" : oneOption(options, "--idempotency-key", "");
     if (mode !== "preview" && (!isUuid(target?.id) || !isUuid(key))) return invalidInput("Service execution and status require a preview UUID and --idempotency-key UUID.");
+    if (mode === "preview" && (!execution.readServiceProposal || !execution.previewServiceCreate)) throw new Error("Service-create runtime unavailable");
+    const service = mode === "preview" && execution.readServiceProposal ? await execution.readServiceProposal() : undefined;
+    if (mode === "preview" && (!service || !validResourceId(service.customerId))) return invalidInput("Service preview requires a valid customerId.");
     const selected = await authenticatedProfile(options, dependencies);
     if ("exitCode" in selected) return selected;
     const session = { credentials: selected.credentials, profile: selected.profile,
       persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
     if (mode === "preview") {
-      if (!execution.readServiceProposal || !execution.previewServiceCreate) throw new Error("Service-create runtime unavailable");
-      return resourceOutput(await execution.previewServiceCreate({ ...session, proposal: { service: await execution.readServiceProposal() } }));
+      if (!execution.previewServiceCreate || !service) throw new Error("Service-create runtime unavailable");
+      return resourceOutput(await execution.previewServiceCreate({ ...session, proposal: { service } }));
     }
     if (mode === "status") {
       if (!execution.serviceCreateStatus) throw new Error("Service status runtime unavailable");
