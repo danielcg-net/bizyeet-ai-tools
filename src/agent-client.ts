@@ -18,6 +18,7 @@ import { validBookingSummaryOptions, type BookingSummaryOptions } from "./bookin
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource, type CommunicationOptions } from "./communication-contract.js";
 import { validServiceReadFields } from "./service-read-contract.js";
 import { validServiceHistoryOptions, type ServiceHistoryOptions } from "./service-history-contract.js";
+import { validServicePaymentOptions, type ServicePaymentOptions } from "./service-payment-contract.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 import { validCatalogReadFields } from "./catalog-read-contract.js";
 
@@ -190,6 +191,12 @@ export const readCommunications = async (input: Omit<Parameters<typeof receivedP
 export const readServiceHistory = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resourceId: string; options: ServiceHistoryOptions }>): Promise<AgentResult> => {
   if (!validResourceId(input.resourceId) || !validServiceHistoryOptions(input.options)) throw new Error("Service history options are invalid.");
   return invoke({ ...input, operation: (client) => client.serviceHistory(input.resourceId, input.options) });
+};
+
+/** Read bounded public payments linked to one opaque service handle. */
+export const readServicePayments = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resourceId: string; options: ServicePaymentOptions }>): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId) || !validServicePaymentOptions(input.options)) throw new Error("Service payment options are invalid.");
+  return invoke({ ...input, operation: (client) => client.servicePayments(input.resourceId, input.options) });
 };
 
 /** Read canonical tax reports through the shared OAuth refresh and persistence boundary. */

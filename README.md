@@ -229,6 +229,7 @@ Service reads use the same OAuth `customers.read` scope and canonical routing:
 bizyeet services list --limit 25 --fields id,name,pricing_revision
 bizyeet services get service_opaque_id --fields id,items,pricing_revision
 bizyeet services history service_opaque_id --limit 25
+bizyeet services payments service_opaque_id --limit 25 --fields id,amount,status,currency
 ```
 
 Line handles and revision tokens are opaque server facts, not native database IDs.
@@ -236,8 +237,10 @@ List projections cannot include items; use detail reads. Private costs are exclu
 Service history returns only status transitions and timestamps; its cursor is
 bound to that service. These source commands and MCP declarations require a
 compatible deployment and do not imply package publication or live-tenant
-validation. Service create/update commands have separate trusted approval
-requirements; this history command grants no write authority.
+validation. Service-linked payments require both `customers.read` and
+`payments.read`; private relationship fields and provider metadata are excluded.
+Service create/update commands have separate trusted approval requirements;
+these read commands grant no write authority.
 
 Quote reads also use `customers.read` and canonical routing:
 
