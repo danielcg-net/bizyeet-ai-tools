@@ -17,6 +17,7 @@ import { validExpenseScheduleGetOptions, validExpenseScheduleListOptions, type E
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource, type CommunicationOptions } from "./communication-contract.js";
 import { validServiceReadFields } from "./service-read-contract.js";
+import { validServiceHistoryOptions, type ServiceHistoryOptions } from "./service-history-contract.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 import { validCatalogReadFields } from "./catalog-read-contract.js";
 
@@ -183,6 +184,12 @@ export const bookingCapabilities = async (input: Omit<Parameters<typeof received
 export const readCommunications = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resource: CommunicationResource; resourceId: string; options: CommunicationOptions }>): Promise<AgentResult> => {
   if (!validCommunicationResource(input.resource) || !validResourceId(input.resourceId) || !validCommunicationOptions(input.options)) throw new Error("Communication history options are invalid.");
   return invoke({ ...input, operation: (client) => client.communications(input.resource, input.resourceId, input.options) });
+};
+
+/** Read a bounded lifecycle page for one opaque service handle. */
+export const readServiceHistory = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resourceId: string; options: ServiceHistoryOptions }>): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId) || !validServiceHistoryOptions(input.options)) throw new Error("Service history options are invalid.");
+  return invoke({ ...input, operation: (client) => client.serviceHistory(input.resourceId, input.options) });
 };
 
 /** Read canonical tax reports through the shared OAuth refresh and persistence boundary. */

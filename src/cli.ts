@@ -16,6 +16,8 @@ import { previewQuoteAccept, executeQuoteAccept, quoteAcceptStatus } from "./age
 import { previewQuoteDecline, executeQuoteDecline, quoteDeclineStatus } from "./agent-client.js";
 import { previewServiceCreate, executeServiceCreate, serviceCreateStatus } from "./agent-client.js";
 import { previewServiceUpdate, executeServiceUpdate, serviceUpdateStatus } from "./agent-client.js";
+import { readServiceHistory } from "./agent-client.js";
+import { validServiceHistoryOptions } from "./service-history-contract.js";
 import { readCommunications } from "./agent-client.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource } from "./communication-contract.js";
 import { validPaymentQuery } from "./payment-contract.js";
@@ -60,6 +62,7 @@ type CliStorage = Readonly<{
 
 type CliRuntime = Readonly<{
   readCommunications?: (input: Omit<Parameters<typeof readCommunications>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  readServiceHistory?: (input: Omit<Parameters<typeof readServiceHistory>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getQuote?: (input: Omit<Parameters<typeof getQuote>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getCatalogItem?: (input: Omit<Parameters<typeof getCatalogItem>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listCatalog?: (input: Omit<Parameters<typeof listCatalog>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -125,6 +128,7 @@ const storage: CliStorage = {
 
 const runtime: CliRuntime = {
   readCommunications: async (input) => readCommunications({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  readServiceHistory: async (input) => readServiceHistory({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getQuote: async (input) => getQuote({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getCatalogItem: async (input) => getCatalogItem({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listCatalog: async (input) => listCatalog({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -201,6 +205,7 @@ const helpMessage = [
   "       bizyeet leads get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet services list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet services get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet services history <opaque-id> [--limit <1-100>] [--cursor <opaque>] [--profile <name>] [--export]",
   "       bizyeet quotes list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet quotes get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet catalog list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
@@ -673,6 +678,25 @@ const communicationRead = async (resource: CommunicationResource, args: readonly
   } catch (error) { return requestFailure(error); }
 };
 
+const serviceHistoryRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    const target = resourceTarget(args, ["--profile", "--limit", "--cursor"], ["--export"]);
+    if (!target || target.options.filter((arg) => arg === "--export").length > 1
+      || ["--profile", "--limit", "--cursor"].some((flag) => valuesFor(target.options, flag).length > 1
+        || valuesFor(target.options, flag).some((value) => !value))) return invalidInput("Service history options are invalid.");
+    const rawLimit = oneOption(target.options, "--limit", "25");
+    const options = { limit: /^[1-9]\d*$/u.test(rawLimit) ? Number(rawLimit) : NaN,
+      ...(target.options.includes("--cursor") ? { cursor: oneOption(target.options, "--cursor", "") } : {}) };
+    if (!validServiceHistoryOptions(options)) return invalidInput("Service history options are invalid.");
+    const authenticated = await authenticatedProfile(target.options, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.readServiceHistory) return unsupportedCommand("services history");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.readServiceHistory({ credentials: authenticated.credentials, profile: authenticated.profile,
+      resourceId: target.id, options, persistCredentials }), target.options.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
 const taxReadOptions = (args: readonly string[]): TaxReportOptions | undefined => {
   try {
     const mapping = { "--range": "range", "--start-date": "start_date", "--end-date": "end_date", "--authority": "authority",
@@ -931,6 +955,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (first === "reports" && second === "margin") return marginRead(args.slice(2), dependencies, execution);
   if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);
   if (validCommunicationResource(first) && second === "communications") return communicationRead(first, args.slice(2), dependencies, execution);
+  if (first === "services" && second === "history") return serviceHistoryRead(args.slice(2), dependencies, execution);
   if (first === "customers" || first === "leads" || first === "payments" || first === "services" || first === "quotes" || first === "catalog") return crmRead(first, args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);
