@@ -47,6 +47,15 @@ await Promise.all([undefined, false, true].map((retryable) => test(`customer con
   assert.equal(recordedFailureCode(failure.code), undefined);
 })));
 
+await Promise.all(["execution_ambiguous", "execution_in_progress"].map((code) => test(`quote acceptance ${code} names read-only reconciliation`, () => {
+  const failure = agentFailure(503, { error: { code, retryable: false, message: "private-provider-detail" } });
+  assert.match(agentFailureMessage(failure), /quotes accept status for an acceptance/u);
+  assert.match(agentFailureMessage(failure), /quotes decline status for a decline/u);
+  assert.match(agentFailureMessage(failure), /original preview ID and idempotency key/u);
+  assert.match(agentFailureMessage(failure), /Do not retry/u);
+  assert.doesNotMatch(agentFailureMessage(failure), /private-provider-detail/u);
+})));
+
 await Promise.all(["req_abc", "opaque:request-1", "x".repeat(128), "référence:😀"].map((id) => test(`preserves opaque correlation ${id.slice(0, 20)}`, () => {
   assert.equal(agentFailure(400, { error: { code: "invalid_request", request_id: id } }).requestId, id);
 })));

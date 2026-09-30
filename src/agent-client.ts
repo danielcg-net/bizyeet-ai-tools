@@ -3,7 +3,7 @@ import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validOAuthScope } from "./oauth-scope.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type QuoteCreatePreview, type QuoteUpdatePreview } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch, validSalesSearch } from "./search-contract.js";
@@ -343,3 +343,51 @@ export const executeLeadUpdate = (input: WriteSession & Readonly<{ approval: Cus
 /** Recover the original lead execution outcome without changing it. */
 export const leadUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
   invoke({ ...input, operation: (client) => client.leadUpdateStatus(input.query) });
+
+/** Preview one draft quote without replaying the mutation POST. */
+export const previewQuoteCreate = (input: WriteSession & Readonly<{ proposal: QuoteCreatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteCreate(input.proposal) });
+
+/** Execute the approved quote draft once; uncertain outcomes require status reconciliation. */
+export const executeQuoteCreate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteCreate(input.approval) });
+
+/** Read the original quote-create outcome without repeating the mutation. */
+export const quoteCreateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteCreateStatus(input.query) });
+
+/** Preview a revision to one draft quote without repeating a business write. */
+export const previewQuoteUpdate = (input: WriteSession & Readonly<{ proposal: QuoteUpdatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteUpdate(input.proposal) });
+
+/** Execute one approved quote revision; reconcile uncertain outcomes by status. */
+export const executeQuoteUpdate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteUpdate(input.approval) });
+
+/** Read the original quote-update outcome without repeating the mutation. */
+export const quoteUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteUpdateStatus(input.query) });
+
+/** Preview one irreversible quote-to-service transition without executing it. */
+export const previewQuoteAccept = (input: WriteSession & Readonly<{ proposal: Readonly<{ resource_id: string }> }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteAccept(input.proposal) });
+
+/** Execute only the exact dashboard-approved acceptance; never replay the POST. */
+export const executeQuoteAccept = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteAccept(input.approval) });
+
+/** Reconcile an uncertain acceptance without repeating the lifecycle action. */
+export const quoteAcceptStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteAcceptStatus(input.query) });
+
+/** Preview a quote decline without changing its lifecycle state. */
+export const previewQuoteDecline = (input: WriteSession & Readonly<{ proposal: Readonly<{ resource_id: string }> }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteDecline(input.proposal) });
+
+/** Execute only one dashboard-approved decline; never replay the POST. */
+export const executeQuoteDecline = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteDecline(input.approval) });
+
+/** Read a prior quote-decline outcome without repeating the lifecycle action. */
+export const quoteDeclineStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteDeclineStatus(input.query) });

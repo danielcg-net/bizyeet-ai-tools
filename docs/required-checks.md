@@ -17,6 +17,25 @@ Canonical routing and documentation are currently covered inside the required
 names when configuring protection. The existing Dependabot exception applies only
 to delivery metadata, not the other checks.
 
+## DeepSeek review rollout
+
+The `DeepSeek Code Review` workflow is designed for same-repository PR branches
+only. It uses an ordinary `pull_request` trigger on a GitHub-hosted runner,
+checks out no PR code, and gives its SHA-pinned review action only read access to
+contents and write access to PR review comments. A guard rejects the action's
+review-skip markers in PR text and commit messages. External-fork jobs are
+skipped before receiving a runner, token, or provider credential; maintainers
+must review those PRs manually. Do not change this to `pull_request_target`, add
+a checkout, or send the provider secret to a fork-validation job.
+
+The maintainer must configure `DEEPSEEK_API_KEY` as an Actions secret through
+GitHub's trusted repository settings. Never put it in a PR, workflow file, log,
+or YouTrack. Until a same-repository run proves a complete machine review and
+thread/comment behavior, the DeepSeek context is not a required status check
+and a green ordinary CI run does not claim that DeepSeek reviewed the PR. After
+verification, promote its exact observed context through a separately reviewed
+branch-protection change; preserve existing required checks and fork policy.
+
 ## Package matrix promotion
 
 The approved [external-fork canary PR #62](https://github.com/danielcg-net/bizyeet-ai-tools/pull/62)
