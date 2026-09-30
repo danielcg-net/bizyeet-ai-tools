@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 
-import { checkIdentity, getCustomer, getLead, listCustomers, listLeads, executeCustomerUpdate, refreshPersistenceMessages } from "./agent-client.js";
+import { checkIdentity, getCustomer, getLead, listCustomers, listLeads, executeCustomerUpdate, executeQuoteCreate, refreshPersistenceMessages } from "./agent-client.js";
 import { run } from "./cli.js";
 import { isAgentFailure } from "./agent-error.js";
 import { getQuote, getService, listQuotes, listServices } from "./agent-client.js";
@@ -206,6 +206,15 @@ void test("identity rejects oversized success and denial bodies without exposing
 void test("execution does not refresh and replay after an HTTP denial", async () => {
   const fetcher = mock.fn(() => Promise.resolve(Response.json({ error: { code: "authorization_required" } }, { status: 401 })));
   await assert.rejects(executeCustomerUpdate({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,
+    persistCredentials: () => Promise.reject(new Error("Must not refresh after dispatch")),
+    approval: { preview_id: "11111111-1111-4111-8111-111111111111", approval_receipt: "r".repeat(43), idempotency_key: "22222222-2222-4222-8222-222222222222" },
+  }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.status === 401);
+  assert.equal(fetcher.mock.callCount(), 1);
+});
+
+void test("quote execution never refreshes and replays after an HTTP denial", async () => {
+  const fetcher = mock.fn(() => Promise.resolve(Response.json({ error: { code: "authorization_required" } }, { status: 401 })));
+  await assert.rejects(executeQuoteCreate({ credentials: validCredentials, metadata, now: () => 1000, profile, fetcher,
     persistCredentials: () => Promise.reject(new Error("Must not refresh after dispatch")),
     approval: { preview_id: "11111111-1111-4111-8111-111111111111", approval_receipt: "r".repeat(43), idempotency_key: "22222222-2222-4222-8222-222222222222" },
   }), (error: unknown) => error instanceof Error && isAgentFailure(error.cause) && error.cause.status === 401);

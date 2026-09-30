@@ -1,0 +1,5 @@
+{
+  "kind": "read_exact",
+  "resource": "customers",
+  "exactId": "cust-synthetic-1"
+}

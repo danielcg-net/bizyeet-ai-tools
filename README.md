@@ -489,6 +489,142 @@ succeeded, not that the mutation did: inspect `data.state` and `data.outcome`.
 elapsed time is not proof of failure. Unknown or ambiguous outcomes require
 operator reconciliation. Status never releases a claim or retries a mutation.
 
+## Draft quote creation (source command, not yet released)
+
+The canonical quote-create API accepts a draft quote through the same
+`customers.write`, human approval and idempotency boundary. The CLI source now
+supports preview, execute and status; this does not send a quote, accept it or
+publish a package release. Use only an authorized tenant profile and the
+matching deployed backend.
+
+Supply the quote proposal as bounded JSON through a private pipe. Use the
+canonical request's `customerId` or `leadId` and camelCase line-item fields;
+read the opaque parent ID first. For example, a synthetic `quote.json` is:
+
+```json
+{"customerId":"opaque-customer-id","title":"Transfer","items":[{"description":"Transfer","quantity":"1","unitPrice":"25.00"}]}
+```
+
+Preview makes no business change and returns an `approval_path` for dashboard
+review:
+
+```sh
+bizyeet quotes create preview --input-stdin < quote.json
+```
+
+After approval, retain one UUID execution key and pass the receipt only through
+the hidden prompt or a private `--receipt-stdin` pipe:
+
+```sh
+bizyeet quotes create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes create status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+The status command reads the original outcome without a receipt or mutation.
+For uncertain or ambiguous outcomes, reconcile that original execution; never
+retry with a new key. The CLI neither retries a quote-create POST nor selects a
+provider-specific route.
+
+## Draft quote updates (source command, not yet released)
+
+The source CLI supports an approved revision of one existing draft quote through
+`customers.write`. First read the quote with `--fields id,pricing_revision,items`.
+Use its opaque quote ID as the preview target and its returned, quote-bound
+line-item IDs for lines you want to keep. Do not use dashboard-native IDs or
+include private cost fields. A bounded JSON proposal uses the current pricing
+revision, for example:
+
+```json
+{"title":"Revised transfer","expectedPricingRevision":2,"items":[{"id":"opaque-quote-bound-line-id","description":"Transfer","quantity":"2","unitPrice":"25.00"}]}
+```
+
+```sh
+bizyeet quotes update preview "$QUOTE_ID" --input-stdin < quote-update.json
+bizyeet quotes update execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Preview is side-effect free. Execute requires a dashboard-approved receipt
+entered in the hidden prompt or a private `--receipt-stdin` pipe. Status reads
+the original outcome with the same key; never use a new key to repeat an
+uncertain update. The update command does not send, accept, or decline a quote,
+and must not be treated as usable until its matching backend is deployed and a
+package release is explicitly authorized.
+
+## Quote acceptance (source command, not yet released)
+
+The source CLI can prepare acceptance of one exact quote through the canonical
+OAuth lifecycle endpoint. The server requires `customers.write`; when automatic
+service-status email is configured, it also requires `mail.send`. Preview does
+not accept the quote or send mail. It shows that acceptance can create a service,
+promote a lead, and send the configured email. A signed-in human must inspect
+the returned `approval_path` and approve that exact preview before execution.
+
+```sh
+bizyeet quotes accept preview "$QUOTE_ID"
+bizyeet quotes accept execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes accept status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Pass the receipt only through the hidden prompt or a private `--receipt-stdin`
+pipe. Keep the original UUID execution key. If execution is uncertain, use
+`status` to reconcile it; do not repeat acceptance with a new key. This source
+command is not a package release or a production canary.
+
+The source CLI can also decline one open quote through the canonical OAuth
+lifecycle endpoint with `customers.write`. Preview makes no change. Decline
+requires a signed-in human to approve the exact `approval_path`, creates no
+service or payment, and sends no customer communication.
+
+```sh
+bizyeet quotes decline preview "$QUOTE_ID"
+bizyeet quotes decline execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes decline status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Pass the approval receipt through the hidden prompt or private
+`--receipt-stdin` pipe. Retain the original UUID execution key and reconcile
+uncertainty with `status`; never repeat decline with a new key. This remains
+source-only, without a package release or production canary.
+
+The source CLI can prepare a customer-bound backlog service through the
+canonical OAuth endpoint. Provide one bounded service JSON proposal through
+`--input-stdin`. Preview shows priced line items, discounts, customer-document
+requirements, and any configured email or calendar effect. The server requires
+`customers.write`, plus `mail.send` when those external effects are configured.
+A signed-in human must approve the exact dashboard preview before creation.
+
+```sh
+bizyeet services create preview --input-stdin
+bizyeet services create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services create status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use the hidden receipt prompt or private `--receipt-stdin` pipe. Retain the
+original UUID execution key and reconcile uncertain results with read-only
+`status`; never create a replacement service. This remains source-only, not a
+package release or production canary.
+
+The source CLI can also revise one existing service through the canonical
+OAuth service-update endpoint. Obtain the opaque service ID and current
+`pricing_revision` with `services get`, then pipe the complete update JSON
+(including `expectedPricingRevision` and line-item IDs) to preview. The
+server checks the current revision, scopes and role; it may require
+`mail.send` and an externally-visible-send approval class if configured
+calendar invitations could be sent. Preview never applies the edit.
+
+```sh
+bizyeet services update preview "$SERVICE_ID" --input-stdin
+bizyeet services update execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Have a signed-in human approve the exact dashboard preview and supply its
+receipt through the hidden prompt or private `--receipt-stdin` pipe. Keep the
+original execution UUID; on an uncertain result, query read-only `status`
+instead of sending another update. This is source-only and not a package
+release or production canary.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and
