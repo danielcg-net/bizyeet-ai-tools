@@ -44,6 +44,13 @@ does not list appointments or slots, expose booking details, or authorize bookin
 changes. Reauthorize the MCP server for that exact scope when it is insufficient;
 the default CLI login scope is `customers.read`, not `bookings.read`.
 
+The source-only `bizyeet_bookings_capabilities` descriptor also uses
+`bookings.read`, but requires the matching canonical backend endpoint to be
+merged and deployed before use. It reports configured operation support and
+whether booking links exist, without URLs or customer data. An
+`external_link_only` create capability is not an executable booking operation;
+the matrix does not verify live provider health.
+
 The summary reports gross collected receipts, not net revenue. It preserves
 the requested custom dates in `period.requestedStartDate` and
 `period.requestedEndDate` (null for named ranges), allowing request binding

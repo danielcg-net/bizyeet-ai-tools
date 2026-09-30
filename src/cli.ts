@@ -8,7 +8,7 @@ import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { canonicalRegistrationScope } from "./oauth.js";
 import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
-import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, upcomingBookings, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, bookingCapabilities, upcomingBookings, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
 import { previewLeadUpdate, executeLeadUpdate, leadUpdateStatus } from "./agent-client.js";
 import { previewQuoteCreate, executeQuoteCreate, quoteCreateStatus,
   previewQuoteUpdate, executeQuoteUpdate, quoteUpdateStatus } from "./agent-client.js";
@@ -65,6 +65,7 @@ type CliRuntime = Readonly<{
   getService?: (input: Omit<Parameters<typeof getService>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listServices?: (input: Omit<Parameters<typeof listServices>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   upcomingBookings?: (input: Omit<Parameters<typeof upcomingBookings>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  bookingCapabilities?: (input: Omit<Parameters<typeof bookingCapabilities>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readTaxReport?: (input: Omit<Parameters<typeof readTaxReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readMarginReport?: (input: Omit<Parameters<typeof readMarginReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getExpense?: (input: Omit<Parameters<typeof getExpense>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -127,6 +128,7 @@ const runtime: CliRuntime = {
   getService: async (input) => getService({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listServices: async (input) => listServices({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   upcomingBookings: async (input) => upcomingBookings({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  bookingCapabilities: async (input) => bookingCapabilities({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   readTaxReport: async (input) => readTaxReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   readMarginReport: async (input) => readMarginReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getExpense: async (input) => getExpense({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -202,6 +204,7 @@ const helpMessage = [
   "       bizyeet expenses list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <due|paid|skipped>] [--category <name>] [--currency <ISO>] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
   "       bizyeet expenses get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet bookings upcoming [--hours <1-720>] [--profile <name>] [--export]",
+  "       bizyeet bookings capabilities [--profile <name>] [--export]",
   "       bizyeet <customers|leads|quotes|services|payments> communications <opaque-id> [--page <1-10000>] [--limit <10|20|50>] [--profile <name>] [--export]",
   "Read commands accept --export for a private local JSON file; responses above 32 KiB export automatically. No output-path argument or automatic pagination is supported.",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
@@ -604,6 +607,19 @@ const bookingRead = async (args: readonly string[], dependencies: CliStorage, ex
   } catch (error) { return requestFailure(error); }
 };
 
+const bookingCapabilityRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    if (!hasOnlyOptions(args, ["--profile"], ["--export"]) || args.filter((arg) => arg === "--export").length > 1
+      || valuesFor(args, "--profile").length > 1) return invalidInput("Booking capability options are invalid.");
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.bookingCapabilities) return unsupportedCommand("bookings capabilities");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.bookingCapabilities({ credentials: authenticated.credentials, profile: authenticated.profile,
+      persistCredentials }), args.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
 const communicationRead = async (resource: CommunicationResource, args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   try {
     const target = resourceTarget(args, ["--profile", "--page", "--limit"], ["--export"]);
@@ -875,6 +891,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (first === "expenses" && second === "schedules") return unsupportedCommand("expenses schedules");
   if (first === "expenses") return expenseRead(args.slice(1), dependencies, execution);
   if (first === "bookings" && second === "upcoming") return bookingRead(args.slice(2), dependencies, execution);
+  if (first === "bookings" && second === "capabilities") return bookingCapabilityRead(args.slice(2), dependencies, execution);
   if (first === "reports" && second === "taxes") return taxRead(args.slice(2), dependencies, execution);
   if (first === "reports" && second === "margin") return marginRead(args.slice(2), dependencies, execution);
   if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);

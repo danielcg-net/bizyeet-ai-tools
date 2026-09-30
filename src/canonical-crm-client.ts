@@ -13,6 +13,7 @@ import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { bookingSummaryResponse } from "./booking-response.js";
+import { bookingCapabilitiesResponse } from "./booking-capabilities-response.js";
 import { validServiceReadFields } from "./service-read-contract.js";
 import { serviceResponse } from "./service-response.js";
 import { serviceCreateExecutionResponse, serviceCreatePreviewResponse, serviceCreateStatusResponse } from "./service-create-response.js";
@@ -71,6 +72,7 @@ export type CanonicalCrmClient = Readonly<{
   communications: (resource: CommunicationResource, id: string, options?: CommunicationOptions) => Promise<CanonicalResult>;
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
   bookingSummary: (options?: BookingSummaryOptions) => Promise<CanonicalResult>;
+  bookingCapabilities: () => Promise<CanonicalResult>;
   taxReport: (options?: TaxReportOptions) => Promise<CanonicalResult>;
   marginReport: (options?: MarginReportOptions) => Promise<CanonicalResult>;
   list: (resource: ReadResource, options?: ListOptions) => Promise<CanonicalResult>;
@@ -291,6 +293,8 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     if (options.hours !== undefined) parameters.set("hours", String(options.hours));
     return reportRead("/api/agent/bookings/upcoming", parameters, (body) => bookingSummaryResponse(body, options));
   };
+  const bookingCapabilities = async (): Promise<CanonicalResult> =>
+    reportRead("/api/agent/bookings/capabilities", new URLSearchParams({ api_version: "v1" }), bookingCapabilitiesResponse);
   const communications = async (resource: CommunicationResource, id: string, options: CommunicationOptions = {}): Promise<CanonicalResult> => {
     if (!validCommunicationResource(resource) || !validResourceId(id) || !validCommunicationOptions(options)) return failure(400, "invalid_request");
     const parameters = new URLSearchParams([["api_version", "v1"], ...(options.page === undefined ? [] : [["page", String(options.page)]]),
@@ -545,6 +549,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     communications,
     receivedPaymentSummary,
     bookingSummary,
+    bookingCapabilities,
     taxReport,
     marginReport,
     list: (resource: ReadResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),

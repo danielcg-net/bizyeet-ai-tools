@@ -325,6 +325,7 @@ Request the exact `bookings.read` scope during OAuth login; the default
 bizyeet auth login --issuer https://your-bizyeet-origin --scope bookings.read
 bizyeet auth check
 bizyeet bookings upcoming --hours 168
+bizyeet bookings capabilities
 ```
 
 `--hours` is an integer from 1 through 720 and defaults to 168. The server owns
@@ -332,6 +333,15 @@ provider routing and current booking permission checks; unavailable, disabled,
 and unsupported providers remain explicit errors. Do not infer a bookable slot,
 provider action, or tenant from a successful count. The matching MCP tool is
 `bizyeet_bookings_upcoming` and advertises the same `bookings.read` OAuth scope.
+
+The source-only `bookings capabilities` contract requires the matching canonical
+backend endpoint to be merged and deployed; it is not yet a released feature.
+It reports configured support for upcoming summaries, slots, detail, creation,
+rescheduling, cancellation and booking links without returning URLs or customer
+data. `external_link_only` means a configured booking link exists, not that the
+CLI or MCP tool can create a booking. Configuration is not proof of live provider
+health; use the bounded upcoming read to verify a provider read. The matching
+read-only MCP tool is `bizyeet_bookings_capabilities` (`bookings.read`).
 
 ## Communication history contract (not yet released)
 
