@@ -7,6 +7,7 @@ import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
 import { taxReportMcpTool } from "./tax-report-mcp.js";
 import { expenseMcpTools } from "./expense-mcp.js";
 import { paymentDateFields, paymentReadFields, paymentSortFields, paymentTimestampPattern } from "./payment-contract.js";
+import { bookingCapabilityProviders, bookingCapabilityStates, bookingCapabilityLinkStates } from "./booking-capabilities-response.js";
 
 export type McpTool = Readonly<{
   annotations: Readonly<{
@@ -138,15 +139,15 @@ const bookingCapabilityState = (values: readonly string[]): Readonly<{ type: "st
   Object.freeze({ type: "string", enum: Object.freeze(values) });
 const bookingCapabilityOutputSchema = Object.freeze({ type: "object", required: Object.freeze(["data", "meta"]), properties: Object.freeze({
   data: Object.freeze({ type: "object", required: Object.freeze(["booking_provider", "upcoming_summary", "availability_slots", "booking_detail", "create", "reschedule", "cancel", "booking_links"]), additionalProperties: false, properties: Object.freeze({
-    booking_provider: bookingCapabilityState(["none", "setmore", "zoho", "calendly", "custom", "unknown"]),
-    upcoming_summary: bookingCapabilityState(["supported", "unsupported", "unavailable"]),
-    availability_slots: bookingCapabilityState(["unsupported", "unavailable"]),
-    booking_detail: bookingCapabilityState(["unsupported", "unavailable"]),
-    create: bookingCapabilityState(["external_link_only", "unsupported", "unavailable"]),
-    reschedule: bookingCapabilityState(["unsupported", "unavailable"]),
-    cancel: bookingCapabilityState(["unsupported", "unavailable"]),
+    booking_provider: bookingCapabilityState(bookingCapabilityProviders),
+    upcoming_summary: bookingCapabilityState(bookingCapabilityStates.upcoming_summary),
+    availability_slots: bookingCapabilityState(bookingCapabilityStates.availability_slots),
+    booking_detail: bookingCapabilityState(bookingCapabilityStates.booking_detail),
+    create: bookingCapabilityState(bookingCapabilityStates.create),
+    reschedule: bookingCapabilityState(bookingCapabilityStates.reschedule),
+    cancel: bookingCapabilityState(bookingCapabilityStates.cancel),
     booking_links: Object.freeze({ type: "object", required: Object.freeze(["in_person", "online"]), additionalProperties: false, properties: Object.freeze({
-      in_person: bookingCapabilityState(["configured", "unavailable"]), online: bookingCapabilityState(["configured", "unavailable"]),
+      in_person: bookingCapabilityState(bookingCapabilityLinkStates), online: bookingCapabilityState(bookingCapabilityLinkStates),
     }) }),
   }) }),
   meta: Object.freeze({ type: "object", required: Object.freeze(["contract_version"]), additionalProperties: false,
