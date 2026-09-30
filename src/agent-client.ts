@@ -3,7 +3,7 @@ import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validOAuthScope } from "./oauth-scope.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type QuoteCreatePreview, type QuoteUpdatePreview, type ServiceCreatePreview } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type QuoteCreatePreview, type QuoteUpdatePreview, type ServiceCreatePreview, type ServiceUpdatePreview } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch, validSalesSearch } from "./search-contract.js";
@@ -403,3 +403,15 @@ export const executeServiceCreate = (input: WriteSession & Readonly<{ approval: 
 /** Reconcile service creation through the original read-only status endpoint. */
 export const serviceCreateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
   invoke({ ...input, operation: (client) => client.serviceCreateStatus(input.query) });
+
+/** Preview a version-bound canonical service update without applying changes or notifications. */
+export const previewServiceUpdate = (input: WriteSession & Readonly<{ proposal: ServiceUpdatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewServiceUpdate(input.proposal) });
+
+/** Execute one approved update without replaying a potentially externally visible effect. */
+export const executeServiceUpdate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeServiceUpdate(input.approval) });
+
+/** Reconcile the stored update outcome without repeating the mutation. */
+export const serviceUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.serviceUpdateStatus(input.query) });
