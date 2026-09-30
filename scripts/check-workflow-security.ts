@@ -1,4 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
@@ -14,9 +15,24 @@ const permittedPermissions: Readonly<Record<string, readonly string[]>> = {
   "pull-requests": ["read"],
   "security-events": ["write"],
 };
+const deepseekAction = "danielcg-net/deepseek-review-gate@4550be192d53a7c38440d57cea7a407316768fb6";
+const githubScriptAction = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3";
+const trustedReviewCondition = "${{ github.event.pull_request.head.repo.full_name == github.repository }}";
+// A guard-script change must be reviewed together with an intentional hash update.
+const trustedReviewGuardSha256 = "611e26da1b859297834405c52d4528488c78d14c3fbfb204e634b6d1dde5af76";
+const trustedReviewEvents = ["opened", "synchronize", "reopened", "ready_for_review"];
+const deepseekSecretReference = /\bsecrets\s*(?:\.\s*DEEPSEEK_API_KEY\b|\[\s*['"]DEEPSEEK_API_KEY['"]\s*\])/gu;
 
 const isRecord = (value: unknown): value is Workflow => typeof value === "object" && value !== null && !Array.isArray(value);
 const isStringArray = (value: unknown): value is readonly string[] => Array.isArray(value) && value.every((item) => typeof item === "string");
+const countDeepseekSecretReferences = (value: unknown): number =>
+  typeof value === "string"
+    ? [...value.matchAll(deepseekSecretReference)].length
+    : Array.isArray(value)
+      ? value.reduce((count: number, entry: unknown) => count + countDeepseekSecretReferences(entry), 0)
+      : isRecord(value)
+        ? Object.values(value).reduce<number>((count, entry) => count + countDeepseekSecretReferences(entry), 0)
+        : 0;
 
 const parseWorkflow = (source: string): Workflow => {
   const document = parseDocument(source, { prettyErrors: true });
@@ -48,10 +64,35 @@ const hasLeastPrivilegePermissions = (permissions: unknown): boolean =>
     ([scope, access]) => typeof access === "string" && permittedPermissions[scope]?.includes(access) === true,
   );
 
+const permitsTrustedDeepseekReview = (fileName: string, workflow: Workflow, jobId: string, job: Workflow): boolean => {
+  if (fileName !== "deepseek-cr.yml" || jobId !== "review" || !isRecord(workflow.on)
+    || Object.keys(workflow.on).length !== 1 || !isRecord(workflow.on.pull_request)
+    || Object.keys(workflow.on.pull_request).length !== 1
+    || !isStringArray(workflow.on.pull_request.types)
+    || JSON.stringify(workflow.on.pull_request.types) !== JSON.stringify(trustedReviewEvents)
+    || !isRecord(workflow.jobs) || Object.keys(workflow.jobs).length !== 1
+    || job.if !== trustedReviewCondition || job["runs-on"] !== "ubuntu-latest"
+    || !isRecord(job.permissions) || Object.keys(job.permissions).length !== 2
+    || job.permissions.contents !== "read" || job.permissions["pull-requests"] !== "write"
+    || !Array.isArray(job.steps) || job.steps.length !== 2) return false;
+  const steps = job.steps as readonly unknown[];
+  const guard = steps.at(0);
+  const review = steps.at(1);
+  return isRecord(guard) && guard.uses === githubScriptAction && isRecord(guard.with)
+    && typeof guard.with.script === "string"
+    && createHash("sha256").update(guard.with.script).digest("hex") === trustedReviewGuardSha256
+    && isRecord(review) && review.uses === deepseekAction && isRecord(review.with)
+    && review.with["chat-token"] === "${{ secrets.DEEPSEEK_API_KEY }}"
+    && review.with["github-token"] === "${{ github.token }}"
+    && review.with["reconcile-threads"] === "false"
+    && !steps.some((step) => isRecord(step) && ("run" in step || "env" in step));
+};
+
 const jobPermissionsAreSafe = (fileName: string, workflow: Workflow): boolean =>
   isRecord(workflow.jobs) && Object.entries(workflow.jobs).every(([jobId, job]) =>
     isRecord(job) && (!("permissions" in job) || hasLeastPrivilegePermissions(job.permissions)
-      || permitsTrustedAttestation(fileName, workflow, jobId, job)),
+      || permitsTrustedAttestation(fileName, workflow, jobId, job)
+      || permitsTrustedDeepseekReview(fileName, workflow, jobId, job)),
   );
 
 const triggerNames = (value: unknown): readonly string[] =>
@@ -77,12 +118,17 @@ const isPinnedExternalAction = (reference: string): boolean => {
 export const validateWorkflow = (fileName: string, source: string): readonly string[] => {
   const workflow = parseWorkflow(source);
   const invalidActionReferences = actionReferences(workflow.jobs).filter((reference) => !isPinnedExternalAction(reference));
+  const deepseekSecretReferences = countDeepseekSecretReferences(workflow);
+  const reviewJob = isRecord(workflow.jobs) ? workflow.jobs.review : undefined;
+  const trustedSecretUse = deepseekSecretReferences === 1 && isRecord(reviewJob)
+    && permitsTrustedDeepseekReview(fileName, workflow, "review", reviewJob);
 
   return [
     ...(triggerNames(workflow.on).includes("pull_request_target") ? [`${fileName}: pull_request_target is forbidden`] : []),
     ...(jobUsesSelfHostedRunner(workflow.jobs) ? [`${fileName}: self-hosted runners are forbidden`] : []),
     ...(!hasLeastPrivilegePermissions(workflow.permissions) ? [`${fileName}: permissions must use the approved least-privilege mapping`] : []),
     ...(!jobPermissionsAreSafe(fileName, workflow) ? [`${fileName}: job permissions must use the approved least-privilege mapping`] : []),
+    ...(deepseekSecretReferences > 0 && !trustedSecretUse ? [`${fileName}: DeepSeek secret may only be used by the isolated review job`] : []),
     ...invalidActionReferences.map((reference) => `${fileName}: action must use a full commit SHA (${reference})`),
   ];
 };

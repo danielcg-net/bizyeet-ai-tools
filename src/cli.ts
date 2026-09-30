@@ -781,18 +781,19 @@ const serviceWrite = async (operation: "create" | "update", args: readonly strin
     const options = target?.options ?? targetArgs;
     const key = mode === "preview" ? "" : oneOption(options, "--idempotency-key", "");
     if (mode !== "preview" && (!isUuid(target?.id) || !isUuid(key))) return invalidInput("Service execution and status require a preview UUID and --idempotency-key UUID.");
+    if (mode === "preview" && (!execution.readServiceProposal || (operation === "create" ? !execution.previewServiceCreate : !execution.previewServiceUpdate))) throw new Error("Service write runtime unavailable");
+    const service = mode === "preview" && execution.readServiceProposal ? await execution.readServiceProposal() : undefined;
+    if (mode === "preview" && (!service || (operation === "create" && !validResourceId(service.customerId)))) return invalidInput("Service preview requires a valid customerId.");
     const selected = await authenticatedProfile(options, dependencies);
     if ("exitCode" in selected) return selected;
     const session = { credentials: selected.credentials, profile: selected.profile,
       persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
     if (mode === "preview") {
-      if (!execution.readServiceProposal) throw new Error("Service write runtime unavailable");
-      const service = await execution.readServiceProposal();
       if (operation === "create") {
-        if (!execution.previewServiceCreate) throw new Error("Service write runtime unavailable");
+        if (!execution.previewServiceCreate || !service) throw new Error("Service write runtime unavailable");
         return resourceOutput(await execution.previewServiceCreate({ ...session, proposal: { service } }));
       }
-      if (!execution.previewServiceUpdate) throw new Error("Service write runtime unavailable");
+      if (!execution.previewServiceUpdate || !service) throw new Error("Service write runtime unavailable");
       return resourceOutput(await execution.previewServiceUpdate({ ...session, proposal: { resource_id: target?.id ?? "", service } }));
     }
     if (mode === "status") {
