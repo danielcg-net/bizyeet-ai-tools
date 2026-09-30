@@ -58,7 +58,7 @@ void test("requires immutable references for reusable workflows as well as steps
 });
 
 void test("only the isolated same-repository DeepSeek review may write PR comments", async (): Promise<void> => {
-  const source = await readFile(new URL("../../.github/workflows/deepseek-cr.yml", import.meta.url), "utf8");
+  const source = (await readFile(new URL("../../.github/workflows/deepseek-cr.yml", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
   assert.deepEqual(validateWorkflow("deepseek-cr.yml", source), []);
   assert.deepEqual(validateWorkflow("other.yml", source), ["other.yml: job permissions must use the approved least-privilege mapping"]);
   const unsafe = [
@@ -70,6 +70,7 @@ void test("only the isolated same-repository DeepSeek review may write PR commen
     source.replace("github.rest.pulls.listCommits", "github.rest.pulls.get"),
   ];
   unsafe.forEach((variant) => {
+    assert.notEqual(variant, source, "test mutation must change the workflow");
     assert.notDeepEqual(validateWorkflow("deepseek-cr.yml", variant), []);
   });
   assert.deepEqual(validateWorkflow("deepseek-cr.yml", source.replace("pull_request:", "pull_request_target:")),
