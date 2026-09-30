@@ -19,6 +19,8 @@ void test("service history rejects malformed pagination and forged response shap
   [
     { ...page, data: { items: [...page.data.items, ...page.data.items], total: 2 } },
     { ...page, data: { items: [{ ...page.data.items[0], to_status: {} }], total: 1 } },
+    { ...page, data: { items: [{ ...page.data.items[0], created_at: "01/02/2026" }], total: 1 } },
+    { ...page, data: { items: [{ ...page.data.items[0], created_at: "2026-02-30T00:00:00.000Z" }], total: 1 } },
     { ...page, meta: { ...page.meta, next_cursor: "" } },
     { ...page, data: { items: page.data.items, total: 0 } },
   ].forEach((invalid) => { assert.equal(serviceHistoryResponse(invalid, { limit: 1 }), undefined); });

@@ -5,6 +5,9 @@ export type ServiceHistoryOptions = Readonly<{ limit?: number; cursor?: string }
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+const utcTimestamp = (value: unknown): value is string => typeof value === "string"
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
+  && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 
 /** Validate the only supported service-history pagination arguments. */
 export const validServiceHistoryOptions = (value: unknown): value is ServiceHistoryOptions => record(value)
@@ -15,7 +18,7 @@ export const validServiceHistoryOptions = (value: unknown): value is ServiceHist
 const historyRow = (value: unknown): value is Readonly<Record<string, unknown>> => record(value)
   && (value.from_status === null || (typeof value.from_status === "string" && value.from_status.length <= 80))
   && typeof value.to_status === "string" && value.to_status.length > 0 && value.to_status.length <= 80
-  && typeof value.created_at === "string" && value.created_at.length <= 40 && Number.isFinite(Date.parse(value.created_at));
+  && utcTimestamp(value.created_at);
 
 /** Project only the immutable lifecycle facts from the canonical response. */
 export const serviceHistoryResponse = (body: unknown, options: ServiceHistoryOptions): Readonly<Record<string, unknown>> | undefined => {
