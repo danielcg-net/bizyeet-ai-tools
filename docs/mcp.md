@@ -29,6 +29,11 @@ The V1 read contract includes bounded customer and lead list/get tools using
   `bizyeet_payments_get_with_relationships`: require both `payments.read` and
   `customers.read`, with an explicit `customer` or `service` field selection.
 
+The `bizyeet_services_history` source descriptor reads one service's bounded
+status transitions with `customers.read`. Its opaque cursor is service-bound;
+private notes and native identifiers are excluded. Check the authenticated
+server's advertised tools before relying on this source declaration.
+
 Payment list filters include bounded pagination, status, sorting and canonical
 UTC start/end timestamps. Provider routing and live permissions remain
 server-owned; unsupported operations fail explicitly. Never combine currencies
