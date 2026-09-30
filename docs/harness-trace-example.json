@@ -1,0 +1,20 @@
+{
+  "events": [
+    { "kind": "identity", "verified": true },
+    { "kind": "discovery", "operations": ["customers.list", "customers.get"] },
+    {
+      "kind": "call",
+      "operation": "customers.list",
+      "input": { "limit": 5, "fields": ["id"] },
+      "result": { "status": "ok", "ids": ["cust-synthetic-1"] },
+      "outputBytes": 350
+    },
+    {
+      "kind": "call",
+      "operation": "customers.get",
+      "input": { "id": "cust-synthetic-1", "fields": ["id", "business"] },
+      "result": { "status": "ok" },
+      "outputBytes": 700
+    }
+  ]
+}

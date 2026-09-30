@@ -32,7 +32,7 @@ codex mcp list
 ```
 
 Customer and lead reads use `customers.read`; booking reads use `bookings.read`;
-payments use `payments.read`; expenses use `expenses.read`; tax reports use
+payments use `payments.read`; expenses use `expenses.read`; tax and margin reports use
 `reports.read`; and a customer update needs both `customers.read,customers.write`.
 The server may still deny a requested scope or not advertise the capability.
 

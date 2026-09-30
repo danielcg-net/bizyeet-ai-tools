@@ -6,19 +6,26 @@ import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./paymen
 import { paymentSummaryResponse } from "./payment-summary-response.js";
 import { validTaxReportOptions, taxReportDefaultFields, type TaxReportOptions } from "./tax-report-contract.js";
 import { taxReportResponse } from "./tax-report-response.js";
+import { marginReportDefaultFields, marginReportEvidenceFields, validMarginReportOptions, type MarginReportOptions } from "./margin-report-contract.js";
+import { marginReportResponse } from "./margin-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { bookingSummaryResponse } from "./booking-response.js";
+import { bookingCapabilitiesResponse } from "./booking-capabilities-response.js";
 import { validServiceReadFields } from "./service-read-contract.js";
 import { serviceResponse } from "./service-response.js";
+import { serviceCreateExecutionResponse, serviceCreatePreviewResponse, serviceCreateStatusResponse } from "./service-create-response.js";
+import { serviceUpdateExecutionResponse, serviceUpdatePreviewResponse, serviceUpdateStatusResponse } from "./service-update-response.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 import { quoteResponse } from "./quote-response.js";
 import { quoteCreateExecutionResponse, quoteCreatePreviewResponse, quoteCreateStatusResponse,
   quoteUpdateExecutionResponse, quoteUpdatePreviewResponse, quoteUpdateStatusResponse } from "./quote-write-response.js";
 import { recordCreateExecutionResponse, recordCreatePreviewResponse, recordCreateStatusResponse,
   leadPromotionPreviewResponse, validRecordCreateInput } from "./record-create-response.js";
+import { quoteAcceptExecutionResponse, quoteAcceptPreviewResponse, quoteAcceptStatusResponse } from "./quote-accept-response.js";
+import { quoteDeclineExecutionResponse, quoteDeclinePreviewResponse, quoteDeclineStatusResponse } from "./quote-decline-response.js";
 import { validCatalogReadFields } from "./catalog-read-contract.js";
 import { catalogResponse } from "./catalog-response.js";
 import { validSalesSearch } from "./search-contract.js";
@@ -55,6 +62,9 @@ export type CustomerUpdateExecution = Readonly<{ preview_id: string; approval_re
 export type CustomerUpdateStatusQuery = Readonly<{ preview_id: string; idempotency_key: string }>;
 export type QuoteCreatePreview = Readonly<{ quote: Readonly<Record<string, unknown>> }>;
 export type QuoteUpdatePreview = Readonly<{ resource_id: string; quote: Readonly<Record<string, unknown>> }>;
+export type QuoteAcceptPreview = Readonly<{ resource_id: string }>;
+export type ServiceCreatePreview = Readonly<{ service: Readonly<Record<string, unknown>> }>;
+export type ServiceUpdatePreview = Readonly<{ resource_id: string; service: Readonly<Record<string, unknown>> }>;
 export type ClientDependencies = Readonly<{
   origin: string;
   /** Obtain an OAuth access token bound to this resource origin; never an API key. */
@@ -66,7 +76,9 @@ export type CanonicalCrmClient = Readonly<{
   communications: (resource: CommunicationResource, id: string, options?: CommunicationOptions) => Promise<CanonicalResult>;
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
   bookingSummary: (options?: BookingSummaryOptions) => Promise<CanonicalResult>;
+  bookingCapabilities: () => Promise<CanonicalResult>;
   taxReport: (options?: TaxReportOptions) => Promise<CanonicalResult>;
+  marginReport: (options?: MarginReportOptions) => Promise<CanonicalResult>;
   list: (resource: ReadResource, options?: ListOptions) => Promise<CanonicalResult>;
   get: (resource: ReadResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
   previewCustomerUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
@@ -90,6 +102,18 @@ export type CanonicalCrmClient = Readonly<{
   previewQuoteUpdate: (input: QuoteUpdatePreview) => Promise<CanonicalResult>;
   executeQuoteUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   quoteUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewQuoteAccept: (input: QuoteAcceptPreview) => Promise<CanonicalResult>;
+  executeQuoteAccept: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  quoteAcceptStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewQuoteDecline: (input: QuoteAcceptPreview) => Promise<CanonicalResult>;
+  executeQuoteDecline: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  quoteDeclineStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewServiceCreate: (input: ServiceCreatePreview) => Promise<CanonicalResult>;
+  executeServiceCreate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  serviceCreateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewServiceUpdate: (input: ServiceUpdatePreview) => Promise<CanonicalResult>;
+  executeServiceUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  serviceUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
 }>;
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -282,6 +306,8 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     if (options.hours !== undefined) parameters.set("hours", String(options.hours));
     return reportRead("/api/agent/bookings/upcoming", parameters, (body) => bookingSummaryResponse(body, options));
   };
+  const bookingCapabilities = async (): Promise<CanonicalResult> =>
+    reportRead("/api/agent/bookings/capabilities", new URLSearchParams({ api_version: "v1" }), bookingCapabilitiesResponse);
   const communications = async (resource: CommunicationResource, id: string, options: CommunicationOptions = {}): Promise<CanonicalResult> => {
     if (!validCommunicationResource(resource) || !validResourceId(id) || !validCommunicationOptions(options)) return failure(400, "invalid_request");
     const parameters = new URLSearchParams([["api_version", "v1"], ...(options.page === undefined ? [] : [["page", String(options.page)]]),
@@ -295,6 +321,13 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(transport as Readonly<Record<string, unknown>>)
       .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
     return reportRead("/api/agent/reports/taxes", parameters, (body) => taxReportResponse(body, options));
+  };
+  const marginReport = async (options: MarginReportOptions = {}): Promise<CanonicalResult> => {
+    if (!validMarginReportOptions(options)) return failure(400, "invalid_request");
+    const transport = { ...options, fields: [...new Set([...(options.fields ?? marginReportDefaultFields), ...marginReportEvidenceFields])] };
+    const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(transport as Readonly<Record<string, unknown>>)
+      .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
+    return reportRead("/api/agent/reports/margin", parameters, (body) => marginReportResponse(body, options));
   };
   const write = async (input: CustomerUpdatePreview | CustomerUpdateExecution, preview: boolean, resource: CrmResource): Promise<CanonicalResult> => {
     if (!record(input)) return failure(400, "invalid_request");
@@ -454,11 +487,129 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         : failure(502, preview ? "invalid_response" : "execution_ambiguous");
     } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
   };
+  const quoteLifecycle = async (input: unknown, preview: boolean, action: "accept" | "decline"): Promise<CanonicalResult> => {
+    if (!record(input) || (preview
+      ? Object.keys(input).length !== 1 || !validResourceId(input.resource_id)
+      : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
+        || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) return failure(400, "invalid_request");
+    const payload = preview ? { resource_id: input.resource_id }
+      : { preview_id: input.preview_id, approval_receipt: input.approval_receipt, idempotency_key: input.idempotency_key };
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await request(`${origin}/api/agent/quotes/${action}-${preview ? "preview" : "execute"}?api_version=v1`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(payload), redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
+      const projected = preview && "resource_id" in input && typeof input.resource_id === "string"
+        ? action === "accept" ? quoteAcceptPreviewResponse(body, input.resource_id) : quoteDeclinePreviewResponse(body, input.resource_id)
+        : action === "accept" ? quoteAcceptExecutionResponse(body) : quoteDeclineExecutionResponse(body);
+      return projected && response.status === 200 ? { status: response.status, body: projected }
+        : failure(502, preview ? "invalid_response" : "execution_ambiguous");
+    } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
+  };
+  const quoteLifecycleStatus = async (input: CustomerUpdateStatusQuery, action: "accept" | "decline"): Promise<CanonicalResult> => {
+    if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const parameters = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key });
+      const response = await requestRead(`${origin}/api/agent/quotes/${action}-status?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return { status: response.status, body };
+      const projected = action === "accept" ? quoteAcceptStatusResponse(body, input.preview_id)
+        : quoteDeclineStatusResponse(body, input.preview_id);
+      return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
+  const serviceCreate = async (input: unknown, preview: boolean): Promise<CanonicalResult> => {
+    if (!record(input) || (preview
+      ? Object.keys(input).length !== 1 || !record(input.service) || !validResourceId(input.service.customerId)
+      : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
+        || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) return failure(400, "invalid_request");
+    const serialized = ((): string => { try { return JSON.stringify(input); } catch { return ""; } })();
+    if (!serialized || new TextEncoder().encode(serialized).byteLength > 16_384) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await request(`${origin}/api/agent/services/create-${preview ? "preview" : "execute"}?api_version=v1`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
+      const projected = preview && "service" in input && record(input.service) && typeof input.service.customerId === "string"
+        ? serviceCreatePreviewResponse(body, input.service.customerId) : serviceCreateExecutionResponse(body);
+      return projected && response.status === (preview ? 200 : 201) ? { status: response.status, body: projected }
+        : failure(502, preview ? "invalid_response" : "execution_ambiguous");
+    } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
+  };
+  const serviceCreateStatus = async (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => {
+    if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const parameters = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key });
+      const response = await requestRead(`${origin}/api/agent/services/create-status?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return { status: response.status, body };
+      const projected = serviceCreateStatusResponse(body, input.preview_id);
+      return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
+  const serviceUpdate = async (input: unknown, preview: boolean): Promise<CanonicalResult> => {
+    if (!record(input) || (preview
+      ? Object.keys(input).length !== 2 || !validResourceId(input.resource_id) || !record(input.service)
+      : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
+        || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) return failure(400, "invalid_request");
+    const serialized = ((): string => { try { return JSON.stringify(input); } catch { return ""; } })();
+    if (!serialized || new TextEncoder().encode(serialized).byteLength > 16_384) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await request(`${origin}/api/agent/services/update-${preview ? "preview" : "execute"}?api_version=v1`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
+      const projected = preview && "resource_id" in input && typeof input.resource_id === "string"
+        ? serviceUpdatePreviewResponse(body, input.resource_id) : serviceUpdateExecutionResponse(body);
+      return projected && response.status === 200 ? { status: response.status, body: projected }
+        : failure(502, preview ? "invalid_response" : "execution_ambiguous");
+    } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
+  };
+  const serviceUpdateStatus = async (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => {
+    if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const parameters = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key });
+      const response = await requestRead(`${origin}/api/agent/services/update-status?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return { status: response.status, body };
+      const projected = serviceUpdateStatusResponse(body, input.preview_id);
+      return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
   return Object.freeze({
     communications,
     receivedPaymentSummary,
     bookingSummary,
+    bookingCapabilities,
     taxReport,
+    marginReport,
     list: (resource: ReadResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
     get: (resource: ReadResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
     previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true, "customers"),
@@ -482,5 +633,17 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     previewQuoteUpdate: (input: QuoteUpdatePreview): Promise<CanonicalResult> => quoteUpdate(input, true),
     executeQuoteUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => quoteUpdate(input, false),
     quoteUpdateStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => quoteStatus(input, "update"),
+    previewQuoteAccept: (input: QuoteAcceptPreview): Promise<CanonicalResult> => quoteLifecycle(input, true, "accept"),
+    executeQuoteAccept: (input: CustomerUpdateExecution): Promise<CanonicalResult> => quoteLifecycle(input, false, "accept"),
+    quoteAcceptStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => quoteLifecycleStatus(input, "accept"),
+    previewQuoteDecline: (input: QuoteAcceptPreview): Promise<CanonicalResult> => quoteLifecycle(input, true, "decline"),
+    executeQuoteDecline: (input: CustomerUpdateExecution): Promise<CanonicalResult> => quoteLifecycle(input, false, "decline"),
+    quoteDeclineStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => quoteLifecycleStatus(input, "decline"),
+    previewServiceCreate: (input: ServiceCreatePreview): Promise<CanonicalResult> => serviceCreate(input, true),
+    executeServiceCreate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceCreate(input, false),
+    serviceCreateStatus,
+    previewServiceUpdate: (input: ServiceUpdatePreview): Promise<CanonicalResult> => serviceUpdate(input, true),
+    executeServiceUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceUpdate(input, false),
+    serviceUpdateStatus,
   });
 };

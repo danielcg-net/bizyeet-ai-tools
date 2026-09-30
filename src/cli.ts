@@ -8,19 +8,23 @@ import { loginWithBrowser, loginWithDevice } from "./auth-session.js";
 import { canonicalRegistrationScope } from "./oauth.js";
 import { refreshPersistenceMessages } from "./agent-client.js";
 import { launchBrowser } from "./browser.js";
-import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, upcomingBookings, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
+import { checkIdentity, getPayment as getAgentPayment, listPayments as listAgentPayments, getLead as getAgentLead, listLeads as listAgentLeads, getCustomer as getAgentCustomer, listCustomers as listAgentCustomers, previewCustomerUpdate, executeCustomerUpdate, customerUpdateStatus, bookingCapabilities, upcomingBookings, type AgentResult, type CustomerListOptions, type PaymentListOptions, type PersistCredentials } from "./agent-client.js";
 import { previewLeadUpdate, executeLeadUpdate, leadUpdateStatus } from "./agent-client.js";
 import { previewCustomerCreate, executeCustomerCreate, customerCreateStatus,
   previewLeadCreate, executeLeadCreate, leadCreateStatus } from "./agent-client.js";
 import { previewLeadPromotion, executeLeadPromotion, leadPromotionStatus } from "./agent-client.js";
 import { previewQuoteCreate, executeQuoteCreate, quoteCreateStatus,
   previewQuoteUpdate, executeQuoteUpdate, quoteUpdateStatus } from "./agent-client.js";
+import { previewQuoteAccept, executeQuoteAccept, quoteAcceptStatus } from "./agent-client.js";
+import { previewQuoteDecline, executeQuoteDecline, quoteDeclineStatus } from "./agent-client.js";
+import { previewServiceCreate, executeServiceCreate, serviceCreateStatus } from "./agent-client.js";
+import { previewServiceUpdate, executeServiceUpdate, serviceUpdateStatus } from "./agent-client.js";
 import { readCommunications } from "./agent-client.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource } from "./communication-contract.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { getExpense, listExpenses } from "./agent-client.js";
 import { validExpenseListOptions } from "./expense-contract.js";
-import { readChanges, readApprovalReceipt, readQuoteProposal, readRecordProposal } from "./write-input.js";
+import { readChanges, readApprovalReceipt, readQuoteProposal, readRecordProposal, readServiceProposal } from "./write-input.js";
 import { credentialStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validResourceId } from "./canonical-crm-client.js";
@@ -29,6 +33,8 @@ import { receivedPaymentSummary } from "./agent-client.js";
 import { validPaymentSummaryOptions } from "./payment-summary-contract.js";
 import { readTaxReport } from "./agent-client.js";
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
+import { readMarginReport } from "./agent-client.js";
+import { validMarginReportOptions, type MarginReportOptions } from "./margin-report-contract.js";
 import { validBookingSummaryOptions } from "./booking-contract.js";
 import { getQuote, listQuotes, getService, listServices, getCatalogItem, listCatalog } from "./agent-client.js";
 import { validCatalogReadFields } from "./catalog-read-contract.js";
@@ -62,7 +68,9 @@ type CliRuntime = Readonly<{
   getService?: (input: Omit<Parameters<typeof getService>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listServices?: (input: Omit<Parameters<typeof listServices>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   upcomingBookings?: (input: Omit<Parameters<typeof upcomingBookings>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  bookingCapabilities?: (input: Omit<Parameters<typeof bookingCapabilities>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readTaxReport?: (input: Omit<Parameters<typeof readTaxReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  readMarginReport?: (input: Omit<Parameters<typeof readMarginReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getExpense?: (input: Omit<Parameters<typeof getExpense>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listExpenses?: (input: Omit<Parameters<typeof listExpenses>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   receivedPaymentSummary?: (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -90,9 +98,22 @@ type CliRuntime = Readonly<{
   previewQuoteUpdate?: (input: Omit<Parameters<typeof previewQuoteUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeQuoteUpdate?: (input: Omit<Parameters<typeof executeQuoteUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   quoteUpdateStatus?: (input: Omit<Parameters<typeof quoteUpdateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewQuoteAccept?: (input: Omit<Parameters<typeof previewQuoteAccept>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeQuoteAccept?: (input: Omit<Parameters<typeof executeQuoteAccept>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  quoteAcceptStatus?: (input: Omit<Parameters<typeof quoteAcceptStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewQuoteDecline?: (input: Omit<Parameters<typeof previewQuoteDecline>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeQuoteDecline?: (input: Omit<Parameters<typeof executeQuoteDecline>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  quoteDeclineStatus?: (input: Omit<Parameters<typeof quoteDeclineStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewServiceCreate?: (input: Omit<Parameters<typeof previewServiceCreate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeServiceCreate?: (input: Omit<Parameters<typeof executeServiceCreate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  serviceCreateStatus?: (input: Omit<Parameters<typeof serviceCreateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewServiceUpdate?: (input: Omit<Parameters<typeof previewServiceUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeServiceUpdate?: (input: Omit<Parameters<typeof executeServiceUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  serviceUpdateStatus?: (input: Omit<Parameters<typeof serviceUpdateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readChanges?: typeof readChanges;
   readQuoteProposal?: typeof readQuoteProposal;
   readRecordProposal?: typeof readRecordProposal;
+  readServiceProposal?: typeof readServiceProposal;
   readApprovalReceipt?: typeof readApprovalReceipt;
   checkIdentity?: (input: Readonly<{ credentials: import("./profile-store.js").StoredCredentials; persistCredentials: PersistCredentials; profile: import("./profile-store.js").Profile }>) => Promise<AgentResult>;
   getLead?: (input: Omit<Parameters<typeof getAgentLead>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -120,7 +141,9 @@ const runtime: CliRuntime = {
   getService: async (input) => getService({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listServices: async (input) => listServices({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   upcomingBookings: async (input) => upcomingBookings({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  bookingCapabilities: async (input) => bookingCapabilities({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   readTaxReport: async (input) => readTaxReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  readMarginReport: async (input) => readMarginReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getExpense: async (input) => getExpense({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listExpenses: async (input) => listExpenses({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   receivedPaymentSummary: async (input) => receivedPaymentSummary({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -131,6 +154,7 @@ const runtime: CliRuntime = {
   readChanges,
   readQuoteProposal,
   readRecordProposal,
+  readServiceProposal,
   readApprovalReceipt,
   previewCustomerUpdate: async (input) => previewCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeCustomerUpdate: async (input) => executeCustomerUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -153,6 +177,18 @@ const runtime: CliRuntime = {
   previewQuoteUpdate: async (input) => previewQuoteUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeQuoteUpdate: async (input) => executeQuoteUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   quoteUpdateStatus: async (input) => quoteUpdateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewQuoteAccept: async (input) => previewQuoteAccept({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeQuoteAccept: async (input) => executeQuoteAccept({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  quoteAcceptStatus: async (input) => quoteAcceptStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewQuoteDecline: async (input) => previewQuoteDecline({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeQuoteDecline: async (input) => executeQuoteDecline({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  quoteDeclineStatus: async (input) => quoteDeclineStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewServiceCreate: async (input) => previewServiceCreate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeServiceCreate: async (input) => executeServiceCreate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  serviceCreateStatus: async (input) => serviceCreateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewServiceUpdate: async (input) => previewServiceUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeServiceUpdate: async (input) => executeServiceUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  serviceUpdateStatus: async (input) => serviceUpdateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
     const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -191,6 +227,7 @@ const helpMessage = [
   "       bizyeet expenses list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <due|paid|skipped>] [--category <name>] [--currency <ISO>] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
   "       bizyeet expenses get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet bookings upcoming [--hours <1-720>] [--profile <name>] [--export]",
+  "       bizyeet bookings capabilities [--profile <name>] [--export]",
   "       bizyeet <customers|leads|quotes|services|payments> communications <opaque-id> [--page <1-10000>] [--limit <10|20|50>] [--profile <name>] [--export]",
   "Read commands accept --export for a private local JSON file; responses above 32 KiB export automatically. No output-path argument or automatic pagination is supported.",
   "       bizyeet customers update preview <opaque-id> --input-stdin [--profile <name>]",
@@ -214,13 +251,30 @@ const helpMessage = [
   "       bizyeet quotes update preview <opaque-quote-id> --input-stdin [--profile <name>]",
   "       bizyeet quotes update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet quotes update status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet quotes accept preview <opaque-quote-id> [--profile <name>]",
+  "       bizyeet quotes accept execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet quotes accept status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet quotes decline preview <opaque-quote-id> [--profile <name>]",
+  "       bizyeet quotes decline execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet quotes decline status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet services create preview --input-stdin [--profile <name>]",
+  "       bizyeet services create execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet services create status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet services update preview <service-id> --input-stdin [--profile <name>]",
+  "       bizyeet services update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet services update status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "Quote acceptance can create a service, promote a lead, and trigger configured email; only the signed-in dashboard can approve it.",
+  "Quote decline changes only the quote lifecycle; it creates no service, payment, or customer communication and requires dashboard approval.",
+  "Service creation may send configured email or a calendar invite; inspect the dashboard preview before approval.",
   "Preview reads a bounded JSON changes object from stdin; review its approval_path in your signed-in dashboard.",
   "Execution prompts for a hidden approval receipt. Harnesses use a private pipe with --receipt-stdin; never put receipts in commands, shell history or chat.",
   "Generate and retain one UUID idempotency key for this execution. Never replace it to recover an uncertain outcome.",
   "       bizyeet payments received-summary [--range <today|month|last_month|ytd|custom>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--profile <name>] [--export]",
   "Summary custom dates are inclusive in the tenant timezone; currency groups are never combined. This is gross collected receipts, not net revenue.",
   "       bizyeet reports taxes [--range <today|7d|30d|month|last_month|ytd|custom>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--authority <code>] [--province <code>] [--currency <code>] [--entry-type <collected|reversal|adjustment>] [--page <number>] [--limit <1-100>] [--fields <csv>] [--profile <name>] [--export]",
+  "       bizyeet reports margin [--kind <completed_services|active_services|sent_quotes>] [--range <today|7d|30d|month|last_month|ytd|custom>] [--start-date <YYYY-MM-DD>] [--end-date <YYYY-MM-DD>] [--page <number>] [--limit <1-50>] [--fields <csv>] [--profile <name>] [--export]",
   "Tax reports require reports.read and tenant-admin access. Month is month-to-date; totals remain in separate currencies and are not filing-ready.",
+  "Margin reports require reports.read and tenant-admin access. Missing costs are not zero; totals remain in separate currencies.",
   "       bizyeet --version",
   "       bizyeet diagnostics (local runtime and manual-update guidance; no network or credentials)",
   "Authentication uses OAuth with PKCE or Device Authorization; API keys, personal access tokens, and passwords are not accepted.",
@@ -586,6 +640,19 @@ const bookingRead = async (args: readonly string[], dependencies: CliStorage, ex
   } catch (error) { return requestFailure(error); }
 };
 
+const bookingCapabilityRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    if (!hasOnlyOptions(args, ["--profile"], ["--export"]) || args.filter((arg) => arg === "--export").length > 1
+      || valuesFor(args, "--profile").length > 1) return invalidInput("Booking capability options are invalid.");
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.bookingCapabilities) return unsupportedCommand("bookings capabilities");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.bookingCapabilities({ credentials: authenticated.credentials, profile: authenticated.profile,
+      persistCredentials }), args.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
 const communicationRead = async (resource: CommunicationResource, args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   try {
     const target = resourceTarget(args, ["--profile", "--page", "--limit"], ["--export"]);
@@ -632,12 +699,42 @@ const taxRead = async (args: readonly string[], dependencies: CliStorage, execut
   } catch (error) { return requestFailure(error); }
 };
 
+const marginReadOptions = (args: readonly string[]): MarginReportOptions | undefined => {
+  try {
+    const mapping = { "--kind": "kind", "--range": "range", "--start-date": "start_date", "--end-date": "end_date",
+      "--page": "page", "--limit": "page_size", "--fields": "fields" };
+    if (!hasOnlyOptions(args, [...Object.keys(mapping), "--profile"], ["--export"])
+      || args.filter((arg) => arg === "--export").length > 1) return undefined;
+    const options = Object.fromEntries(Object.entries(mapping).flatMap(([flag, key]): readonly (readonly [string, unknown])[] => {
+      const value = oneOption(args, flag);
+      if (!value) return [];
+      if (key === "page" || key === "page_size") return [[key, /^[1-9]\d*$/u.test(value) ? Number(value) : null]];
+      return [[key, key === "fields" ? value.split(",") : value]];
+    }));
+    return validMarginReportOptions(options) ? options : undefined;
+  } catch { return undefined; }
+};
+
+const marginRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const options = marginReadOptions(args);
+  if (!options) return invalidInput("Margin report options are invalid.");
+  try {
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.readMarginReport) return unsupportedCommand("reports margin");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.readMarginReport({ credentials: authenticated.credentials, profile: authenticated.profile,
+      options, persistCredentials }), args.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
 const crmRead = async (resource: "customers" | "leads" | "payments" | "services" | "quotes" | "catalog", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [command, ...options] = args;
   if ((resource === "customers" || resource === "leads") && command === "create") return recordCreate(resource, options, dependencies, execution);
   if (resource === "leads" && command === "promote") return leadPromotion(options, dependencies, execution);
   if ((resource === "customers" || resource === "leads") && command === "update") return recordUpdate(resource, options, dependencies, execution);
-  if (resource === "quotes" && (command === "create" || command === "update")) return quoteWrite(command, options, dependencies, execution);
+  if (resource === "quotes" && (command === "create" || command === "update" || command === "accept" || command === "decline")) return quoteWrite(command, options, dependencies, execution);
+  if (resource === "services" && (command === "create" || command === "update")) return serviceWrite(command, options, dependencies, execution);
   try {
     if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
     const listOptions = command === "list" ? crmListOptions(resource, options) : undefined;
@@ -762,15 +859,19 @@ const recordUpdate = async (resource: "customers" | "leads", args: readonly stri
   } catch (error) { return requestFailure(error); }
 };
 
-const quoteWrite = async (operation: "create" | "update", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+const quoteWrite = async (operation: "create" | "update" | "accept" | "decline", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [mode, ...targetArgs] = args;
   if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput(`Use quotes ${operation} preview, execute, or status.`);
+  const lifecycle = operation === "accept" || operation === "decline";
   const target = mode === "preview" && operation === "create" ? undefined
     : resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"],
-      mode === "preview" ? ["--input-stdin"] : mode === "execute" ? ["--receipt-stdin"] : []);
+      mode === "preview" ? lifecycle ? [] : ["--input-stdin"] : mode === "execute" ? ["--receipt-stdin"] : []);
   if (mode === "preview" && ((operation === "create" && !hasOnlyOptions(targetArgs, ["--profile"], ["--input-stdin"]))
     || (operation === "update" && (!target || !validResourceId(target.id)))
-    || targetArgs.filter((arg) => arg === "--input-stdin").length !== 1)) return invalidInput("Quote preview requires piped JSON with --input-stdin.");
+    || (lifecycle && (!target || !validResourceId(target.id)))
+    || (!lifecycle && targetArgs.filter((arg) => arg === "--input-stdin").length !== 1))) return invalidInput(
+      lifecycle ? `Quote ${operation} preview requires one opaque quote ID and optional --profile.`
+        : "Quote preview requires piped JSON with --input-stdin.");
   if (mode !== "preview" && !target) return invalidInput("Quote execution and status require a preview ID and idempotency key.");
   if ((target?.options.filter((arg) => arg === "--receipt-stdin").length ?? 0) > 1) return invalidInput("Use --receipt-stdin only once.");
   try {
@@ -782,6 +883,11 @@ const quoteWrite = async (operation: "create" | "update", args: readonly string[
     const session = { credentials: selected.credentials, profile: selected.profile,
       persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
     if (mode === "preview") {
+      if (lifecycle) {
+        const preview = operation === "accept" ? execution.previewQuoteAccept : execution.previewQuoteDecline;
+        if (!preview) throw new Error(`Quote ${operation} runtime unavailable`);
+        return resourceOutput(await preview({ ...session, proposal: { resource_id: target?.id ?? "" } }));
+      }
       if (!execution.readQuoteProposal) throw new Error("Quote write runtime unavailable");
       const quote = await execution.readQuoteProposal();
       if (operation === "create") {
@@ -792,14 +898,62 @@ const quoteWrite = async (operation: "create" | "update", args: readonly string[
       return resourceOutput(await execution.previewQuoteUpdate({ ...session, proposal: { resource_id: target?.id ?? "", quote } }));
     }
     if (mode === "status") {
-      const status = operation === "create" ? execution.quoteCreateStatus : execution.quoteUpdateStatus;
+      const status = operation === "create" ? execution.quoteCreateStatus
+        : operation === "update" ? execution.quoteUpdateStatus
+          : operation === "accept" ? execution.quoteAcceptStatus : execution.quoteDeclineStatus;
       if (!status) throw new Error("Quote status runtime unavailable");
       return resourceOutput(await status({ ...session, query: { preview_id: target?.id ?? "", idempotency_key: key } }));
     }
-    const execute = operation === "create" ? execution.executeQuoteCreate : execution.executeQuoteUpdate;
+    const execute = operation === "create" ? execution.executeQuoteCreate
+      : operation === "update" ? execution.executeQuoteUpdate
+        : operation === "accept" ? execution.executeQuoteAccept : execution.executeQuoteDecline;
     if (!execution.readApprovalReceipt || !execute) throw new Error("Quote write runtime unavailable");
     return resourceOutput(await execute({ ...session, approval: { preview_id: target?.id ?? "", idempotency_key: key,
       approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
+  } catch (error) { return requestFailure(error); }
+};
+
+const serviceWrite = async (operation: "create" | "update", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const [mode, ...targetArgs] = args;
+  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput(`Use services ${operation} preview, execute, or status.`);
+  const target = mode === "preview" && operation === "create" ? undefined
+    : resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"],
+      mode === "preview" ? ["--input-stdin"] : mode === "execute" ? ["--receipt-stdin"] : []);
+  if (mode === "preview" && ((operation === "create" && !hasOnlyOptions(targetArgs, ["--profile"], ["--input-stdin"]))
+    || (operation === "update" && (!target || !validResourceId(target.id)))
+    || targetArgs.filter((arg) => arg === "--input-stdin").length !== 1)) return invalidInput(
+      operation === "update" ? "Service update preview requires one opaque service ID and piped JSON with --input-stdin."
+        : "Service preview requires piped JSON with --input-stdin.");
+  if (mode !== "preview" && !target) return invalidInput("Service execution and status require a preview ID and idempotency key.");
+  if ((target?.options.filter((arg) => arg === "--receipt-stdin").length ?? 0) > 1) return invalidInput("Use --receipt-stdin only once.");
+  try {
+    const options = target?.options ?? targetArgs;
+    const key = mode === "preview" ? "" : oneOption(options, "--idempotency-key", "");
+    if (mode !== "preview" && (!isUuid(target?.id) || !isUuid(key))) return invalidInput("Service execution and status require a preview UUID and --idempotency-key UUID.");
+    if (mode === "preview" && (!execution.readServiceProposal || (operation === "create" ? !execution.previewServiceCreate : !execution.previewServiceUpdate))) throw new Error("Service write runtime unavailable");
+    const service = mode === "preview" && execution.readServiceProposal ? await execution.readServiceProposal() : undefined;
+    if (mode === "preview" && (!service || (operation === "create" && !validResourceId(service.customerId)))) return invalidInput("Service preview requires a valid customerId.");
+    const selected = await authenticatedProfile(options, dependencies);
+    if ("exitCode" in selected) return selected;
+    const session = { credentials: selected.credentials, profile: selected.profile,
+      persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
+    if (mode === "preview") {
+      if (operation === "create") {
+        if (!execution.previewServiceCreate || !service) throw new Error("Service write runtime unavailable");
+        return resourceOutput(await execution.previewServiceCreate({ ...session, proposal: { service } }));
+      }
+      if (!execution.previewServiceUpdate || !service) throw new Error("Service write runtime unavailable");
+      return resourceOutput(await execution.previewServiceUpdate({ ...session, proposal: { resource_id: target?.id ?? "", service } }));
+    }
+    if (mode === "status") {
+      const status = operation === "create" ? execution.serviceCreateStatus : execution.serviceUpdateStatus;
+      if (!status) throw new Error("Service status runtime unavailable");
+      return resourceOutput(await status({ ...session, query: { preview_id: target?.id ?? "", idempotency_key: key } }));
+    }
+    const execute = operation === "create" ? execution.executeServiceCreate : execution.executeServiceUpdate;
+    if (!execution.readApprovalReceipt || !execute) throw new Error("Service write runtime unavailable");
+    return resourceOutput(await execute({ ...session, approval: { preview_id: target?.id ?? "",
+      idempotency_key: key, approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
   } catch (error) { return requestFailure(error); }
 };
 
@@ -835,7 +989,9 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (first === "expenses" && second === "schedules") return unsupportedCommand("expenses schedules");
   if (first === "expenses") return expenseRead(args.slice(1), dependencies, execution);
   if (first === "bookings" && second === "upcoming") return bookingRead(args.slice(2), dependencies, execution);
+  if (first === "bookings" && second === "capabilities") return bookingCapabilityRead(args.slice(2), dependencies, execution);
   if (first === "reports" && second === "taxes") return taxRead(args.slice(2), dependencies, execution);
+  if (first === "reports" && second === "margin") return marginRead(args.slice(2), dependencies, execution);
   if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);
   if (validCommunicationResource(first) && second === "communications") return communicationRead(first, args.slice(2), dependencies, execution);
   if (first === "customers" || first === "leads" || first === "payments" || first === "services" || first === "quotes" || first === "catalog") return crmRead(first, args.slice(1), dependencies, execution);

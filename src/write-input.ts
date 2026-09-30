@@ -78,9 +78,8 @@ export const readChanges = async (): Promise<Readonly<Record<string, string>>> =
   } catch { return invalid(); }
 };
 
-/** Read one bounded quote proposal from an explicit pipe without reflecting private input. */
-export const readQuoteProposal = async (): Promise<Readonly<Record<string, unknown>>> => {
-  if (terminalInput()) throw new Error("Quote preview requires piped JSON with --input-stdin.");
+const readProposal = async (subject: "Quote" | "Service"): Promise<Readonly<Record<string, unknown>>> => {
+  if (terminalInput()) throw new Error(`${subject} preview requires piped JSON with --input-stdin.`);
   const deadline = Date.now() + 30_000;
   try {
     const value: unknown = JSON.parse(await collectWriteInput(() => nextInput(deadline), 16_384));
@@ -99,6 +98,12 @@ export const readRecordProposal = async (kind: CreateResource): Promise<Readonly
     return value as Readonly<Record<string, string | null>>;
   } catch { return invalid(); }
 };
+
+/** Read one bounded quote proposal from an explicit pipe without reflecting private input. */
+export const readQuoteProposal = (): Promise<Readonly<Record<string, unknown>>> => readProposal("Quote");
+
+/** Read one bounded service proposal from an explicit pipe without reflecting private input. */
+export const readServiceProposal = (): Promise<Readonly<Record<string, unknown>>> => readProposal("Service");
 
 /** Receive one receipt privately. Raw mode is restored on success, failure or cancellation. */
 export const readApprovalReceipt = async (piped: boolean): Promise<string> => {

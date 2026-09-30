@@ -325,6 +325,7 @@ Request the exact `bookings.read` scope during OAuth login; the default
 bizyeet auth login --issuer https://your-bizyeet-origin --scope bookings.read
 bizyeet auth check
 bizyeet bookings upcoming --hours 168
+bizyeet bookings capabilities
 ```
 
 `--hours` is an integer from 1 through 720 and defaults to 168. The server owns
@@ -332,6 +333,15 @@ provider routing and current booking permission checks; unavailable, disabled,
 and unsupported providers remain explicit errors. Do not infer a bookable slot,
 provider action, or tenant from a successful count. The matching MCP tool is
 `bizyeet_bookings_upcoming` and advertises the same `bookings.read` OAuth scope.
+
+The source-only `bookings capabilities` contract requires the matching canonical
+backend endpoint to be merged and deployed; it is not yet a released feature.
+It reports configured support for upcoming summaries, slots, detail, creation,
+rescheduling, cancellation and booking links without returning URLs or customer
+data. `external_link_only` means a configured booking link exists, not that the
+CLI or MCP tool can create a booking. Configuration is not proof of live provider
+health; use the bounded upcoming read to verify a provider read. The matching
+read-only MCP tool is `bizyeet_bookings_capabilities` (`bookings.read`).
 
 ## Communication history contract (not yet released)
 
@@ -402,6 +412,28 @@ For rolling ranges, the calendar anchor must match that timestamp in the tenant
 timezone, allowing the request's 15-second timeout window to cross midnight.
 The CLI command does not imply that a server has deployed the corresponding
 endpoint; unsupported or unauthorized requests fail explicitly.
+
+## Margin reports
+
+Servers with the canonical margin-report contract deployed support:
+
+```sh
+bizyeet reports margin --kind completed_services --range month --limit 25
+bizyeet reports margin --kind active_services --range custom --start-date 2026-03-01 --end-date 2026-03-31 --fields revenue,actual_cost,margin_amount --export
+```
+
+Margin reads require `reports.read` and the user's live tenant-admin role. The
+canonical server selects the tenant, provider, timezone and source; unsupported
+providers fail explicitly. The report separates currency totals and distinguishes
+missing costs from zero costs. `sent_quotes` is forecast, `active_services` is
+exposure, and `completed_services` is realized activity; the CLI does not merge
+those views or recalculate margins. Custom date labels are inclusive in the
+tenant timezone, while returned UTC instants are inclusive-start/exclusive-end.
+`source.readCompletedAt` is freshness evidence, not a snapshot guarantee.
+`--page` and `--limit` bound pagination to 50 rows per request; private cost
+fields require explicit `--fields`. The client strips unrequested row fields and
+never treats a provider error as an empty report. This source command is not a
+package release or evidence of a live tenant read.
 
 ## Received-payment summaries
 
@@ -547,9 +579,83 @@ bizyeet quotes update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
 Preview is side-effect free. Execute requires a dashboard-approved receipt
 entered in the hidden prompt or a private `--receipt-stdin` pipe. Status reads
 the original outcome with the same key; never use a new key to repeat an
-uncertain update. This source command does not send, accept, or decline a quote,
+uncertain update. The update command does not send, accept, or decline a quote,
 and must not be treated as usable until its matching backend is deployed and a
 package release is explicitly authorized.
+
+## Quote acceptance (source command, not yet released)
+
+The source CLI can prepare acceptance of one exact quote through the canonical
+OAuth lifecycle endpoint. The server requires `customers.write`; when automatic
+service-status email is configured, it also requires `mail.send`. Preview does
+not accept the quote or send mail. It shows that acceptance can create a service,
+promote a lead, and send the configured email. A signed-in human must inspect
+the returned `approval_path` and approve that exact preview before execution.
+
+```sh
+bizyeet quotes accept preview "$QUOTE_ID"
+bizyeet quotes accept execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes accept status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Pass the receipt only through the hidden prompt or a private `--receipt-stdin`
+pipe. Keep the original UUID execution key. If execution is uncertain, use
+`status` to reconcile it; do not repeat acceptance with a new key. This source
+command is not a package release or a production canary.
+
+The source CLI can also decline one open quote through the canonical OAuth
+lifecycle endpoint with `customers.write`. Preview makes no change. Decline
+requires a signed-in human to approve the exact `approval_path`, creates no
+service or payment, and sends no customer communication.
+
+```sh
+bizyeet quotes decline preview "$QUOTE_ID"
+bizyeet quotes decline execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet quotes decline status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Pass the approval receipt through the hidden prompt or private
+`--receipt-stdin` pipe. Retain the original UUID execution key and reconcile
+uncertainty with `status`; never repeat decline with a new key. This remains
+source-only, without a package release or production canary.
+
+The source CLI can prepare a customer-bound backlog service through the
+canonical OAuth endpoint. Provide one bounded service JSON proposal through
+`--input-stdin`. Preview shows priced line items, discounts, customer-document
+requirements, and any configured email or calendar effect. The server requires
+`customers.write`, plus `mail.send` when those external effects are configured.
+A signed-in human must approve the exact dashboard preview before creation.
+
+```sh
+bizyeet services create preview --input-stdin
+bizyeet services create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services create status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use the hidden receipt prompt or private `--receipt-stdin` pipe. Retain the
+original UUID execution key and reconcile uncertain results with read-only
+`status`; never create a replacement service. This remains source-only, not a
+package release or production canary.
+
+The source CLI can also revise one existing service through the canonical
+OAuth service-update endpoint. Obtain the opaque service ID and current
+`pricing_revision` with `services get`, then pipe the complete update JSON
+(including `expectedPricingRevision` and line-item IDs) to preview. The
+server checks the current revision, scopes and role; it may require
+`mail.send` and an externally-visible-send approval class if configured
+calendar invitations could be sent. Preview never applies the edit.
+
+```sh
+bizyeet services update preview "$SERVICE_ID" --input-stdin
+bizyeet services update execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Have a signed-in human approve the exact dashboard preview and supply its
+receipt through the hidden prompt or private `--receipt-stdin` pipe. Keep the
+original execution UUID; on an uncertain result, query read-only `status`
+instead of sending another update. This is source-only and not a package
+release or production canary.
 
 ## Lead update contract (not yet released)
 
