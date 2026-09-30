@@ -605,6 +605,26 @@ original UUID execution key and reconcile uncertain results with read-only
 `status`; never create a replacement service. This remains source-only, not a
 package release or production canary.
 
+The source CLI can also revise one existing service through the canonical
+OAuth service-update endpoint. Obtain the opaque service ID and current
+`pricing_revision` with `services get`, then pipe the complete update JSON
+(including `expectedPricingRevision` and line-item IDs) to preview. The
+server checks the current revision, scopes and role; it may require
+`mail.send` and an externally-visible-send approval class if configured
+calendar invitations could be sent. Preview never applies the edit.
+
+```sh
+bizyeet services update preview "$SERVICE_ID" --input-stdin
+bizyeet services update execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Have a signed-in human approve the exact dashboard preview and supply its
+receipt through the hidden prompt or private `--receipt-stdin` pipe. Keep the
+original execution UUID; on an uncertain result, query read-only `status`
+instead of sending another update. This is source-only and not a package
+release or production canary.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and

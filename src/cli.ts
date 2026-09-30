@@ -15,6 +15,7 @@ import { previewQuoteCreate, executeQuoteCreate, quoteCreateStatus,
 import { previewQuoteAccept, executeQuoteAccept, quoteAcceptStatus } from "./agent-client.js";
 import { previewQuoteDecline, executeQuoteDecline, quoteDeclineStatus } from "./agent-client.js";
 import { previewServiceCreate, executeServiceCreate, serviceCreateStatus } from "./agent-client.js";
+import { previewServiceUpdate, executeServiceUpdate, serviceUpdateStatus } from "./agent-client.js";
 import { readCommunications } from "./agent-client.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource } from "./communication-contract.js";
 import { validPaymentQuery } from "./payment-contract.js";
@@ -90,6 +91,9 @@ type CliRuntime = Readonly<{
   previewServiceCreate?: (input: Omit<Parameters<typeof previewServiceCreate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeServiceCreate?: (input: Omit<Parameters<typeof executeServiceCreate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   serviceCreateStatus?: (input: Omit<Parameters<typeof serviceCreateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewServiceUpdate?: (input: Omit<Parameters<typeof previewServiceUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeServiceUpdate?: (input: Omit<Parameters<typeof executeServiceUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  serviceUpdateStatus?: (input: Omit<Parameters<typeof serviceUpdateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readChanges?: typeof readChanges;
   readQuoteProposal?: typeof readQuoteProposal;
   readServiceProposal?: typeof readServiceProposal;
@@ -153,6 +157,9 @@ const runtime: CliRuntime = {
   previewServiceCreate: async (input) => previewServiceCreate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeServiceCreate: async (input) => executeServiceCreate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   serviceCreateStatus: async (input) => serviceCreateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewServiceUpdate: async (input) => previewServiceUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeServiceUpdate: async (input) => executeServiceUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  serviceUpdateStatus: async (input) => serviceUpdateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
     const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -214,6 +221,9 @@ const helpMessage = [
   "       bizyeet services create preview --input-stdin [--profile <name>]",
   "       bizyeet services create execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet services create status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet services update preview <service-id> --input-stdin [--profile <name>]",
+  "       bizyeet services update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet services update status <preview-id> --idempotency-key <uuid> [--profile <name>]",
   "Quote acceptance can create a service, promote a lead, and trigger configured email; only the signed-in dashboard can approve it.",
   "Quote decline changes only the quote lifecycle; it creates no service, payment, or customer communication and requires dashboard approval.",
   "Service creation may send configured email or a calendar invite; inspect the dashboard preview before approval.",
@@ -638,7 +648,7 @@ const crmRead = async (resource: "customers" | "leads" | "payments" | "services"
   const [command, ...options] = args;
   if ((resource === "customers" || resource === "leads") && command === "update") return recordUpdate(resource, options, dependencies, execution);
   if (resource === "quotes" && (command === "create" || command === "update" || command === "accept" || command === "decline")) return quoteWrite(command, options, dependencies, execution);
-  if (resource === "services" && command === "create") return serviceCreateWrite(options, dependencies, execution);
+  if (resource === "services" && (command === "create" || command === "update")) return serviceWrite(command, options, dependencies, execution);
   try {
     if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
     const listOptions = command === "list" ? crmListOptions(resource, options) : undefined;
@@ -754,35 +764,46 @@ const quoteWrite = async (operation: "create" | "update" | "accept" | "decline",
   } catch (error) { return requestFailure(error); }
 };
 
-const serviceCreateWrite = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+const serviceWrite = async (operation: "create" | "update", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   const [mode, ...targetArgs] = args;
-  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput("Use services create preview, execute, or status.");
-  if (mode === "preview" && (!hasOnlyOptions(targetArgs, ["--profile"], ["--input-stdin"])
-    || targetArgs.filter((arg) => arg === "--input-stdin").length !== 1)) return invalidInput("Service preview requires piped JSON with --input-stdin.");
-  const target = mode === "preview" ? undefined : resourceTarget(targetArgs, ["--profile", "--idempotency-key"],
-    mode === "execute" ? ["--receipt-stdin"] : []);
+  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput(`Use services ${operation} preview, execute, or status.`);
+  const target = mode === "preview" && operation === "create" ? undefined
+    : resourceTarget(targetArgs, mode === "preview" ? ["--profile"] : ["--profile", "--idempotency-key"],
+      mode === "preview" ? ["--input-stdin"] : mode === "execute" ? ["--receipt-stdin"] : []);
+  if (mode === "preview" && ((operation === "create" && !hasOnlyOptions(targetArgs, ["--profile"], ["--input-stdin"]))
+    || (operation === "update" && (!target || !validResourceId(target.id)))
+    || targetArgs.filter((arg) => arg === "--input-stdin").length !== 1)) return invalidInput(
+      operation === "update" ? "Service update preview requires one opaque service ID and piped JSON with --input-stdin."
+        : "Service preview requires piped JSON with --input-stdin.");
   if (mode !== "preview" && !target) return invalidInput("Service execution and status require a preview ID and idempotency key.");
+  if ((target?.options.filter((arg) => arg === "--receipt-stdin").length ?? 0) > 1) return invalidInput("Use --receipt-stdin only once.");
   try {
     const options = target?.options ?? targetArgs;
     const key = mode === "preview" ? "" : oneOption(options, "--idempotency-key", "");
     if (mode !== "preview" && (!isUuid(target?.id) || !isUuid(key))) return invalidInput("Service execution and status require a preview UUID and --idempotency-key UUID.");
-    if (mode === "preview" && (!execution.readServiceProposal || !execution.previewServiceCreate)) throw new Error("Service-create runtime unavailable");
+    if (mode === "preview" && (!execution.readServiceProposal || (operation === "create" ? !execution.previewServiceCreate : !execution.previewServiceUpdate))) throw new Error("Service write runtime unavailable");
     const service = mode === "preview" && execution.readServiceProposal ? await execution.readServiceProposal() : undefined;
-    if (mode === "preview" && (!service || !validResourceId(service.customerId))) return invalidInput("Service preview requires a valid customerId.");
+    if (mode === "preview" && (!service || (operation === "create" && !validResourceId(service.customerId)))) return invalidInput("Service preview requires a valid customerId.");
     const selected = await authenticatedProfile(options, dependencies);
     if ("exitCode" in selected) return selected;
     const session = { credentials: selected.credentials, profile: selected.profile,
       persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
     if (mode === "preview") {
-      if (!execution.previewServiceCreate || !service) throw new Error("Service-create runtime unavailable");
-      return resourceOutput(await execution.previewServiceCreate({ ...session, proposal: { service } }));
+      if (operation === "create") {
+        if (!execution.previewServiceCreate || !service) throw new Error("Service write runtime unavailable");
+        return resourceOutput(await execution.previewServiceCreate({ ...session, proposal: { service } }));
+      }
+      if (!execution.previewServiceUpdate || !service) throw new Error("Service write runtime unavailable");
+      return resourceOutput(await execution.previewServiceUpdate({ ...session, proposal: { resource_id: target?.id ?? "", service } }));
     }
     if (mode === "status") {
-      if (!execution.serviceCreateStatus) throw new Error("Service status runtime unavailable");
-      return resourceOutput(await execution.serviceCreateStatus({ ...session, query: { preview_id: target?.id ?? "", idempotency_key: key } }));
+      const status = operation === "create" ? execution.serviceCreateStatus : execution.serviceUpdateStatus;
+      if (!status) throw new Error("Service status runtime unavailable");
+      return resourceOutput(await status({ ...session, query: { preview_id: target?.id ?? "", idempotency_key: key } }));
     }
-    if (!execution.readApprovalReceipt || !execution.executeServiceCreate) throw new Error("Service-create runtime unavailable");
-    return resourceOutput(await execution.executeServiceCreate({ ...session, approval: { preview_id: target?.id ?? "",
+    const execute = operation === "create" ? execution.executeServiceCreate : execution.executeServiceUpdate;
+    if (!execution.readApprovalReceipt || !execute) throw new Error("Service write runtime unavailable");
+    return resourceOutput(await execute({ ...session, approval: { preview_id: target?.id ?? "",
       idempotency_key: key, approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
   } catch (error) { return requestFailure(error); }
 };
