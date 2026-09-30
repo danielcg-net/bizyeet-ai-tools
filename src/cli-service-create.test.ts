@@ -68,6 +68,22 @@ void test("ambiguous service creation directs read-only reconciliation with the 
   assert.doesNotMatch(output.message, /private receipt|rrrrrrrr/u);
 });
 
+void test("service-create status preserves an ambiguous outcome without retrying the write", async () => {
+  const status = mock.fn((input: Parameters<NonNullable<typeof runtime.serviceCreateStatus>>[0]) => {
+    assert.deepEqual(input.query, { preview_id: previewId, idempotency_key: key });
+    return Promise.resolve({ credentials, response: { data: { preview_id: previewId, state: "ambiguous",
+      retry_mutation: false, reconciliation_required: true,
+      outcome: { status: 503, error: { code: "execution_ambiguous" } } }, meta: { contract_version: "v1" } } });
+  });
+  const output = await run(["services", "create", "status", previewId, "--idempotency-key", key], storage,
+    { ...runtime, serviceCreateStatus: status, executeServiceCreate: unexpected });
+  assert.equal(output.exitCode, 0);
+  assert.deepEqual(JSON.parse(output.message), { data: { preview_id: previewId, state: "ambiguous",
+    retry_mutation: false, reconciliation_required: true,
+    outcome: { status: 503, error: { code: "execution_ambiguous" } } }, meta: { contract_version: "v1" } });
+  assert.equal(status.mock.callCount(), 1);
+});
+
 await Promise.all([
   ["preview"], ["preview", "--input-stdin", "--input-stdin"], ["preview", "unexpected", "--input-stdin"],
   ["execute", previewId, "--idempotency-key", "invalid"],
