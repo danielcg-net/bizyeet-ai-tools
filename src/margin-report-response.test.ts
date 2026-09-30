@@ -64,6 +64,7 @@ await Promise.all([
   { ...report, meta: { ...report.meta, page: 2 } },
   { ...report, meta: { ...report.meta, period: { ...report.meta.period, start: "2026-01-01T00:00:00.000Z" } } },
   { ...report, meta: { ...report.meta, period: { ...report.meta.period, startDate: "2026-01-02" } } },
+  { ...report, meta: { ...report.meta, period: { ...report.meta.period, todayDate: "2026-01-16" } } },
 ].map((value, index) => test(`margin response ${String(index)} rejects inconsistent financial evidence`, () => {
   assert.equal(marginReportResponse(value, options), undefined);
 })));

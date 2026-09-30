@@ -55,7 +55,7 @@ const validPeriod = (period: Readonly<Record<string, unknown>>, requested: Margi
   return reportCalendarBoundary(period.start, period.startDate, period.timeZone)
     && reportCalendarBoundary(period.end, period.endDateExclusive, period.timeZone)
     && reportRangeLabels(period.range, period.startDate, period.endDate, period.endDateExclusive, period.todayDate)
-    && (period.range === "custom" || reportAnchorMatchesCompletion(period.todayDate, completedAt, period.timeZone));
+    && reportAnchorMatchesCompletion(period.todayDate, completedAt, period.timeZone);
 };
 
 const validTotal = (value: unknown): value is Readonly<Record<string, unknown>> => record(value)
