@@ -13,6 +13,10 @@ void test("publishes only bounded, read-only MCP tools", () => {
   assert.ok(mcpReadTools.every((tool) => tool.securitySchemes[0]?.scopes[0] === (tool.name.startsWith("bizyeet_payments_") ? "payments.read" : tool.name.startsWith("bizyeet_expense") ? "expenses.read" : tool.name === "bizyeet_reports_taxes" ? "reports.read" : tool.name.startsWith("bizyeet_bookings_") ? "bookings.read" : "customers.read")));
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.outputSchema)));
   assert.match(JSON.stringify(mcpReadTools), /"page_size"/u);
+  const serviceHistory = mcpReadTools.find((tool) => tool.name === "bizyeet_services_history");
+  assert.ok(serviceHistory);
+  assert.match(JSON.stringify(serviceHistory.inputSchema), /sales1/u);
+  assert.match(JSON.stringify(serviceHistory.inputSchema), /page_size/u);
 });
 
 void test("booking capability tool cannot execute a booking or expose booking URLs", () => {
