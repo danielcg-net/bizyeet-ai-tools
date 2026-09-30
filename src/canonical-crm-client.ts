@@ -247,7 +247,8 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
       }
       if (resource === "expense-schedules") {
-        const projected = validExpenseScheduleListOptions(options) ? expenseScheduleResponse(body, options, id) : undefined;
+        const validOptions = id === null ? validExpenseScheduleListOptions(options) : validExpenseScheduleGetOptions(options);
+        const projected = validOptions ? expenseScheduleResponse(body, options, id) : undefined;
         return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
       }
       if (resource === "services") {

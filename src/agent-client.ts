@@ -339,7 +339,7 @@ export const listExpenseSchedules = async (input: WriteSession & Readonly<{ opti
 };
 
 /** Keep a schedule handle opaque and distinct from an individual expense ID. */
-export const getExpenseSchedule = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
+export const getExpenseSchedule = async (input: WriteSession & Readonly<{ resourceId: string; options?: Pick<ExpenseScheduleListOptions, "fields"> }>): Promise<AgentResult> => {
   const options = input.options ?? {};
   if (!validResourceId(input.resourceId) || !validExpenseScheduleGetOptions(options)) throw new Error("Expense schedule read options are invalid.");
   return invoke({ ...input, operation: (client) => client.get("expense-schedules", input.resourceId, options) });
