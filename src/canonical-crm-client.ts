@@ -13,6 +13,8 @@ import { validBookingSummaryOptions, type BookingSummaryOptions } from "./bookin
 import { bookingSummaryResponse } from "./booking-response.js";
 import { validServiceReadFields } from "./service-read-contract.js";
 import { serviceResponse } from "./service-response.js";
+import { serviceCreateExecutionResponse, serviceCreatePreviewResponse, serviceCreateStatusResponse } from "./service-create-response.js";
+import { serviceUpdateExecutionResponse, serviceUpdatePreviewResponse, serviceUpdateStatusResponse } from "./service-update-response.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 import { quoteResponse } from "./quote-response.js";
 import { quoteCreateExecutionResponse, quoteCreatePreviewResponse, quoteCreateStatusResponse,
@@ -54,6 +56,8 @@ export type CustomerUpdateStatusQuery = Readonly<{ preview_id: string; idempoten
 export type QuoteCreatePreview = Readonly<{ quote: Readonly<Record<string, unknown>> }>;
 export type QuoteUpdatePreview = Readonly<{ resource_id: string; quote: Readonly<Record<string, unknown>> }>;
 export type QuoteAcceptPreview = Readonly<{ resource_id: string }>;
+export type ServiceCreatePreview = Readonly<{ service: Readonly<Record<string, unknown>> }>;
+export type ServiceUpdatePreview = Readonly<{ resource_id: string; service: Readonly<Record<string, unknown>> }>;
 export type ClientDependencies = Readonly<{
   origin: string;
   /** Obtain an OAuth access token bound to this resource origin; never an API key. */
@@ -86,6 +90,12 @@ export type CanonicalCrmClient = Readonly<{
   previewQuoteDecline: (input: QuoteAcceptPreview) => Promise<CanonicalResult>;
   executeQuoteDecline: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   quoteDeclineStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewServiceCreate: (input: ServiceCreatePreview) => Promise<CanonicalResult>;
+  executeServiceCreate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  serviceCreateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewServiceUpdate: (input: ServiceUpdatePreview) => Promise<CanonicalResult>;
+  executeServiceUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  serviceUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
 }>;
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -445,6 +455,82 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
     } catch { return failure(503, "request_unavailable"); }
   };
+  const serviceCreate = async (input: unknown, preview: boolean): Promise<CanonicalResult> => {
+    if (!record(input) || (preview
+      ? Object.keys(input).length !== 1 || !record(input.service) || !validResourceId(input.service.customerId)
+      : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
+        || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) return failure(400, "invalid_request");
+    const serialized = ((): string => { try { return JSON.stringify(input); } catch { return ""; } })();
+    if (!serialized || new TextEncoder().encode(serialized).byteLength > 16_384) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await request(`${origin}/api/agent/services/create-${preview ? "preview" : "execute"}?api_version=v1`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
+      const projected = preview && "service" in input && record(input.service) && typeof input.service.customerId === "string"
+        ? serviceCreatePreviewResponse(body, input.service.customerId) : serviceCreateExecutionResponse(body);
+      return projected && response.status === (preview ? 200 : 201) ? { status: response.status, body: projected }
+        : failure(502, preview ? "invalid_response" : "execution_ambiguous");
+    } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
+  };
+  const serviceCreateStatus = async (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => {
+    if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const parameters = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key });
+      const response = await requestRead(`${origin}/api/agent/services/create-status?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return { status: response.status, body };
+      const projected = serviceCreateStatusResponse(body, input.preview_id);
+      return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
+  const serviceUpdate = async (input: unknown, preview: boolean): Promise<CanonicalResult> => {
+    if (!record(input) || (preview
+      ? Object.keys(input).length !== 2 || !validResourceId(input.resource_id) || !record(input.service)
+      : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
+        || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) return failure(400, "invalid_request");
+    const serialized = ((): string => { try { return JSON.stringify(input); } catch { return ""; } })();
+    if (!serialized || new TextEncoder().encode(serialized).byteLength > 16_384) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await request(`${origin}/api/agent/services/update-${preview ? "preview" : "execute"}?api_version=v1`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
+      const projected = preview && "resource_id" in input && typeof input.resource_id === "string"
+        ? serviceUpdatePreviewResponse(body, input.resource_id) : serviceUpdateExecutionResponse(body);
+      return projected && response.status === 200 ? { status: response.status, body: projected }
+        : failure(502, preview ? "invalid_response" : "execution_ambiguous");
+    } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
+  };
+  const serviceUpdateStatus = async (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => {
+    if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const parameters = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key });
+      const response = await requestRead(`${origin}/api/agent/services/update-status?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return { status: response.status, body };
+      const projected = serviceUpdateStatusResponse(body, input.preview_id);
+      return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
   return Object.freeze({
     communications,
     receivedPaymentSummary,
@@ -470,5 +556,11 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     previewQuoteDecline: (input: QuoteAcceptPreview): Promise<CanonicalResult> => quoteLifecycle(input, true, "decline"),
     executeQuoteDecline: (input: CustomerUpdateExecution): Promise<CanonicalResult> => quoteLifecycle(input, false, "decline"),
     quoteDeclineStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => quoteLifecycleStatus(input, "decline"),
+    previewServiceCreate: (input: ServiceCreatePreview): Promise<CanonicalResult> => serviceCreate(input, true),
+    executeServiceCreate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceCreate(input, false),
+    serviceCreateStatus,
+    previewServiceUpdate: (input: ServiceUpdatePreview): Promise<CanonicalResult> => serviceUpdate(input, true),
+    executeServiceUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceUpdate(input, false),
+    serviceUpdateStatus,
   });
 };
