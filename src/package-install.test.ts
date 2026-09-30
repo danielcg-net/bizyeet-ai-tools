@@ -80,6 +80,9 @@ const previewId = "11111111-1111-4111-8111-111111111111";
 const executionKey = "22222222-2222-4222-8222-222222222222";
 const receipt = "r".repeat(43);
 const quoteId = "sales1.fingerprint.quotes.quote";
+const expenseScheduleId = "expsch1.fingerprint.schedule";
+const expenseSchedule = Object.freeze({ id: expenseScheduleId, name: "Monthly fuel", amount: "12.50", frequency: "monthly", active: 1,
+  notes: "private-schedule-notes", tenant_id: "private-tenant" });
 const serviceId = "sales1.fingerprint.services.service";
 const quoteLineId = `${quoteId}.items.line`;
 const quoteRevision = { title: "Revised", expectedPricingRevision: 2,
@@ -286,6 +289,10 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
         ? { id: quoteId, title: "Revised", status: "draft", items: [{ id: quoteLineId, description: "Transfer", quantity: "2", unit_price: "25.00" }] }
         : { id: opaqueId, business: "Proposed", ...(url.pathname.startsWith("/api/agent/leads/") ? { pipeline_stage: "New Lead" } : {}) }, audit_reference: previewId } } }, meta: { contract_version: "v1" } }
     : url.pathname === "/api/agent/me" ? { tenant_id: "synthetic-tenant", client_id: "public-client", scope: ["customers.read"] }
+    : url.pathname === "/api/agent/expense-schedules" ? { data: { items: [expenseSchedule], total: 1 },
+      meta: { contract_version: "v1", next_cursor: null, request_id: "synthetic-schedule", tenant_id: "private-tenant" } }
+    : url.pathname === `/api/agent/expense-schedules/${expenseScheduleId}` ? { data: expenseSchedule,
+      meta: { contract_version: "v1", request_id: "synthetic-schedule", tenant_id: "private-tenant" } }
     : ["catalog", "quotes", "services"].some((resource) => url.pathname === `/api/agent/${resource}`) ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId, unit_cost: "private-cost", tenant_id: "private-tenant" }], total: 1 }, meta: { contract_version: "v1", request_id: "synthetic-sales", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
     : ["catalog", "quotes", "services"].some((resource) => url.pathname === `/api/agent/${resource}/${encodeURIComponent(opaqueId)}`) ? { data: { id: opaqueId, unit_cost: "private-cost", tenant_id: "private-tenant" }, meta: { contract_version: "v1", request_id: "synthetic-sales" } }
     : ["/api/agent/customers", "/api/agent/leads"].includes(url.pathname) ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
@@ -448,6 +455,15 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.deepEqual((JSON.parse(margin) as { data: { kind: string; total: number } }).data,
         { kind: "completed_services", items: [], totals: [], total: 0 });
       assert.doesNotMatch(margin, /private|synthetic-access|synthetic-refresh/u);
+      const scheduleList = await runInstalled(["expenses", "schedules", "list", "--limit", "1", "--fields", "id,name,amount",
+        "--frequency", "monthly", "--profile", testProfile(directory)], directory, environment);
+      const scheduleDetail = await runInstalled(["expenses", "schedules", "get", expenseScheduleId, "--fields", "name,frequency",
+        "--profile", testProfile(directory)], directory, environment);
+      assert.deepEqual(JSON.parse(scheduleList) as unknown, { data: { items: [{ id: expenseScheduleId, name: "Monthly fuel", amount: "12.50" }], total: 1 },
+        meta: { contract_version: "v1", request_id: "synthetic-schedule", next_cursor: null } });
+      assert.deepEqual(JSON.parse(scheduleDetail) as unknown, { data: { id: expenseScheduleId, name: "Monthly fuel", frequency: "monthly" },
+        meta: { contract_version: "v1", request_id: "synthetic-schedule" } });
+      assert.doesNotMatch(scheduleList + scheduleDetail, /private-schedule-notes|private-tenant|synthetic-access|synthetic-refresh/u);
       const bookingCapabilities = await runInstalled(["bookings", "capabilities", "--profile", testProfile(directory)], directory, environment);
       assert.deepEqual((JSON.parse(bookingCapabilities) as { data: { booking_provider: string; create: string } }).data,
         { booking_provider: "none", upcoming_summary: "unavailable", availability_slots: "unavailable", booking_detail: "unavailable",
@@ -549,7 +565,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
         assert.equal(handler.mock.callCount() - before, 1);
         assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
       }, Promise.resolve());
-      assert.equal(handler.mock.callCount(), 46);
+      assert.equal(handler.mock.callCount(), 48);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
