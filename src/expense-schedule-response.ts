@@ -15,7 +15,9 @@ export const expenseScheduleFieldValue = (field: string, value: unknown): boolea
   if (field === "active") return value === 0 || value === 1;
   if (field === "start_date") return calendarDate(value);
   if (field === "end_date" || field === "last_generated_period_start") return value === null || calendarDate(value);
-  return value === null || typeof value === "string";
+  if (["name", "created_at", "updated_at"].includes(field)) return typeof value === "string";
+  if (["category", "vendor"].includes(field)) return value === null || typeof value === "string";
+  return false;
 };
 
 const contract: ExpenseResponseContract = Object.freeze({

@@ -13,7 +13,7 @@ import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./paymen
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
-import { validExpenseScheduleListOptions, type ExpenseScheduleListOptions } from "./expense-schedule-contract.js";
+import { validExpenseScheduleGetOptions, validExpenseScheduleListOptions, type ExpenseScheduleListOptions } from "./expense-schedule-contract.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource, type CommunicationOptions } from "./communication-contract.js";
 import { validServiceReadFields } from "./service-read-contract.js";
@@ -341,8 +341,7 @@ export const listExpenseSchedules = async (input: WriteSession & Readonly<{ opti
 /** Keep a schedule handle opaque and distinct from an individual expense ID. */
 export const getExpenseSchedule = async (input: Parameters<typeof getCustomer>[0]): Promise<AgentResult> => {
   const options = input.options ?? {};
-  if (!validResourceId(input.resourceId) || !validExpenseScheduleListOptions(options)
-    || Object.keys(options).some((key) => key !== "fields")) throw new Error("Expense schedule read options are invalid.");
+  if (!validResourceId(input.resourceId) || !validExpenseScheduleGetOptions(options)) throw new Error("Expense schedule read options are invalid.");
   return invoke({ ...input, operation: (client) => client.get("expense-schedules", input.resourceId, options) });
 };
 

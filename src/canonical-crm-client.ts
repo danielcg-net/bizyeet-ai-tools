@@ -11,7 +11,7 @@ import { marginReportResponse } from "./margin-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
-import { validExpenseScheduleListOptions } from "./expense-schedule-contract.js";
+import { validExpenseScheduleGetOptions, validExpenseScheduleListOptions } from "./expense-schedule-contract.js";
 import { expenseScheduleResponse } from "./expense-schedule-response.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { bookingSummaryResponse } from "./booking-response.js";
@@ -216,7 +216,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     if (resource === "services" && (!validServiceReadFields(options.fields ?? [], id !== null)
       || Object.keys(options).some((key) => !(id === null ? ["fields", "page_size", "cursor", "search"] : ["fields"]).includes(key)))) return failure(400, "invalid_request");
     if (resource === "expense-schedules") {
-      if (!validExpenseScheduleListOptions(options) || (id !== null && Object.keys(options).some((key) => key !== "fields"))) return failure(400, "invalid_request");
+      if (id === null ? !validExpenseScheduleListOptions(options) : !validExpenseScheduleGetOptions(options)) return failure(400, "invalid_request");
     } else if (resource === "expenses") {
       if (!validExpenseListOptions(options) || (id !== null && Object.keys(options).some((key) => key !== "fields"))) return failure(400, "invalid_request");
     } else {

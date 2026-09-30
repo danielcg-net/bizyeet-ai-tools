@@ -3,7 +3,7 @@ import { validExpenseListOptions, type ExpenseListOptions } from "./expense-cont
 export const expenseScheduleFields = Object.freeze(["id", "name", "category", "vendor", "amount", "currency", "frequency", "interval_count", "start_date", "end_date", "generated_count", "last_generated_period_start", "active", "created_at", "updated_at"] as const);
 export const expenseScheduleSortFields = Object.freeze(["name", "category", "vendor", "amount", "currency", "frequency", "start_date", "end_date", "active", "created_at", "updated_at"] as const);
 export const expenseScheduleFrequencies = Object.freeze(["daily", "weekly", "monthly", "quarterly", "yearly"] as const);
-export type ExpenseScheduleListOptions = Omit<ExpenseListOptions, "status" | "schedule" | "start" | "end" | "sort"> & Readonly<{
+export type ExpenseScheduleListOptions = Pick<ExpenseListOptions, "fields" | "page_size" | "cursor" | "search" | "dir" | "category" | "currency"> & Readonly<{
   sort?: typeof expenseScheduleSortFields[number];
   frequency?: typeof expenseScheduleFrequencies[number];
   active?: "0" | "1";
@@ -20,4 +20,10 @@ export const validExpenseScheduleListOptions = (value: unknown): value is Expens
     && member(expenseScheduleFrequencies, input.frequency) && member(["0", "1"], input.active)
     && (input.fields === undefined || (Array.isArray(input.fields) && input.fields.length > 0 && input.fields.length <= expenseScheduleFields.length
       && new Set(input.fields).size === input.fields.length && input.fields.every((field: unknown) => typeof field === "string" && (expenseScheduleFields as readonly string[]).includes(field))));
+};
+
+/** Exact schedule reads accept field selection only, never list filters or pagination. */
+export const validExpenseScheduleGetOptions = (value: unknown): value is Pick<ExpenseScheduleListOptions, "fields"> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return Object.keys(value).every((key) => key === "fields") && validExpenseScheduleListOptions(value);
 };

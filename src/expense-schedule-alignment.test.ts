@@ -3,7 +3,7 @@ import { mock, test } from "node:test";
 import { createCanonicalCrmClient } from "./canonical-crm-client.js";
 import { expenseScheduleFields, validExpenseScheduleListOptions } from "./expense-schedule-contract.js";
 import { expenseScheduleMcpTools } from "./expense-schedule-mcp.js";
-import { expenseScheduleResponse } from "./expense-schedule-response.js";
+import { expenseScheduleFieldValue, expenseScheduleResponse } from "./expense-schedule-response.js";
 
 const id = "expsch1.fingerprint.schedule";
 const row = Object.freeze({ id, name: "Monthly fuel", category: "Transport", vendor: null, amount: "12.50", currency: "CAD",
@@ -25,6 +25,7 @@ await test("schedule projection excludes notes and private metadata", () => {
   assert.deepEqual(Object.keys((result?.data as { items: readonly Record<string, unknown>[] }).items[0] ?? {}), [...expenseScheduleFields]);
   assert.equal(expenseScheduleResponse(envelope({ ...row, generated_count: "0" }), {}, id), undefined);
   assert.equal(expenseScheduleResponse(envelope({ ...row, active: true }), {}, id), undefined);
+  assert.equal(expenseScheduleFieldValue("unexpected", "anything"), false);
 });
 
 await test("schedule list and get use canonical OAuth read endpoint without policy overrides", async () => {
