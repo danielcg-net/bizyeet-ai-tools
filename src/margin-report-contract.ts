@@ -1,4 +1,4 @@
-import { paymentSummaryDatePattern, validPaymentSummaryOptions } from "./payment-summary-contract.js";
+import { paymentSummaryDatePattern } from "./payment-summary-contract.js";
 
 export const marginReportKinds = Object.freeze(["completed_services", "active_services", "sent_quotes"] as const);
 export const marginReportRanges = Object.freeze(["today", "7d", "30d", "month", "last_month", "ytd", "custom"] as const);
@@ -22,20 +22,23 @@ const member = (values: readonly string[], value: unknown): boolean => value ===
   || typeof value === "string" && values.includes(value);
 const page = (value: unknown, maximum: number): boolean => value === undefined
   || typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= maximum;
-const validDate = (value: unknown): boolean => typeof value === "string"
-  && new RegExp(paymentSummaryDatePattern, "u").test(value);
+const validDate = (value: unknown): value is string => {
+  if (typeof value !== "string" || !new RegExp(paymentSummaryDatePattern, "u").test(value)) return false;
+  const parsed = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value;
+};
 
 /** Validate only public transport syntax; the tenant calendar and provider stay server-owned. */
 export const validMarginReportOptions = (value: unknown): value is MarginReportOptions => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const input = value as Readonly<Record<string, unknown>>;
   if (Object.keys(input).some((key) => !["kind", "range", "start_date", "end_date", "page", "page_size", "fields"].includes(key))) return false;
-  const dates = { range: input.range === "7d" || input.range === "30d" ? "month" : input.range,
-    start_date: input.start_date, end_date: input.end_date };
+  const range = input.range ?? "month";
+  const datesValid = range === "custom"
+    ? validDate(input.start_date) && validDate(input.end_date) && input.start_date <= input.end_date
+    : input.start_date === undefined && input.end_date === undefined;
   return member(marginReportKinds, input.kind) && member(marginReportRanges, input.range)
-    && validPaymentSummaryOptions(dates) && page(input.page, 1_000_000) && page(input.page_size, 50)
-    && (input.start_date === undefined || validDate(input.start_date))
-    && (input.end_date === undefined || validDate(input.end_date))
+    && datesValid && page(input.page, 1_000_000) && page(input.page_size, 50)
     && (input.fields === undefined || Array.isArray(input.fields) && input.fields.length >= 1
       && input.fields.length <= marginReportFields.length && new Set(input.fields).size === input.fields.length
       && input.fields.every((field: unknown) => typeof field === "string" && (marginReportFields as readonly string[]).includes(field)));

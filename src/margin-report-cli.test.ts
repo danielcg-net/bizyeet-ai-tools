@@ -30,6 +30,7 @@ void test("margin command forwards only typed canonical filters and preserves cu
 await Promise.all([
   ["--kind", "unknown"], ["--tenant", "default"], ["--provider", "d1"], ["--time-zone", "UTC"],
   ["--limit", "51"], ["--page=0"], ["--fields="], ["--fields", "customer_name"],
+  ["--fields=revenue", "--fields=currency"], ["--fields=revenue,,currency"], ["--page=１２"],
   ["--range=today", "--range=month"], ["--range=custom", "--start-date=2026-02-30", "--end-date=2026-03-01"],
   ["--start-date=2026-01-01"], ["--export", "--export"],
 ].map((args, index) => test(`invalid margin CLI options ${String(index)} avoid credential access`, async () => {
