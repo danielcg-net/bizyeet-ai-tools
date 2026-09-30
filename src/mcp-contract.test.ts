@@ -3,7 +3,7 @@ import test from "node:test";
 import { mcpInstructions, mcpReadTools } from "./mcp-contract.js";
 
 void test("publishes only bounded, read-only MCP tools", () => {
-  assert.deepEqual(mcpReadTools.map((tool) => tool.name), ["bizyeet_customers_list", "bizyeet_customers_get", "bizyeet_leads_list", "bizyeet_leads_get", "bizyeet_customers_communications", "bizyeet_leads_communications", "bizyeet_quotes_communications", "bizyeet_services_communications", "bizyeet_payments_communications", "bizyeet_payments_list", "bizyeet_payments_get", "bizyeet_payments_list_with_relationships", "bizyeet_payments_get_with_relationships", "bizyeet_payments_received_summary", "bizyeet_reports_taxes", "bizyeet_expenses_list", "bizyeet_expenses_get", "bizyeet_expense_schedules_list", "bizyeet_expense_schedules_get", "bizyeet_bookings_upcoming", "bizyeet_bookings_capabilities", "bizyeet_services_list", "bizyeet_quotes_list", "bizyeet_quotes_get", "bizyeet_services_get", "bizyeet_services_history", "bizyeet_catalog_list", "bizyeet_catalog_get"]);
+  assert.deepEqual(mcpReadTools.map((tool) => tool.name), ["bizyeet_customers_list", "bizyeet_customers_get", "bizyeet_leads_list", "bizyeet_leads_get", "bizyeet_customers_communications", "bizyeet_leads_communications", "bizyeet_quotes_communications", "bizyeet_services_communications", "bizyeet_payments_communications", "bizyeet_payments_list", "bizyeet_payments_get", "bizyeet_payments_list_with_relationships", "bizyeet_payments_get_with_relationships", "bizyeet_payments_received_summary", "bizyeet_reports_taxes", "bizyeet_expenses_list", "bizyeet_expenses_get", "bizyeet_expense_schedules_list", "bizyeet_expense_schedules_get", "bizyeet_bookings_upcoming", "bizyeet_bookings_capabilities", "bizyeet_services_list", "bizyeet_quotes_list", "bizyeet_quotes_get", "bizyeet_services_get", "bizyeet_services_history", "bizyeet_services_payments", "bizyeet_catalog_list", "bizyeet_catalog_get"]);
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.annotations)));
   assert.deepEqual(mcpReadTools[0].annotations, { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: true });
   assert.ok(mcpReadTools.every((tool) => Object.isFrozen(tool.inputSchema)));
@@ -17,6 +17,10 @@ void test("publishes only bounded, read-only MCP tools", () => {
   assert.ok(serviceHistory);
   assert.match(JSON.stringify(serviceHistory.inputSchema), /sales1/u);
   assert.match(JSON.stringify(serviceHistory.inputSchema), /page_size/u);
+  const servicePayments = mcpReadTools.find((tool) => tool.name === "bizyeet_services_payments");
+  assert.ok(servicePayments);
+  assert.deepEqual(servicePayments.securitySchemes[0]?.scopes, ["customers.read", "payments.read"]);
+  assert.equal(JSON.stringify(servicePayments.inputSchema).includes("private_memo"), false);
 });
 
 void test("booking capability tool cannot execute a booking or expose booking URLs", () => {

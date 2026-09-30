@@ -19,6 +19,7 @@ import { bookingCapabilitiesResponse } from "./booking-capabilities-response.js"
 import { validServiceReadFields } from "./service-read-contract.js";
 import { serviceResponse } from "./service-response.js";
 import { serviceHistoryResponse, validServiceHistoryOptions, type ServiceHistoryOptions } from "./service-history-contract.js";
+import { servicePaymentResponse, validServicePaymentOptions, type ServicePaymentOptions } from "./service-payment-contract.js";
 import { serviceCreateExecutionResponse, serviceCreatePreviewResponse, serviceCreateStatusResponse } from "./service-create-response.js";
 import { serviceUpdateExecutionResponse, serviceUpdatePreviewResponse, serviceUpdateStatusResponse } from "./service-update-response.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
@@ -74,6 +75,7 @@ export type ClientDependencies = Readonly<{
 export type CanonicalCrmClient = Readonly<{
   communications: (resource: CommunicationResource, id: string, options?: CommunicationOptions) => Promise<CanonicalResult>;
   serviceHistory: (id: string, options?: ServiceHistoryOptions) => Promise<CanonicalResult>;
+  servicePayments: (id: string, options?: ServicePaymentOptions) => Promise<CanonicalResult>;
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
   bookingSummary: (options?: BookingSummaryOptions) => Promise<CanonicalResult>;
   bookingCapabilities: () => Promise<CanonicalResult>;
@@ -318,6 +320,14 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     if (options.cursor !== undefined) parameters.set("cursor", options.cursor);
     return reportRead(`/api/agent/services/${encodeURIComponent(id)}/history`, parameters,
       (body) => serviceHistoryResponse(body, options));
+  };
+  const servicePayments = async (id: string, options: ServicePaymentOptions = {}): Promise<CanonicalResult> => {
+    if (!validResourceId(id) || !validServicePaymentOptions(options)) return failure(400, "invalid_request");
+    const parameters = new URLSearchParams({ api_version: "v1", limit: String(options.limit ?? 25) });
+    Object.entries(options as Readonly<Record<string, unknown>>).filter(([key, value]) => key !== "limit" && value !== undefined)
+      .forEach(([key, value]) => { parameters.set(key, Array.isArray(value) ? value.join(",") : String(value)); });
+    return reportRead(`/api/agent/services/${encodeURIComponent(id)}/payments`, parameters,
+      (body) => servicePaymentResponse(body, options));
   };
   const taxReport = async (options: TaxReportOptions = {}): Promise<CanonicalResult> => {
     if (!validTaxReportOptions(options)) return failure(400, "invalid_request");
@@ -566,6 +576,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   return Object.freeze({
     communications,
     serviceHistory,
+    servicePayments,
     receivedPaymentSummary,
     bookingSummary,
     bookingCapabilities,

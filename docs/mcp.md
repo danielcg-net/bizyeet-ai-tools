@@ -34,6 +34,12 @@ status transitions with `customers.read`. Its opaque cursor is service-bound;
 private notes and native identifiers are excluded. Check the authenticated
 server's advertised tools before relying on this source declaration.
 
+The `bizyeet_services_payments` source descriptor reads bounded public payment
+facts linked to one opaque service ID. It requires both `customers.read` and
+`payments.read`, excludes private relationship fields, and cannot change a
+payment. Its cursor is service-bound by the canonical server. Check the
+authenticated server's advertised tools before relying on source availability.
+
 Payment list filters include bounded pagination, status, sorting and canonical
 UTC start/end timestamps. Provider routing and live permissions remain
 server-owned; unsupported operations fail explicitly. Never combine currencies
