@@ -6,7 +6,7 @@ await Promise.all([{}, { active: "0", frequency: "monthly", sort: "active" }, { 
   assert.equal(validExpenseScheduleListOptions(input), true);
 })));
 await Promise.all([null, [], { tenant_id: "other" }, { provider: "d1" }, { materialize: true }, { status: "paid" }, { start_date: "2026-01-01" },
-  { fields: [] }, { fields: ["id", "id"] }, { fields: ["schedule_id"] }, { active: false }, { active: 0 }, { active: "2" },
+  { fields: [] }, { fields: ["id", "id"] }, { fields: ["schedule_id"] }, { fields: ["notes"] }, { active: false }, { active: 0 }, { active: "2" },
   { frequency: "hourly" }, { sort: "incurred_on" }, { page_size: 101 }, { search: "x".repeat(121) }, { currency: "cad" },
 ].map((input, index) => test(`rejects schedule policy override or malformed input ${String(index)}`, () => {
   assert.equal(validExpenseScheduleListOptions(input), false);

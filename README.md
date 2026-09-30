@@ -385,8 +385,19 @@ that no scheduled costs are due. Amount strings and currencies are preserved wit
 conversion. Notes and native tenant or schedule identifiers are never readable through this
 interface. Use the returned opaque IDs and cursor; do not substitute native database IDs.
 Live OAuth scope and dashboard expense permission are enforced by the canonical API.
-`--profile` and secure `--export` use the shared read flow. Expense schedules are not
-currently part of this public CLI or MCP contract.
+`--profile` and secure `--export` use the shared read flow.
+
+Recurring expense schedules have separate read-only list and exact-get commands:
+
+```sh
+bizyeet expenses schedules list --limit 25 --frequency monthly --active 1
+bizyeet expenses schedules get <opaque-schedule-id> --fields name,amount,frequency
+```
+
+The matching MCP tools are `bizyeet_expense_schedules_list` and
+`bizyeet_expense_schedules_get`, also using `expenses.read`. A schedule ID is
+opaque and distinct from an expense ID. Internal notes and tenant identifiers
+are excluded. These reads never create or materialize expense occurrences.
 
 ## Tax collection reports
 

@@ -6,6 +6,7 @@ import { MAX_CURSOR_LENGTH } from "./cursor.js";
 import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
 import { taxReportMcpTool } from "./tax-report-mcp.js";
 import { expenseMcpTools } from "./expense-mcp.js";
+import { expenseScheduleMcpTools } from "./expense-schedule-mcp.js";
 import { paymentDateFields, paymentReadFields, paymentSortFields, paymentTimestampPattern } from "./payment-contract.js";
 import { bookingCapabilityProviders, bookingCapabilityStates, bookingCapabilityLinkStates } from "./booking-capabilities-response.js";
 
@@ -202,6 +203,7 @@ export const mcpReadTools = Object.freeze([
   paymentSummaryMcpTool,
   taxReportMcpTool,
   ...expenseMcpTools,
+  ...expenseScheduleMcpTools,
   Object.freeze({ annotations: readAnnotations, description: "Read a provider-aware count of upcoming bookings for a bounded future window. This is not appointment detail or availability. Unsupported, disabled and unavailable providers are explicit.", inputSchema: Object.freeze({ type: "object", properties: Object.freeze({ api_version: Object.freeze({ const: "v1", type: "string" }), hours: Object.freeze({ type: "integer", minimum: 1, maximum: 720, default: 168 }) }), required: Object.freeze(["api_version"]), additionalProperties: false }), name: "bizyeet_bookings_upcoming", outputSchema: resourceOutputSchema, securitySchemes: oauthBookingSecurity, title: "Summarize upcoming bookings" }),
   Object.freeze({ annotations: readAnnotations, description: "Read configured booking capabilities. External-link-only creation cannot be executed by this tool; live provider health still requires the upcoming summary read. No booking URLs or customer data are returned.", inputSchema: Object.freeze({ type: "object", properties: Object.freeze({ api_version: Object.freeze({ const: "v1", type: "string" }) }), required: Object.freeze(["api_version"]), additionalProperties: false }), name: "bizyeet_bookings_capabilities", outputSchema: bookingCapabilityOutputSchema, securitySchemes: oauthBookingSecurity, title: "Discover booking capabilities" }),
   Object.freeze({ annotations: readAnnotations, description: "List public service facts using canonical routing. Read detail for line handles; private costs are never exposed.", inputSchema: servicePageSchema, name: "bizyeet_services_list", outputSchema: listOutputSchema, securitySchemes: oauthReadSecurity, title: "List services" }),

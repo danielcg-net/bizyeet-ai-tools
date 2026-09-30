@@ -74,5 +74,10 @@ List filters use inclusive calendar dates. IDs and cursors remain opaque.
 Output metadata explicitly marks the persisted view and materialization as
 not evaluated. Reading does not generate scheduled occurrences: an empty page
 does not prove that no expenses are due. Read-completion time is not a snapshot
-or synchronization guarantee. Preserve amounts and currencies; select notes
-explicitly when authorized and needed.
+or synchronization guarantee. Preserve amounts and currencies. Internal notes
+are not included in these public expense reads.
+
+`bizyeet_expense_schedules_list` and `bizyeet_expense_schedules_get` separately
+read recurring schedules with `expenses.read` and live dashboard expense
+permission. Schedule handles are opaque and are not expense handles. The
+schedule projection excludes internal notes; reading never creates an expense.
