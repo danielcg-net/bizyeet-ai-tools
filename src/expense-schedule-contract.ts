@@ -3,7 +3,7 @@ import { validExpenseListOptions, type ExpenseListOptions } from "./expense-cont
 export const expenseScheduleFields = Object.freeze(["id", "name", "category", "vendor", "amount", "currency", "frequency", "interval_count", "start_date", "end_date", "generated_count", "last_generated_period_start", "active", "created_at", "updated_at"] as const);
 export const expenseScheduleSortFields = Object.freeze(["name", "category", "vendor", "amount", "currency", "frequency", "start_date", "end_date", "active", "created_at", "updated_at"] as const);
 export const expenseScheduleFrequencies = Object.freeze(["daily", "weekly", "monthly", "quarterly", "yearly"] as const);
-export type ExpenseScheduleListOptions = Omit<ExpenseListOptions, "status" | "start" | "end" | "sort"> & Readonly<{
+export type ExpenseScheduleListOptions = Omit<ExpenseListOptions, "status" | "schedule" | "start" | "end" | "sort"> & Readonly<{
   sort?: typeof expenseScheduleSortFields[number];
   frequency?: typeof expenseScheduleFrequencies[number];
   active?: "0" | "1";
