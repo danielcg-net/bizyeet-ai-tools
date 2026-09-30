@@ -6,6 +6,7 @@ import { run } from "./cli.js";
 const serviceId = "sales1.fingerprint.services.service";
 const previewId = "11111111-1111-4111-8111-111111111111";
 const key = "22222222-2222-4222-8222-222222222222";
+const receipt = `${"aB9_-".repeat(8)}aB9`;
 const credentials = { profile: { clientId: "client", issuer: "https://tenant.example" }, accessToken: "access-secret",
   refreshToken: "refresh-secret", expiresAt: "2099-01-01T00:00:00.000Z", scope: "customers.write" };
 const unexpected = (): never => { throw new Error("Unexpected operation"); };
@@ -29,7 +30,7 @@ void test("service transition preview binds a canonical service and non-delivery
 
 void test("service transition execute uses one approval receipt; status only reads stored outcome", async () => {
   const execute = mock.fn((input: Parameters<NonNullable<typeof runtime.executeServiceTransition>>[0]) => {
-    assert.deepEqual(input.approval, { preview_id: previewId, idempotency_key: key, approval_receipt: "r".repeat(43) });
+    assert.deepEqual(input.approval, { preview_id: previewId, idempotency_key: key, approval_receipt: receipt });
     return Promise.resolve({ credentials, response: { data: { audit_reference: previewId }, meta: { contract_version: "v1" } } });
   });
   const status = mock.fn((input: Parameters<NonNullable<typeof runtime.serviceTransitionStatus>>[0]) => {
@@ -37,14 +38,15 @@ void test("service transition execute uses one approval receipt; status only rea
     return Promise.resolve({ credentials, response: { data: { state: "unknown", retry_mutation: false }, meta: { contract_version: "v1" } } });
   });
   const execution = { ...runtime, executeServiceTransition: execute, serviceTransitionStatus: status,
-    readApprovalReceipt: (piped: boolean): Promise<string> => { assert.equal(piped, true); return Promise.resolve("r".repeat(43)); } };
+    readApprovalReceipt: (piped: boolean): Promise<string> => { assert.equal(piped, true); return Promise.resolve(receipt); } };
   const result = await run(["services", "transition", "execute", previewId, "--idempotency-key", key, "--receipt-stdin"], storage, execution);
   const observed = await run(["services", "transition", "status", previewId, "--idempotency-key", key], storage, execution);
   assert.equal(result.exitCode, 0);
   assert.equal(observed.exitCode, 0);
   assert.equal(execute.mock.callCount(), 1);
   assert.equal(status.mock.callCount(), 1);
-  assert.doesNotMatch(JSON.stringify([result, observed]), /rrrrrrrr|access-secret|refresh-secret/u);
+  assert.equal(JSON.stringify([result, observed]).includes(receipt), false);
+  assert.doesNotMatch(JSON.stringify([result, observed]), /access-secret|refresh-secret/u);
 });
 
 await Promise.all([
