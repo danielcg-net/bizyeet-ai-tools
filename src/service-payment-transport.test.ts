@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { createCanonicalCrmClient } from "./canonical-crm-client.js";
+import type { ServicePaymentOptions } from "./service-payment-contract.js";
 
 const service = `sales1.${"a".repeat(64)}.services.service-1`;
 const payment = `pay1.${"b".repeat(64)}.payment-1`;
@@ -32,4 +33,14 @@ void test("service-linked payment transport rejects private fields before creden
   assert.equal((await client.servicePayments(service, { fields: ["service"] })).status, 400);
   assert.equal(getAccessToken.mock.callCount(), 0);
   assert.equal(request.mock.callCount(), 0);
+});
+
+void test("service-linked payment transport omits explicitly undefined optional filters", async () => {
+  const request = mock.fn((address: string) => {
+    assert.equal(new URL(address).searchParams.has("status"), false);
+    return Promise.resolve(Response.json(page));
+  });
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: () => Promise.resolve("synthetic-token"), request });
+  assert.equal((await client.servicePayments(service, { limit: 1, status: undefined } as unknown as ServicePaymentOptions)).status, 200);
+  assert.equal(request.mock.callCount(), 1);
 });

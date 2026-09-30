@@ -324,7 +324,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
   const servicePayments = async (id: string, options: ServicePaymentOptions = {}): Promise<CanonicalResult> => {
     if (!validResourceId(id) || !validServicePaymentOptions(options)) return failure(400, "invalid_request");
     const parameters = new URLSearchParams({ api_version: "v1", limit: String(options.limit ?? 25) });
-    Object.entries(options).filter(([key]) => key !== "limit")
+    Object.entries(options as Readonly<Record<string, unknown>>).filter(([key, value]) => key !== "limit" && value !== undefined)
       .forEach(([key, value]) => { parameters.set(key, Array.isArray(value) ? value.join(",") : String(value)); });
     return reportRead(`/api/agent/services/${encodeURIComponent(id)}/payments`, parameters,
       (body) => servicePaymentResponse(body, options));
