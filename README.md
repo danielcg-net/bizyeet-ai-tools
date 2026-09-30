@@ -609,6 +609,44 @@ Pass the approval receipt through the hidden prompt or private
 uncertainty with `status`; never repeat decline with a new key. This remains
 source-only, without a package release or production canary.
 
+The source CLI can prepare a customer-bound backlog service through the
+canonical OAuth endpoint. Provide one bounded service JSON proposal through
+`--input-stdin`. Preview shows priced line items, discounts, customer-document
+requirements, and any configured email or calendar effect. The server requires
+`customers.write`, plus `mail.send` when those external effects are configured.
+A signed-in human must approve the exact dashboard preview before creation.
+
+```sh
+bizyeet services create preview --input-stdin
+bizyeet services create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services create status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use the hidden receipt prompt or private `--receipt-stdin` pipe. Retain the
+original UUID execution key and reconcile uncertain results with read-only
+`status`; never create a replacement service. This remains source-only, not a
+package release or production canary.
+
+The source CLI can also revise one existing service through the canonical
+OAuth service-update endpoint. Obtain the opaque service ID and current
+`pricing_revision` with `services get`, then pipe the complete update JSON
+(including `expectedPricingRevision` and line-item IDs) to preview. The
+server checks the current revision, scopes and role; it may require
+`mail.send` and an externally-visible-send approval class if configured
+calendar invitations could be sent. Preview never applies the edit.
+
+```sh
+bizyeet services update preview "$SERVICE_ID" --input-stdin
+bizyeet services update execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services update status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Have a signed-in human approve the exact dashboard preview and supply its
+receipt through the hidden prompt or private `--receipt-stdin` pipe. Keep the
+original execution UUID; on an uncertain result, query read-only `status`
+instead of sending another update. This is source-only and not a package
+release or production canary.
+
 ## Lead update contract (not yet released)
 
 The draft CLI also includes `leads update preview`, `leads update execute`, and
