@@ -41,7 +41,7 @@ jobs:
 
       # No checkout or execution of PR code occurs in this secret-bearing job.
       - name: Review pull-request diff
-        uses: danielcg-net/deepseek-review-gate@0919d69e14b8d540495a7b971eaa19d5a4186528
+        uses: danielcg-net/deepseek-review-gate@4550be192d53a7c38440d57cea7a407316768fb6
         with:
           chat-token: ${{ secrets.DEEPSEEK_API_KEY }}
           github-token: ${{ github.token }}

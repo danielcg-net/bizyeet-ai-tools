@@ -14,7 +14,7 @@ const permittedPermissions: Readonly<Record<string, readonly string[]>> = {
   "pull-requests": ["read"],
   "security-events": ["write"],
 };
-const deepseekAction = "danielcg-net/deepseek-review-gate@0919d69e14b8d540495a7b971eaa19d5a4186528";
+const deepseekAction = "danielcg-net/deepseek-review-gate@4550be192d53a7c38440d57cea7a407316768fb6";
 const githubScriptAction = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3";
 const trustedReviewCondition = "${{ github.event.pull_request.head.repo.full_name == github.repository }}";
 
