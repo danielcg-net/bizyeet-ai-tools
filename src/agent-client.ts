@@ -174,6 +174,10 @@ export const upcomingBookings = async (input: Omit<Parameters<typeof receivedPay
   return invoke({ ...input, operation: (client) => client.bookingSummary(input.options) });
 };
 
+/** Read configured booking capabilities without selecting a provider or executing a booking. */
+export const bookingCapabilities = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options">): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.bookingCapabilities() });
+
 /** Read metadata through the existing OAuth refresh and credential-persistence boundary. */
 export const readCommunications = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resource: CommunicationResource; resourceId: string; options: CommunicationOptions }>): Promise<AgentResult> => {
   if (!validCommunicationResource(input.resource) || !validResourceId(input.resourceId) || !validCommunicationOptions(input.options)) throw new Error("Communication history options are invalid.");

@@ -7,6 +7,7 @@ import { paymentSummaryMcpTool } from "./payment-summary-mcp.js";
 import { taxReportMcpTool } from "./tax-report-mcp.js";
 import { expenseMcpTools } from "./expense-mcp.js";
 import { paymentDateFields, paymentReadFields, paymentSortFields, paymentTimestampPattern } from "./payment-contract.js";
+import { bookingCapabilityProviders, bookingCapabilityStates, bookingCapabilityLinkStates } from "./booking-capabilities-response.js";
 
 export type McpTool = Readonly<{
   annotations: Readonly<{
@@ -134,6 +135,24 @@ const communicationMcpTools = Object.freeze([
   communicationMcpTool("services"), communicationMcpTool("payments"),
 ] as const);
 const oauthBookingSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["bookings.read"] as const), type: "oauth2" as const })]);
+const bookingCapabilityState = (values: readonly string[]): Readonly<{ type: "string"; enum: readonly string[] }> =>
+  Object.freeze({ type: "string", enum: Object.freeze(values) });
+const bookingCapabilityOutputSchema = Object.freeze({ type: "object", required: Object.freeze(["data", "meta"]), properties: Object.freeze({
+  data: Object.freeze({ type: "object", required: Object.freeze(["booking_provider", "upcoming_summary", "availability_slots", "booking_detail", "create", "reschedule", "cancel", "booking_links"]), additionalProperties: false, properties: Object.freeze({
+    booking_provider: bookingCapabilityState(bookingCapabilityProviders),
+    upcoming_summary: bookingCapabilityState(bookingCapabilityStates.upcoming_summary),
+    availability_slots: bookingCapabilityState(bookingCapabilityStates.availability_slots),
+    booking_detail: bookingCapabilityState(bookingCapabilityStates.booking_detail),
+    create: bookingCapabilityState(bookingCapabilityStates.create),
+    reschedule: bookingCapabilityState(bookingCapabilityStates.reschedule),
+    cancel: bookingCapabilityState(bookingCapabilityStates.cancel),
+    booking_links: Object.freeze({ type: "object", required: Object.freeze(["in_person", "online"]), additionalProperties: false, properties: Object.freeze({
+      in_person: bookingCapabilityState(bookingCapabilityLinkStates), online: bookingCapabilityState(bookingCapabilityLinkStates),
+    }) }),
+  }) }),
+  meta: Object.freeze({ type: "object", required: Object.freeze(["contract_version"]), additionalProperties: false,
+    properties: Object.freeze({ contract_version: Object.freeze({ type: "string", const: "v1" }) }) }),
+}) });
 const paymentFieldsSchema = Object.freeze({ type: "array", maxItems: paymentReadFields.length, items: Object.freeze({ type: "string", enum: Object.freeze(paymentReadFields.filter((field) => field !== "customer" && field !== "service")) }) });
 const relationshipFieldsSchema = Object.freeze({ ...paymentFieldsSchema, items: Object.freeze({ type: "string", enum: paymentReadFields }), contains: Object.freeze({ enum: Object.freeze(["customer", "service"]) }) });
 const oauthPaymentRelationshipSecurity = Object.freeze([Object.freeze({ scopes: Object.freeze(["payments.read", "customers.read"] as const), type: "oauth2" as const })]);
@@ -184,6 +203,7 @@ export const mcpReadTools = Object.freeze([
   taxReportMcpTool,
   ...expenseMcpTools,
   Object.freeze({ annotations: readAnnotations, description: "Read a provider-aware count of upcoming bookings for a bounded future window. This is not appointment detail or availability. Unsupported, disabled and unavailable providers are explicit.", inputSchema: Object.freeze({ type: "object", properties: Object.freeze({ api_version: Object.freeze({ const: "v1", type: "string" }), hours: Object.freeze({ type: "integer", minimum: 1, maximum: 720, default: 168 }) }), required: Object.freeze(["api_version"]), additionalProperties: false }), name: "bizyeet_bookings_upcoming", outputSchema: resourceOutputSchema, securitySchemes: oauthBookingSecurity, title: "Summarize upcoming bookings" }),
+  Object.freeze({ annotations: readAnnotations, description: "Read configured booking capabilities. External-link-only creation cannot be executed by this tool; live provider health still requires the upcoming summary read. No booking URLs or customer data are returned.", inputSchema: Object.freeze({ type: "object", properties: Object.freeze({ api_version: Object.freeze({ const: "v1", type: "string" }) }), required: Object.freeze(["api_version"]), additionalProperties: false }), name: "bizyeet_bookings_capabilities", outputSchema: bookingCapabilityOutputSchema, securitySchemes: oauthBookingSecurity, title: "Discover booking capabilities" }),
   Object.freeze({ annotations: readAnnotations, description: "List public service facts using canonical routing. Read detail for line handles; private costs are never exposed.", inputSchema: servicePageSchema, name: "bizyeet_services_list", outputSchema: listOutputSchema, securitySchemes: oauthReadSecurity, title: "List services" }),
   Object.freeze({ annotations: readAnnotations, description: "List public quote facts through canonical routing. Private costs and contact metadata are excluded.", inputSchema: quotePageSchema, name: "bizyeet_quotes_list", outputSchema: listOutputSchema, securitySchemes: oauthReadSecurity, title: "List quotes" }),
   Object.freeze({ annotations: readAnnotations, description: "Read a quote by opaque ID, including pricing revision and opaque line handles. This does not authorize editing or sending.", inputSchema: Object.freeze({ ...exactSchema, properties: Object.freeze({ ...exactSchema.properties, fields: quoteFieldsSchema }) }), name: "bizyeet_quotes_get", outputSchema: resourceOutputSchema, securitySchemes: oauthReadSecurity, title: "Get quote" }),

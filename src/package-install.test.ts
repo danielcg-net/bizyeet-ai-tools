@@ -249,6 +249,8 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
     && url.searchParams.get("api_version") === "v1" && url.searchParams.get("range") === "custom"
     && url.searchParams.get("start_date") === "2026-01-01" && url.searchParams.get("end_date") === "2026-01-31"
     && url.searchParams.get("fields")?.includes("currency") === true;
+  const bookingCapabilityQuery = url.pathname === "/api/agent/bookings/capabilities" && request.method === "GET"
+    && url.searchParams.size === 1 && url.searchParams.get("api_version") === "v1";
   const statusQuery = ["/api/agent/customers/update-status", "/api/agent/leads/update-status", "/api/agent/quotes/update-status",
     "/api/agent/quotes/accept-status", "/api/agent/quotes/decline-status", "/api/agent/services/create-status",
     "/api/agent/services/update-status"].includes(url.pathname)
@@ -262,6 +264,10 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
           startDate: "2026-01-01", endDate: "2026-01-31", endDateExclusive: "2026-02-01", todayDate: "2026-01-15",
           startInclusive: true, endInclusive: false },
         source: { provider: "d1", view: "completed_services", readCompletedAt: "2026-01-15T12:00:00.000Z" } } }
+    : bookingCapabilityQuery ? { data: { booking_provider: "none", upcoming_summary: "unavailable",
+      availability_slots: "unavailable", booking_detail: "unavailable", create: "unavailable",
+      reschedule: "unavailable", cancel: "unavailable", booking_links: { in_person: "unavailable", online: "unavailable" },
+      booking_url: "https://private.example.test" }, meta: { contract_version: "v1", tenant_id: "private" } }
     : historyQuery ? { data: { items: [{ id: "synthetic-delivery", kind: "email", status: "sent" }], total: 21 }, meta: { contract_version: "v1", request_id: "synthetic-history", page: 2, page_size: 20, total_pages: 2 } }
     : statusQuery && url.pathname === "/api/agent/quotes/accept-status" ? { data: { preview_id: previewId, state: "succeeded",
       retry_mutation: false, reconciliation_required: false, outcome: { status: 200, data: syntheticQuoteAcceptance } },
@@ -442,6 +448,11 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.deepEqual((JSON.parse(margin) as { data: { kind: string; total: number } }).data,
         { kind: "completed_services", items: [], totals: [], total: 0 });
       assert.doesNotMatch(margin, /private|synthetic-access|synthetic-refresh/u);
+      const bookingCapabilities = await runInstalled(["bookings", "capabilities", "--profile", testProfile(directory)], directory, environment);
+      assert.deepEqual((JSON.parse(bookingCapabilities) as { data: { booking_provider: string; create: string } }).data,
+        { booking_provider: "none", upcoming_summary: "unavailable", availability_slots: "unavailable", booking_detail: "unavailable",
+          create: "unavailable", reschedule: "unavailable", cancel: "unavailable", booking_links: { in_person: "unavailable", online: "unavailable" } });
+      assert.doesNotMatch(bookingCapabilities, /booking_url|private|synthetic-access|synthetic-refresh/u);
       await ["catalog", "quotes", "services"].reduce(async (previous, resource) => {
         await previous;
         const before = handler.mock.callCount();
@@ -538,7 +549,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
         assert.equal(handler.mock.callCount() - before, 1);
         assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
       }, Promise.resolve());
-      assert.equal(handler.mock.callCount(), 45);
+      assert.equal(handler.mock.callCount(), 46);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
