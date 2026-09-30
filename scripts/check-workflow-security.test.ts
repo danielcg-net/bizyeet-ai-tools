@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -55,4 +55,42 @@ void test("requires immutable references for reusable workflows as well as steps
   const reference = "example/security/.github/workflows/check.yml";
   assert.deepEqual(validateWorkflow("test.yml", workflow(`  check:\n    uses: ${reference}@main\n`)), [`test.yml: action must use a full commit SHA (${reference}@main)`]);
   assert.deepEqual(validateWorkflow("test.yml", workflow(`  check:\n    uses: ${reference}@${"a".repeat(40)}\n`)), []);
+});
+
+void test("only the isolated same-repository DeepSeek review may write PR comments", async (): Promise<void> => {
+  const source = (await readFile(new URL("../../.github/workflows/deepseek-cr.yml", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+  assert.deepEqual(validateWorkflow("deepseek-cr.yml", source), []);
+  assert.deepEqual(validateWorkflow("other.yml", source), [
+    "other.yml: job permissions must use the approved least-privilege mapping",
+    "other.yml: DeepSeek secret may only be used by the isolated review job",
+  ]);
+  assert.deepEqual(
+    validateWorkflow("other.yml", workflow("  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.DEEPSEEK_API_KEY }}\n")),
+    ["other.yml: DeepSeek secret may only be used by the isolated review job"],
+  );
+  assert.deepEqual(
+    validateWorkflow("other.yml", workflow("  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets['DEEPSEEK_API_KEY'] }}\n")),
+    ["other.yml: DeepSeek secret may only be used by the isolated review job"],
+  );
+  const unsafe = [
+    source.replace("github.event.pull_request.head.repo.full_name == github.repository", "github.event.pull_request.number > 0"),
+    source.replace("runs-on: ubuntu-latest", "runs-on: [self-hosted, bizyeet]"),
+    source.replace("reconcile-threads: \"false\"", "reconcile-threads: \"true\""),
+    source.replace("contents: read\n      pull-requests: write", "contents: write\n      pull-requests: write"),
+    source.replace("      # No checkout", "      - run: echo untrusted\n      # No checkout"),
+    source.replace("github.rest.pulls.listCommits", "github.rest.pulls.get"),
+    source.replace("const pr = context.payload.pull_request;", "const pr = context.payload.pull_request; core.info('untrusted');"),
+    source.replace("on:\n  pull_request:", "on:\n  push:\n  pull_request:"),
+    source.replace("jobs:\n  review:", "jobs:\n  leak:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.DEEPSEEK_API_KEY }}\n  review:"),
+  ];
+  unsafe.forEach((variant) => {
+    assert.notEqual(variant, source, "test mutation must change the workflow");
+    assert.notDeepEqual(validateWorkflow("deepseek-cr.yml", variant), []);
+  });
+  assert.deepEqual(validateWorkflow("deepseek-cr.yml", source.replace("pull_request:", "pull_request_target:")),
+    [
+      "deepseek-cr.yml: pull_request_target is forbidden",
+      "deepseek-cr.yml: job permissions must use the approved least-privilege mapping",
+      "deepseek-cr.yml: DeepSeek secret may only be used by the isolated review job",
+    ]);
 });
