@@ -6,6 +6,8 @@ import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./paymen
 import { paymentSummaryResponse } from "./payment-summary-response.js";
 import { validTaxReportOptions, taxReportDefaultFields, type TaxReportOptions } from "./tax-report-contract.js";
 import { taxReportResponse } from "./tax-report-response.js";
+import { marginReportDefaultFields, marginReportEvidenceFields, validMarginReportOptions, type MarginReportOptions } from "./margin-report-contract.js";
+import { marginReportResponse } from "./margin-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
@@ -70,6 +72,7 @@ export type CanonicalCrmClient = Readonly<{
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
   bookingSummary: (options?: BookingSummaryOptions) => Promise<CanonicalResult>;
   taxReport: (options?: TaxReportOptions) => Promise<CanonicalResult>;
+  marginReport: (options?: MarginReportOptions) => Promise<CanonicalResult>;
   list: (resource: ReadResource, options?: ListOptions) => Promise<CanonicalResult>;
   get: (resource: ReadResource, id: string, options?: ReadOptions) => Promise<CanonicalResult>;
   previewCustomerUpdate: (input: CustomerUpdatePreview) => Promise<CanonicalResult>;
@@ -301,6 +304,13 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(transport as Readonly<Record<string, unknown>>)
       .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
     return reportRead("/api/agent/reports/taxes", parameters, (body) => taxReportResponse(body, options));
+  };
+  const marginReport = async (options: MarginReportOptions = {}): Promise<CanonicalResult> => {
+    if (!validMarginReportOptions(options)) return failure(400, "invalid_request");
+    const transport = { ...options, fields: [...new Set([...(options.fields ?? marginReportDefaultFields), ...marginReportEvidenceFields])] };
+    const parameters = new URLSearchParams([["api_version", "v1"], ...Object.entries(transport as Readonly<Record<string, unknown>>)
+      .filter(([, value]) => value !== undefined).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value)])]);
+    return reportRead("/api/agent/reports/margin", parameters, (body) => marginReportResponse(body, options));
   };
   const write = async (input: CustomerUpdatePreview | CustomerUpdateExecution, preview: boolean, resource: CrmResource): Promise<CanonicalResult> => {
     if (!record(input)) return failure(400, "invalid_request");
@@ -536,6 +546,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     receivedPaymentSummary,
     bookingSummary,
     taxReport,
+    marginReport,
     list: (resource: ReadResource, options: ListOptions = {}): Promise<CanonicalResult> => read(resource, null, options),
     get: (resource: ReadResource, id: string, options: ReadOptions = {}): Promise<CanonicalResult> => read(resource, id, options),
     previewCustomerUpdate: (input: CustomerUpdatePreview): Promise<CanonicalResult> => write(input, true, "customers"),

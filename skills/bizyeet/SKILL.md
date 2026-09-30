@@ -1,6 +1,6 @@
 ---
 name: bizyeet
-description: Use the tenant-authorized BizYeet CLI or remote MCP server for bounded business reads and explicitly approved customer updates. Use when a user asks to inspect BizYeet customers, leads, payments, expenses, tax reports, or available MCP capabilities; do not use for raw provider access or unapproved business effects.
+description: Use the tenant-authorized BizYeet CLI or remote MCP server for bounded business reads and explicitly approved customer updates. Use when a user asks to inspect BizYeet customers, leads, payments, expenses, tax or margin reports, or available MCP capabilities; do not use for raw provider access or unapproved business effects.
 ---
 
 # BizYeet
@@ -40,7 +40,7 @@ codex mcp list
 
 Choose the minimum scope set: customer/lead reads use `customers.read`; booking
 reads use `bookings.read`; payment reads use `payments.read`; expense reads use
-`expenses.read`; tax reports use `reports.read`; and a customer update requires
+`expenses.read`; tax and margin reports use `reports.read`; and a customer update requires
 both `customers.read,customers.write`. Requesting a scope does not grant it: the
 server's current tool list and authorization result remain authoritative.
 

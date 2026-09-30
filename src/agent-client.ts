@@ -2,6 +2,7 @@ import { refreshAccessToken, revokeRefreshToken, type FetchLike, type OAuthMetad
 import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validOAuthScope } from "./oauth-scope.js";
+import { validMarginReportOptions, type MarginReportOptions } from "./margin-report-contract.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
 import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type QuoteCreatePreview, type QuoteUpdatePreview, type ServiceCreatePreview, type ServiceUpdatePreview } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
@@ -183,6 +184,12 @@ export const readCommunications = async (input: Omit<Parameters<typeof receivedP
 export const readTaxReport = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ options: TaxReportOptions }>): Promise<AgentResult> => {
   if (!validTaxReportOptions(input.options)) throw new Error("Tax report options are invalid.");
   return invoke({ ...input, operation: (client) => client.taxReport(input.options) });
+};
+
+/** Read authorized margin groups without deriving costs, currencies or tenant periods in the client. */
+export const readMarginReport = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ options: MarginReportOptions }>): Promise<AgentResult> => {
+  if (!validMarginReportOptions(input.options)) throw new Error("Margin report options are invalid.");
+  return invoke({ ...input, operation: (client) => client.marginReport(input.options) });
 };
 
 /** Lists at most 100 contract-defined customer records without accepting arbitrary paths or query keys. */
