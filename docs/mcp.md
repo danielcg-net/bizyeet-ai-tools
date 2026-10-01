@@ -29,6 +29,17 @@ The V1 read contract includes bounded customer and lead list/get tools using
   `bizyeet_payments_get_with_relationships`: require both `payments.read` and
   `customers.read`, with an explicit `customer` or `service` field selection.
 
+The `bizyeet_services_history` source descriptor reads one service's bounded
+status transitions with `customers.read`. Its opaque cursor is service-bound;
+private notes and native identifiers are excluded. Check the authenticated
+server's advertised tools before relying on this source declaration.
+
+The `bizyeet_services_payments` source descriptor reads bounded public payment
+facts linked to one opaque service ID. It requires both `customers.read` and
+`payments.read`, excludes private relationship fields, and cannot change a
+payment. Its cursor is service-bound by the canonical server. Check the
+authenticated server's advertised tools before relying on source availability.
+
 Payment list filters include bounded pagination, status, sorting and canonical
 UTC start/end timestamps. Provider routing and live permissions remain
 server-owned; unsupported operations fail explicitly. Never combine currencies
@@ -43,6 +54,13 @@ provider-aware count for a bounded 1–720-hour future window (default 168). It
 does not list appointments or slots, expose booking details, or authorize booking
 changes. Reauthorize the MCP server for that exact scope when it is insufficient;
 the default CLI login scope is `customers.read`, not `bookings.read`.
+
+The source-only `bizyeet_bookings_capabilities` descriptor also uses
+`bookings.read`, but requires the matching canonical backend endpoint to be
+merged and deployed before use. It reports configured operation support and
+whether booking links exist, without URLs or customer data. An
+`external_link_only` create capability is not an executable booking operation;
+the matrix does not verify live provider health.
 
 The summary reports gross collected receipts, not net revenue. It preserves
 the requested custom dates in `period.requestedStartDate` and
@@ -67,5 +85,10 @@ List filters use inclusive calendar dates. IDs and cursors remain opaque.
 Output metadata explicitly marks the persisted view and materialization as
 not evaluated. Reading does not generate scheduled occurrences: an empty page
 does not prove that no expenses are due. Read-completion time is not a snapshot
-or synchronization guarantee. Preserve amounts and currencies; select notes
-explicitly when authorized and needed.
+or synchronization guarantee. Preserve amounts and currencies. Internal notes
+are not included in these public expense reads.
+
+`bizyeet_expense_schedules_list` and `bizyeet_expense_schedules_get` separately
+read recurring schedules with `expenses.read` and live dashboard expense
+permission. Schedule handles are opaque and are not expense handles. The
+schedule projection excludes internal notes; reading never creates an expense.

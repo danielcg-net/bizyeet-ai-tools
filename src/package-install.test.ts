@@ -79,6 +79,14 @@ const opaqueCursor = "--next:page/2?query=a+b&filter=active#offset";
 const previewId = "11111111-1111-4111-8111-111111111111";
 const executionKey = "22222222-2222-4222-8222-222222222222";
 const receipt = "r".repeat(43);
+const quoteId = "sales1.fingerprint.quotes.quote";
+const expenseScheduleId = "expsch1.fingerprint.schedule";
+const expenseSchedule = Object.freeze({ id: expenseScheduleId, name: "Monthly fuel", amount: "12.50", frequency: "monthly", active: 1,
+  notes: "private-schedule-notes", tenant_id: "private-tenant" });
+const serviceId = "sales1.fingerprint.services.service";
+const quoteLineId = `${quoteId}.items.line`;
+const quoteRevision = { title: "Revised", expectedPricingRevision: 2,
+  items: [{ id: quoteLineId, description: "Transfer", quantity: "2", unitPrice: "25.00" }] };
 const serveSyntheticWrite = async (request: IncomingMessage, response: ServerResponse, preview: boolean, lead: boolean): Promise<void> => {
   assert.equal(request.method, "POST");
   assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
@@ -92,9 +100,142 @@ const serveSyntheticWrite = async (request: IncomingMessage, response: ServerRes
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
 };
+const serveSyntheticQuoteUpdate = async (request: IncomingMessage, response: ServerResponse, preview: boolean): Promise<void> => {
+  assert.equal(request.method, "POST");
+  assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
+  assert.equal(request.headers.authorization, "Bearer synthetic-access");
+  const input: unknown = JSON.parse(await text(request));
+  assert.deepEqual(input, preview ? { resource_id: quoteId, quote: quoteRevision }
+    : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
+  const data = preview ? { preview_id: previewId, request_hash: "b".repeat(43), expires_at: "2099-01-01T00:00:00.000Z",
+    confirmation_class: "reversible_write", operation: "quote_update", resource_id: quoteId, resource_label: "Revised",
+    proposed_changes: { quoteTitle: "Revised", lineItems: "2 × Transfer — 25.00", totalAmount: "50.00", pricingCurrency: "CAD",
+      grossAmount: "50.00", discountAmount: "0.00", discountCode: "", discountCodeId: "" },
+    side_effects: ["Update one draft quote"], warnings: [], idempotency_key_format: "uuid",
+    approval_path: `/dashboard/#/agent-approvals/${previewId}` }
+    : { resource: { id: quoteId, title: "Revised", status: "draft", items: [{ id: quoteLineId,
+      description: "Transfer", quantity: "2", unit_price: "25.00", unit_cost: "private-cost" }] }, audit_reference: previewId };
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
+};
+const syntheticQuoteAcceptance = { quote: { id: quoteId, title: "Transfer", status: "accepted", private_cost: "hidden" },
+  service: { id: serviceId, name: "Transfer", status: "scheduled", private_cost: "hidden" },
+  already_accepted: false, notification: { attempted: true, sent: false, reconciliation_required: false }, audit_reference: previewId };
+const serveSyntheticQuoteAccept = async (request: IncomingMessage, response: ServerResponse, preview: boolean): Promise<void> => {
+  assert.equal(request.method, "POST");
+  assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
+  assert.equal(request.headers.authorization, "Bearer synthetic-access");
+  const input: unknown = JSON.parse(await text(request));
+  assert.deepEqual(input, preview ? { resource_id: quoteId }
+    : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
+  const data = preview ? { preview_id: previewId, request_hash: "h".repeat(43), expires_at: "2099-01-01T00:00:00.000Z",
+    confirmation_class: "lifecycle_transition", operation: "quote_accept", resource_id: quoteId, resource_label: "Transfer",
+    proposed_changes: { quoteTitle: "Transfer", lifecycleAction: "Accept quote and create its canonical service",
+      notification: "The tenant's automatic service-status email may be sent." },
+    side_effects: ["Accept one quote", "A lead recipient may be promoted", "An automatic email may be sent"],
+    warnings: ["This lifecycle action cannot be undone by the agent."], idempotency_key_format: "uuid",
+    approval_path: `/dashboard/#/agent-approvals/${previewId}` } : syntheticQuoteAcceptance;
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
+};
+const syntheticQuoteDecline = { quote: { id: quoteId, title: "Transfer", status: "declined", private_cost: "hidden" },
+  audit_reference: previewId };
+const serveSyntheticQuoteDecline = async (request: IncomingMessage, response: ServerResponse, preview: boolean): Promise<void> => {
+  assert.equal(request.method, "POST");
+  assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
+  assert.equal(request.headers.authorization, "Bearer synthetic-access");
+  const input: unknown = JSON.parse(await text(request));
+  assert.deepEqual(input, preview ? { resource_id: quoteId }
+    : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
+  const data = preview ? { preview_id: previewId, request_hash: "h".repeat(43), expires_at: "2099-01-01T00:00:00.000Z",
+    confirmation_class: "lifecycle_transition", operation: "quote_decline", resource_id: quoteId, resource_label: "Transfer",
+    proposed_changes: { quoteTitle: "Transfer", lifecycleAction: "Decline quote. No service or customer communication is created." },
+    side_effects: ["Decline one open quote. No service, payment, or customer communication is created."],
+    warnings: ["This lifecycle action cannot be undone by the agent."], idempotency_key_format: "uuid",
+    approval_path: `/dashboard/#/agent-approvals/${previewId}` } : syntheticQuoteDecline;
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
+};
+const syntheticServiceProposal = { customerId: opaqueId, name: "Airport transfer", description: "Pickup", durationMinutes: 45,
+  items: [{ description: "Ride", quantity: "2", unitPrice: "25.00" }] };
+const syntheticServiceCreation = { service: { id: serviceId, name: "Airport transfer", status: "backlog", amount: "50.00",
+  private_cost: "hidden" }, notification: { attempted: false, sent: false, reconciliation_required: false },
+audit_reference: previewId };
+const serveSyntheticServiceCreate = async (request: IncomingMessage, response: ServerResponse, preview: boolean): Promise<void> => {
+  assert.equal(request.method, "POST");
+  assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
+  assert.equal(request.headers.authorization, "Bearer synthetic-access");
+  const input: unknown = JSON.parse(await text(request));
+  assert.deepEqual(input, preview ? { service: syntheticServiceProposal }
+    : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
+  const data = preview ? { preview_id: previewId, request_hash: "h".repeat(43), expires_at: "2099-01-01T00:00:00.000Z",
+    confirmation_class: "lifecycle_transition", operation: "service_create", resource_id: opaqueId, resource_label: "Customer",
+    proposed_changes: { serviceName: "Airport transfer", description: "Pickup", lineItems: "2 × Ride — 25.00",
+      grossAmount: "50.00", discountAmount: "0.00", totalAmount: "50.00", discountTerms: "", pricingCurrency: "CAD",
+      status: "backlog", durationMinutes: 45, customerDocuments: "", notification: "No customer communication is configured for this service." },
+    side_effects: ["Create one backlog service for this customer.", "No customer communication is configured for this service."],
+    warnings: [], idempotency_key_format: "uuid", approval_path: "/dashboard/#/agent-approvals/" + previewId } : syntheticServiceCreation;
+  response.writeHead(preview ? 200 : 201, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
+};
+const syntheticServiceUpdate = { name: "Revised transfer", expectedPricingRevision: 3, pricingCurrency: "CAD",
+  items: [{ id: `${serviceId}.items.line`, description: "Ride", quantity: "2", unitPrice: "25.00" }] };
+const syntheticUpdatedService = { service: { id: serviceId, name: "Revised transfer", status: "backlog", pricing_revision: 4,
+  private_cost: "hidden" }, notification: { attempted: false, sent: false, reconciliation_required: false }, audit_reference: previewId };
+const serveSyntheticServiceUpdate = async (request: IncomingMessage, response: ServerResponse, preview: boolean): Promise<void> => {
+  assert.equal(request.method, "POST");
+  assert.deepEqual(Object.fromEntries(new URL(request.url ?? "/", "https://localhost").searchParams), { api_version: "v1" });
+  assert.equal(request.headers.authorization, "Bearer synthetic-access");
+  const input: unknown = JSON.parse(await text(request));
+  assert.deepEqual(input, preview ? { resource_id: serviceId, service: syntheticServiceUpdate }
+    : { preview_id: previewId, idempotency_key: executionKey, approval_receipt: receipt });
+  const data = preview ? { preview_id: previewId, request_hash: "h".repeat(43), expires_at: "2099-01-01T00:00:00.000Z",
+    confirmation_class: "reversible_write", operation: "service_update", resource_id: serviceId, resource_label: "Transfer",
+    proposed_changes: { serviceName: "Revised transfer", lineItems: "2 × Ride — 25.00", totalAmount: "50.00",
+      pricingCurrency: "CAD", notification: "No customer communication is configured for this service." },
+    side_effects: ["Update one service without changing its lifecycle status."], warnings: [], idempotency_key_format: "uuid",
+    approval_path: `/dashboard/#/agent-approvals/${previewId}` } : syntheticUpdatedService;
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ data, meta: { contract_version: "v1" } }));
+};
 const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): void => {
   const origin = `https://${request.headers.host ?? "127.0.0.1"}`;
   const url = new URL(request.url ?? "/", origin);
+  if (["/api/agent/quotes/accept-preview", "/api/agent/quotes/accept-execute"].includes(url.pathname)) {
+    void serveSyntheticQuoteAccept(request, response, url.pathname.endsWith("accept-preview")).catch(() => {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
+    });
+    return;
+  }
+  if (["/api/agent/quotes/decline-preview", "/api/agent/quotes/decline-execute"].includes(url.pathname)) {
+    void serveSyntheticQuoteDecline(request, response, url.pathname.endsWith("decline-preview")).catch(() => {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
+    });
+    return;
+  }
+  if (["/api/agent/services/create-preview", "/api/agent/services/create-execute"].includes(url.pathname)) {
+    void serveSyntheticServiceCreate(request, response, url.pathname.endsWith("create-preview")).catch(() => {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
+    });
+    return;
+  }
+  if (["/api/agent/services/update-preview", "/api/agent/services/update-execute"].includes(url.pathname)) {
+    void serveSyntheticServiceUpdate(request, response, url.pathname.endsWith("update-preview")).catch(() => {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
+    });
+    return;
+  }
+  if (["/api/agent/quotes/update-preview", "/api/agent/quotes/update-execute"].includes(url.pathname)) {
+    void serveSyntheticQuoteUpdate(request, response, url.pathname.endsWith("update-preview")).catch(() => {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "synthetic_contract_mismatch" } }));
+    });
+    return;
+  }
   if (["customers", "leads"].some((resource) => ["preview", "execute"].some((operation) => url.pathname === `/api/agent/${resource}/update-${operation}`))) {
     void serveSyntheticWrite(request, response, url.pathname.endsWith("update-preview"), url.pathname.startsWith("/api/agent/leads/")).catch(() => {
       response.writeHead(500, { "Content-Type": "application/json" });
@@ -107,15 +248,51 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
   const historyQuery = ["customers", "leads", "quotes", "services", "payments"].some((resource) => url.pathname === `/api/agent/${resource}/${encodeURIComponent(opaqueId)}/communications`)
     && request.method === "GET" && url.searchParams.size === 3 && url.searchParams.get("api_version") === "v1"
     && url.searchParams.get("page") === "2" && url.searchParams.get("page_size") === "20";
-  const statusQuery = ["/api/agent/customers/update-status", "/api/agent/leads/update-status"].includes(url.pathname)
+  const marginQuery = url.pathname === "/api/agent/reports/margin" && request.method === "GET"
+    && url.searchParams.get("api_version") === "v1" && url.searchParams.get("range") === "custom"
+    && url.searchParams.get("start_date") === "2026-01-01" && url.searchParams.get("end_date") === "2026-01-31"
+    && url.searchParams.get("fields")?.includes("currency") === true;
+  const bookingCapabilityQuery = url.pathname === "/api/agent/bookings/capabilities" && request.method === "GET"
+    && url.searchParams.size === 1 && url.searchParams.get("api_version") === "v1";
+  const statusQuery = ["/api/agent/customers/update-status", "/api/agent/leads/update-status", "/api/agent/quotes/update-status",
+    "/api/agent/quotes/accept-status", "/api/agent/quotes/decline-status", "/api/agent/services/create-status",
+    "/api/agent/services/update-status"].includes(url.pathname)
     && request.method === "GET" && url.searchParams.size === 3 && url.searchParams.get("api_version") === "v1"
     && url.searchParams.get("preview_id") === previewId && url.searchParams.get("idempotency_key") === executionKey;
   const body = metadata ? { issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, code_challenge_methods_supported: ["S256"] }
     : !authorized ? { error: { code: "authorization_required" } }
+    : marginQuery ? { data: { kind: "completed_services", items: [], totals: [], total: 0, private: "hidden" },
+      meta: { contract_version: "v1", request_id: "synthetic-margin", page: 1, page_size: 25, total_pages: 1, returned: 0,
+        period: { range: "custom", timeZone: "UTC", start: "2026-01-01T00:00:00.000Z", end: "2026-02-01T00:00:00.000Z",
+          startDate: "2026-01-01", endDate: "2026-01-31", endDateExclusive: "2026-02-01", todayDate: "2026-01-15",
+          startInclusive: true, endInclusive: false },
+        source: { provider: "d1", view: "completed_services", readCompletedAt: "2026-01-15T12:00:00.000Z" } } }
+    : bookingCapabilityQuery ? { data: { booking_provider: "none", upcoming_summary: "unavailable",
+      availability_slots: "unavailable", booking_detail: "unavailable", create: "unavailable",
+      reschedule: "unavailable", cancel: "unavailable", booking_links: { in_person: "unavailable", online: "unavailable" },
+      booking_url: "https://private.example.test" }, meta: { contract_version: "v1", tenant_id: "private" } }
     : historyQuery ? { data: { items: [{ id: "synthetic-delivery", kind: "email", status: "sent" }], total: 21 }, meta: { contract_version: "v1", request_id: "synthetic-history", page: 2, page_size: 20, total_pages: 2 } }
+    : statusQuery && url.pathname === "/api/agent/quotes/accept-status" ? { data: { preview_id: previewId, state: "succeeded",
+      retry_mutation: false, reconciliation_required: false, outcome: { status: 200, data: syntheticQuoteAcceptance } },
+      meta: { contract_version: "v1" } }
+    : statusQuery && url.pathname === "/api/agent/quotes/decline-status" ? { data: { preview_id: previewId, state: "succeeded",
+      retry_mutation: false, reconciliation_required: false, outcome: { status: 200, data: syntheticQuoteDecline } },
+      meta: { contract_version: "v1" } }
+    : statusQuery && url.pathname === "/api/agent/services/create-status" ? { data: { preview_id: previewId, state: "succeeded",
+      retry_mutation: false, reconciliation_required: false, outcome: { status: 201, data: syntheticServiceCreation } },
+      meta: { contract_version: "v1" } }
+    : statusQuery && url.pathname === "/api/agent/services/update-status" ? { data: { preview_id: previewId, state: "succeeded",
+      retry_mutation: false, reconciliation_required: false, outcome: { status: 200, data: syntheticUpdatedService } },
+      meta: { contract_version: "v1" } }
     : statusQuery ? { data: { preview_id: previewId, state: "succeeded", retry_mutation: false, reconciliation_required: false,
-      outcome: { status: 200, data: { resource: { id: opaqueId, business: "Proposed", ...(url.pathname.startsWith("/api/agent/leads/") ? { pipeline_stage: "New Lead" } : {}) }, audit_reference: previewId } } }, meta: { contract_version: "v1" } }
+      outcome: { status: 200, data: { resource: url.pathname.startsWith("/api/agent/quotes/")
+        ? { id: quoteId, title: "Revised", status: "draft", items: [{ id: quoteLineId, description: "Transfer", quantity: "2", unit_price: "25.00" }] }
+        : { id: opaqueId, business: "Proposed", ...(url.pathname.startsWith("/api/agent/leads/") ? { pipeline_stage: "New Lead" } : {}) }, audit_reference: previewId } } }, meta: { contract_version: "v1" } }
     : url.pathname === "/api/agent/me" ? { tenant_id: "synthetic-tenant", client_id: "public-client", scope: ["customers.read"] }
+    : url.pathname === "/api/agent/expense-schedules" ? { data: { items: [expenseSchedule], total: 1 },
+      meta: { contract_version: "v1", next_cursor: null, request_id: "synthetic-schedule", tenant_id: "private-tenant" } }
+    : url.pathname === `/api/agent/expense-schedules/${expenseScheduleId}` ? { data: expenseSchedule,
+      meta: { contract_version: "v1", request_id: "synthetic-schedule", tenant_id: "private-tenant" } }
     : ["catalog", "quotes", "services"].some((resource) => url.pathname === `/api/agent/${resource}`) ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId, unit_cost: "private-cost", tenant_id: "private-tenant" }], total: 1 }, meta: { contract_version: "v1", request_id: "synthetic-sales", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
     : ["catalog", "quotes", "services"].some((resource) => url.pathname === `/api/agent/${resource}/${encodeURIComponent(opaqueId)}`) ? { data: { id: opaqueId, unit_cost: "private-cost", tenant_id: "private-tenant" }, meta: { contract_version: "v1", request_id: "synthetic-sales" } }
     : ["/api/agent/customers", "/api/agent/leads"].includes(url.pathname) ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
@@ -273,6 +450,25 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.ok(typeof leadSummary.data === "object" && leadSummary.data !== null && "path" in leadSummary.data && typeof leadSummary.data.path === "string");
       assert.deepEqual(JSON.parse(await readFile(leadSummary.data.path, "utf8")) as unknown, JSON.parse(leadDetail) as unknown);
       assert.doesNotMatch(leadExport, /synthetic-access|synthetic-refresh|synthetic:customer/u);
+      const margin = await runInstalled(["reports", "margin", "--range", "custom", "--start-date", "2026-01-01",
+        "--end-date", "2026-01-31", "--profile", testProfile(directory)], directory, environment);
+      assert.deepEqual((JSON.parse(margin) as { data: { kind: string; total: number } }).data,
+        { kind: "completed_services", items: [], totals: [], total: 0 });
+      assert.doesNotMatch(margin, /private|synthetic-access|synthetic-refresh/u);
+      const scheduleList = await runInstalled(["expenses", "schedules", "list", "--limit", "1", "--fields", "id,name,amount",
+        "--frequency", "monthly", "--profile", testProfile(directory)], directory, environment);
+      const scheduleDetail = await runInstalled(["expenses", "schedules", "get", expenseScheduleId, "--fields", "name,frequency",
+        "--profile", testProfile(directory)], directory, environment);
+      assert.deepEqual(JSON.parse(scheduleList) as unknown, { data: { items: [{ id: expenseScheduleId, name: "Monthly fuel", amount: "12.50" }], total: 1 },
+        meta: { contract_version: "v1", request_id: "synthetic-schedule", next_cursor: null } });
+      assert.deepEqual(JSON.parse(scheduleDetail) as unknown, { data: { id: expenseScheduleId, name: "Monthly fuel", frequency: "monthly" },
+        meta: { contract_version: "v1", request_id: "synthetic-schedule" } });
+      assert.doesNotMatch(scheduleList + scheduleDetail, /private-schedule-notes|private-tenant|synthetic-access|synthetic-refresh/u);
+      const bookingCapabilities = await runInstalled(["bookings", "capabilities", "--profile", testProfile(directory)], directory, environment);
+      assert.deepEqual((JSON.parse(bookingCapabilities) as { data: { booking_provider: string; create: string } }).data,
+        { booking_provider: "none", upcoming_summary: "unavailable", availability_slots: "unavailable", booking_detail: "unavailable",
+          create: "unavailable", reschedule: "unavailable", cancel: "unavailable", booking_links: { in_person: "unavailable", online: "unavailable" } });
+      assert.doesNotMatch(bookingCapabilities, /booking_url|private|synthetic-access|synthetic-refresh/u);
       await ["catalog", "quotes", "services"].reduce(async (previous, resource) => {
         await previous;
         const before = handler.mock.callCount();
@@ -295,6 +491,55 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const leadPreview = await runInstalled(["leads", "update", "preview", "--input-stdin", "--profile", testProfile(directory), "--", opaqueId], directory, environment, JSON.stringify({ business: "Proposed" }));
       const leadExecution = await runInstalled(["leads", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
       const leadStatus = await runInstalled(["leads", "update", "status", previewId, "--idempotency-key", executionKey, "--profile", testProfile(directory)], directory, environment);
+      const quotePreview = await runInstalled(["quotes", "update", "preview", quoteId, "--input-stdin", "--profile", testProfile(directory)], directory, environment, JSON.stringify(quoteRevision));
+      const quoteExecution = await runInstalled(["quotes", "update", "execute", previewId, "--idempotency-key", executionKey, "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
+      const quoteStatus = await runInstalled(["quotes", "update", "status", previewId, "--idempotency-key", executionKey, "--profile", testProfile(directory)], directory, environment);
+      assert.match(quotePreview, /"operation":"quote_update"/u);
+      assert.match(quoteExecution, /"unit_price":"25\.00"/u);
+      assert.match(quoteStatus, /"state":"succeeded"/u);
+      assert.doesNotMatch(quotePreview + quoteExecution + quoteStatus, /private-cost|synthetic-access|synthetic-refresh|rrrrrrrr/u);
+      const acceptPreview = await runInstalled(["quotes", "accept", "preview", quoteId, "--profile", testProfile(directory)], directory, environment);
+      const acceptExecution = await runInstalled(["quotes", "accept", "execute", previewId, "--idempotency-key", executionKey,
+        "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
+      const acceptStatus = await runInstalled(["quotes", "accept", "status", previewId, "--idempotency-key", executionKey,
+        "--profile", testProfile(directory)], directory, environment);
+      assert.match(acceptPreview, /"confirmation_class":"lifecycle_transition"/u);
+      assert.match(acceptExecution, /"already_accepted":false/u);
+      assert.match(acceptStatus, /"state":"succeeded"/u);
+      assert.doesNotMatch(acceptPreview + acceptExecution + acceptStatus,
+        /private_cost|synthetic-access|synthetic-refresh|rrrrrrrr/u);
+      const declinePreview = await runInstalled(["quotes", "decline", "preview", quoteId, "--profile", testProfile(directory)], directory, environment);
+      const declineExecution = await runInstalled(["quotes", "decline", "execute", previewId, "--idempotency-key", executionKey,
+        "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
+      const declineStatus = await runInstalled(["quotes", "decline", "status", previewId, "--idempotency-key", executionKey,
+        "--profile", testProfile(directory)], directory, environment);
+      assert.match(declinePreview, /"operation":"quote_decline"/u);
+      assert.match(declineExecution, /"status":"declined"/u);
+      assert.match(declineStatus, /"state":"succeeded"/u);
+      assert.doesNotMatch(declinePreview + declineExecution + declineStatus,
+        /private_cost|synthetic-access|synthetic-refresh|rrrrrrrr/u);
+      const servicePreview = await runInstalled(["services", "create", "preview", "--input-stdin", "--profile", testProfile(directory)],
+        directory, environment, JSON.stringify(syntheticServiceProposal));
+      const serviceExecution = await runInstalled(["services", "create", "execute", previewId, "--idempotency-key", executionKey,
+        "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, receipt + "\n");
+      const serviceStatus = await runInstalled(["services", "create", "status", previewId, "--idempotency-key", executionKey,
+        "--profile", testProfile(directory)], directory, environment);
+      assert.match(servicePreview, /"operation":"service_create"/u);
+      assert.match(serviceExecution, /"status":"backlog"/u);
+      assert.match(serviceStatus, /"state":"succeeded"/u);
+      assert.doesNotMatch(servicePreview + serviceExecution + serviceStatus,
+        /private_cost|synthetic-access|synthetic-refresh|rrrrrrrr/u);
+      const updatePreview = await runInstalled(["services", "update", "preview", serviceId, "--input-stdin", "--profile", testProfile(directory)],
+        directory, environment, JSON.stringify(syntheticServiceUpdate));
+      const updateExecution = await runInstalled(["services", "update", "execute", previewId, "--idempotency-key", executionKey,
+        "--receipt-stdin", "--profile", testProfile(directory)], directory, environment, `${receipt}\n`);
+      const updateStatus = await runInstalled(["services", "update", "status", previewId, "--idempotency-key", executionKey,
+        "--profile", testProfile(directory)], directory, environment);
+      assert.match(updatePreview, /"operation":"service_update"/u);
+      assert.match(updateExecution, /"pricing_revision":4/u);
+      assert.match(updateStatus, /"state":"succeeded"/u);
+      assert.doesNotMatch(updatePreview + updateExecution + updateStatus,
+        /private_cost|synthetic-access|synthetic-refresh|rrrrrrrr/u);
       assert.match(leadPreview, /"birthday":null/u);
       assert.match(leadExecution, /"pipeline_stage":"New Lead"/u);
       assert.match(leadStatus, /"state":"succeeded"/u);
@@ -320,7 +565,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
         assert.equal(handler.mock.callCount() - before, 1);
         assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
       }, Promise.resolve());
-      assert.equal(handler.mock.callCount(), 29);
+      assert.equal(handler.mock.callCount(), 48);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
@@ -341,6 +586,12 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.deepEqual(leadWrites.map((request) => request.method), ["POST", "POST", "GET"]);
       assert.deepEqual(leadWrites.map((request) => new URL(request.url ?? "/", "https://localhost").pathname),
         ["/api/agent/leads/update-preview", "/api/agent/leads/update-execute", "/api/agent/leads/update-status"]);
+      const quoteWrites = handler.mock.calls.map((call) => call.arguments[0])
+        .filter((request) => request.url?.startsWith("/api/agent/quotes/update-"));
+      assert.deepEqual(quoteWrites.map((request) => request.method), ["POST", "POST", "GET"]);
+      const serviceUpdates = handler.mock.calls.map((call) => call.arguments[0])
+        .filter((request) => request.url?.startsWith("/api/agent/services/update-"));
+      assert.deepEqual(serviceUpdates.map((request) => request.method), ["POST", "POST", "GET"]);
       assert.ok(handler.mock.calls.map((call) => new URL(call.arguments[0].url ?? "/", "https://localhost"))
         .filter((url) => url.pathname === `/api/agent/customers/${encodeURIComponent(opaqueId)}`)
         .every((url) => url.searchParams.get("fields") === "id"));

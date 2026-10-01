@@ -2,8 +2,9 @@ import { refreshAccessToken, revokeRefreshToken, type FetchLike, type OAuthMetad
 import { isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
 import { validOAuthScope } from "./oauth-scope.js";
+import { validMarginReportOptions, type MarginReportOptions } from "./margin-report-contract.js";
 import type { Profile, StoredCredentials } from "./profile-store.js";
-import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery } from "./canonical-crm-client.js";
+import { createCanonicalCrmClient, validResourceId, type CanonicalCrmClient, type ListOptions, type ReadOptions, type CustomerUpdatePreview, type CustomerUpdateExecution, type CustomerUpdateStatusQuery, type QuoteCreatePreview, type QuoteUpdatePreview, type ServiceCreatePreview, type ServiceUpdatePreview, type ServiceTransitionPreview } from "./canonical-crm-client.js";
 import { agentFailure } from "./agent-error.js";
 import { AUTH_RESPONSE_BYTES, readBoundedJson } from "./bounded-json.js";
 import { CRM_SEARCH_LIMIT_MESSAGE, validCrmSearch, validSalesSearch } from "./search-contract.js";
@@ -12,9 +13,12 @@ import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./paymen
 import { validTaxReportOptions, type TaxReportOptions } from "./tax-report-contract.js";
 import { validPaymentQuery, type PaymentFilters } from "./payment-contract.js";
 import { validExpenseListOptions, type ExpenseListOptions } from "./expense-contract.js";
+import { validExpenseScheduleGetOptions, validExpenseScheduleListOptions, type ExpenseScheduleListOptions } from "./expense-schedule-contract.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource, type CommunicationOptions } from "./communication-contract.js";
 import { validServiceReadFields } from "./service-read-contract.js";
+import { validServiceHistoryOptions, type ServiceHistoryOptions } from "./service-history-contract.js";
+import { validServicePaymentOptions, type ServicePaymentOptions } from "./service-payment-contract.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 import { validCatalogReadFields } from "./catalog-read-contract.js";
 
@@ -173,16 +177,38 @@ export const upcomingBookings = async (input: Omit<Parameters<typeof receivedPay
   return invoke({ ...input, operation: (client) => client.bookingSummary(input.options) });
 };
 
+/** Read configured booking capabilities without selecting a provider or executing a booking. */
+export const bookingCapabilities = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options">): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.bookingCapabilities() });
+
 /** Read metadata through the existing OAuth refresh and credential-persistence boundary. */
 export const readCommunications = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resource: CommunicationResource; resourceId: string; options: CommunicationOptions }>): Promise<AgentResult> => {
   if (!validCommunicationResource(input.resource) || !validResourceId(input.resourceId) || !validCommunicationOptions(input.options)) throw new Error("Communication history options are invalid.");
   return invoke({ ...input, operation: (client) => client.communications(input.resource, input.resourceId, input.options) });
 };
 
+/** Read a bounded lifecycle page for one opaque service handle. */
+export const readServiceHistory = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resourceId: string; options: ServiceHistoryOptions }>): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId) || !validServiceHistoryOptions(input.options)) throw new Error("Service history options are invalid.");
+  return invoke({ ...input, operation: (client) => client.serviceHistory(input.resourceId, input.options) });
+};
+
+/** Read bounded public payments linked to one opaque service handle. */
+export const readServicePayments = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ resourceId: string; options: ServicePaymentOptions }>): Promise<AgentResult> => {
+  if (!validResourceId(input.resourceId) || !validServicePaymentOptions(input.options)) throw new Error("Service payment options are invalid.");
+  return invoke({ ...input, operation: (client) => client.servicePayments(input.resourceId, input.options) });
+};
+
 /** Read canonical tax reports through the shared OAuth refresh and persistence boundary. */
 export const readTaxReport = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ options: TaxReportOptions }>): Promise<AgentResult> => {
   if (!validTaxReportOptions(input.options)) throw new Error("Tax report options are invalid.");
   return invoke({ ...input, operation: (client) => client.taxReport(input.options) });
+};
+
+/** Read authorized margin groups without deriving costs, currencies or tenant periods in the client. */
+export const readMarginReport = async (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "options"> & Readonly<{ options: MarginReportOptions }>): Promise<AgentResult> => {
+  if (!validMarginReportOptions(input.options)) throw new Error("Margin report options are invalid.");
+  return invoke({ ...input, operation: (client) => client.marginReport(input.options) });
 };
 
 /** Lists at most 100 contract-defined customer records without accepting arbitrary paths or query keys. */
@@ -320,6 +346,19 @@ export const getExpense = async (input: Parameters<typeof getCustomer>[0]): Prom
   return invoke({ ...input, operation: (client) => client.get("expenses", input.resourceId, options) });
 };
 
+/** Read recurring expense schedules without creating or materializing expenses. */
+export const listExpenseSchedules = async (input: WriteSession & Readonly<{ options: ExpenseScheduleListOptions }>): Promise<AgentResult> => {
+  if (!validExpenseScheduleListOptions(input.options)) throw new Error("Expense schedule read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.list("expense-schedules", input.options) });
+};
+
+/** Keep a schedule handle opaque and distinct from an individual expense ID. */
+export const getExpenseSchedule = async (input: WriteSession & Readonly<{ resourceId: string; options?: Pick<ExpenseScheduleListOptions, "fields"> }>): Promise<AgentResult> => {
+  const options = input.options ?? {};
+  if (!validResourceId(input.resourceId) || !validExpenseScheduleGetOptions(options)) throw new Error("Expense schedule read options are invalid.");
+  return invoke({ ...input, operation: (client) => client.get("expense-schedules", input.resourceId, options) });
+};
+
 /** Refresh before preview; canonical server owns validation, routing and approval policy. */
 export const previewCustomerUpdate = (input: WriteSession & Readonly<{ proposal: CustomerUpdatePreview }>): Promise<AgentResult> =>
   invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewCustomerUpdate(input.proposal) });
@@ -343,3 +382,99 @@ export const executeLeadUpdate = (input: WriteSession & Readonly<{ approval: Cus
 /** Recover the original lead execution outcome without changing it. */
 export const leadUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
   invoke({ ...input, operation: (client) => client.leadUpdateStatus(input.query) });
+
+/** Preview one draft quote without replaying the mutation POST. */
+export const previewQuoteCreate = (input: WriteSession & Readonly<{ proposal: QuoteCreatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteCreate(input.proposal) });
+
+/** Execute the approved quote draft once; uncertain outcomes require status reconciliation. */
+export const executeQuoteCreate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteCreate(input.approval) });
+
+/** Read the original quote-create outcome without repeating the mutation. */
+export const quoteCreateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteCreateStatus(input.query) });
+
+/** Preview a revision to one draft quote without repeating a business write. */
+export const previewQuoteUpdate = (input: WriteSession & Readonly<{ proposal: QuoteUpdatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteUpdate(input.proposal) });
+
+/** Execute one approved quote revision; reconcile uncertain outcomes by status. */
+export const executeQuoteUpdate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteUpdate(input.approval) });
+
+/** Read the original quote-update outcome without repeating the mutation. */
+export const quoteUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteUpdateStatus(input.query) });
+
+/** Preview one irreversible quote-to-service transition without executing it. */
+export const previewQuoteAccept = (input: WriteSession & Readonly<{ proposal: Readonly<{ resource_id: string }> }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteAccept(input.proposal) });
+
+/** Execute only the exact dashboard-approved acceptance; never replay the POST. */
+export const executeQuoteAccept = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteAccept(input.approval) });
+
+/** Reconcile an uncertain acceptance without repeating the lifecycle action. */
+export const quoteAcceptStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteAcceptStatus(input.query) });
+
+/** Preview a quote decline without changing its lifecycle state. */
+export const previewQuoteDecline = (input: WriteSession & Readonly<{ proposal: Readonly<{ resource_id: string }> }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewQuoteDecline(input.proposal) });
+
+/** Execute only one dashboard-approved decline; never replay the POST. */
+export const executeQuoteDecline = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeQuoteDecline(input.approval) });
+
+/** Read a prior quote-decline outcome without repeating the lifecycle action. */
+export const quoteDeclineStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.quoteDeclineStatus(input.query) });
+
+/** Preview canonical service creation without creating a service or sending mail. */
+export const previewServiceCreate = (input: WriteSession & Readonly<{ proposal: ServiceCreatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewServiceCreate(input.proposal) });
+
+/** Execute one dashboard-approved service creation without automatic POST replay. */
+export const executeServiceCreate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeServiceCreate(input.approval) });
+
+/** Reconcile service creation through the original read-only status endpoint. */
+export const serviceCreateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.serviceCreateStatus(input.query) });
+
+/** Preview a version-bound canonical service update without applying changes or notifications. */
+export const previewServiceUpdate = (input: WriteSession & Readonly<{ proposal: ServiceUpdatePreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewServiceUpdate(input.proposal) });
+
+/** Execute one approved update without replaying a potentially externally visible effect. */
+export const executeServiceUpdate = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeServiceUpdate(input.approval) });
+
+/** Reconcile the stored update outcome without repeating the mutation. */
+export const serviceUpdateStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.serviceUpdateStatus(input.query) });
+
+/** Preview a non-delivery service lifecycle transition without applying effects. */
+export const previewServiceTransition = (input: WriteSession & Readonly<{ proposal: ServiceTransitionPreview }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewServiceTransition(input.proposal) });
+
+/** Execute only a dashboard-approved transition; never replay the mutation POST. */
+export const executeServiceTransition = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeServiceTransition(input.approval) });
+
+/** Reconcile a stored transition outcome without repeating its lifecycle effects. */
+export const serviceTransitionStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.serviceTransitionStatus(input.query) });
+
+/** Preview one canonical service delivery without changing state or notifying customers. */
+export const previewServiceDelivery = (input: WriteSession & Readonly<{ proposal: Readonly<{ resource_id: string }> }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewServiceDelivery(input.proposal) });
+
+/** Execute only the exact approved delivery and never replay its mutation POST. */
+export const executeServiceDelivery = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeServiceDelivery(input.approval) });
+
+/** Reconcile delivery through the stored read-only status endpoint. */
+export const serviceDeliveryStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.serviceDeliveryStatus(input.query) });
