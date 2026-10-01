@@ -228,14 +228,19 @@ Service reads use the same OAuth `customers.read` scope and canonical routing:
 ```sh
 bizyeet services list --limit 25 --fields id,name,pricing_revision
 bizyeet services get service_opaque_id --fields id,items,pricing_revision
+bizyeet services history service_opaque_id --limit 25
+bizyeet services payments service_opaque_id --limit 25 --fields id,amount,status,currency
 ```
 
 Line handles and revision tokens are opaque server facts, not native database IDs.
 List projections cannot include items; use detail reads. Private costs are excluded.
-These commands require a compatible server deployment; revision and line-handle
-support is not a release claim for the pending backend update. Service writes
-remain unavailable in this CLI. MCP declarations describe the matching read
-contract; availability depends on the connected server's advertised tools.
+Service history returns only status transitions and timestamps; its cursor is
+bound to that service. These source commands and MCP declarations require a
+compatible deployment and do not imply package publication or live-tenant
+validation. Service-linked payments require both `customers.read` and
+`payments.read`; private relationship fields and provider metadata are excluded.
+Service create/update commands have separate trusted approval requirements;
+these read commands grant no write authority.
 
 Quote reads also use `customers.read` and canonical routing:
 
@@ -325,6 +330,7 @@ Request the exact `bookings.read` scope during OAuth login; the default
 bizyeet auth login --issuer https://your-bizyeet-origin --scope bookings.read
 bizyeet auth check
 bizyeet bookings upcoming --hours 168
+bizyeet bookings capabilities
 ```
 
 `--hours` is an integer from 1 through 720 and defaults to 168. The server owns
@@ -332,6 +338,15 @@ provider routing and current booking permission checks; unavailable, disabled,
 and unsupported providers remain explicit errors. Do not infer a bookable slot,
 provider action, or tenant from a successful count. The matching MCP tool is
 `bizyeet_bookings_upcoming` and advertises the same `bookings.read` OAuth scope.
+
+The source-only `bookings capabilities` contract requires the matching canonical
+backend endpoint to be merged and deployed; it is not yet a released feature.
+It reports configured support for upcoming summaries, slots, detail, creation,
+rescheduling, cancellation and booking links without returning URLs or customer
+data. `external_link_only` means a configured booking link exists, not that the
+CLI or MCP tool can create a booking. Configuration is not proof of live provider
+health; use the bounded upcoming read to verify a provider read. The matching
+read-only MCP tool is `bizyeet_bookings_capabilities` (`bookings.read`).
 
 ## Communication history contract (not yet released)
 
@@ -375,8 +390,19 @@ that no scheduled costs are due. Amount strings and currencies are preserved wit
 conversion. Notes and native tenant or schedule identifiers are never readable through this
 interface. Use the returned opaque IDs and cursor; do not substitute native database IDs.
 Live OAuth scope and dashboard expense permission are enforced by the canonical API.
-`--profile` and secure `--export` use the shared read flow. Expense schedules are not
-currently part of this public CLI or MCP contract.
+`--profile` and secure `--export` use the shared read flow.
+
+Recurring expense schedules have separate read-only list and exact-get commands:
+
+```sh
+bizyeet expenses schedules list --limit 25 --frequency monthly --active 1
+bizyeet expenses schedules get <opaque-schedule-id> --fields name,amount,frequency
+```
+
+The matching MCP tools are `bizyeet_expense_schedules_list` and
+`bizyeet_expense_schedules_get`, also using `expenses.read`. A schedule ID is
+opaque and distinct from an expense ID. Internal notes and tenant identifiers
+are excluded. These reads never create or materialize expense occurrences.
 
 ## Tax collection reports
 
@@ -402,6 +428,28 @@ For rolling ranges, the calendar anchor must match that timestamp in the tenant
 timezone, allowing the request's 15-second timeout window to cross midnight.
 The CLI command does not imply that a server has deployed the corresponding
 endpoint; unsupported or unauthorized requests fail explicitly.
+
+## Margin reports
+
+Servers with the canonical margin-report contract deployed support:
+
+```sh
+bizyeet reports margin --kind completed_services --range month --limit 25
+bizyeet reports margin --kind active_services --range custom --start-date 2026-03-01 --end-date 2026-03-31 --fields revenue,actual_cost,margin_amount --export
+```
+
+Margin reads require `reports.read` and the user's live tenant-admin role. The
+canonical server selects the tenant, provider, timezone and source; unsupported
+providers fail explicitly. The report separates currency totals and distinguishes
+missing costs from zero costs. `sent_quotes` is forecast, `active_services` is
+exposure, and `completed_services` is realized activity; the CLI does not merge
+those views or recalculate margins. Custom date labels are inclusive in the
+tenant timezone, while returned UTC instants are inclusive-start/exclusive-end.
+`source.readCompletedAt` is freshness evidence, not a snapshot guarantee.
+`--page` and `--limit` bound pagination to 50 rows per request; private cost
+fields require explicit `--fields`. The client strips unrequested row fields and
+never treats a provider error as an empty report. This source command is not a
+package release or evidence of a live tenant read.
 
 ## Received-payment summaries
 
@@ -624,6 +672,43 @@ receipt through the hidden prompt or private `--receipt-stdin` pipe. Keep the
 original execution UUID; on an uncertain result, query read-only `status`
 instead of sending another update. This is source-only and not a package
 release or production canary.
+
+The source CLI can preview a non-delivery service lifecycle change through the
+canonical OAuth transition endpoint. Use an opaque service ID from `services
+get`; `delivered` is intentionally excluded and has a separate delivery
+action. The server requires `customers.write` and also `mail.send` if tenant
+configuration could send status email or a calendar invitation. Preview has no
+effect; a signed-in human must approve the exact dashboard preview before
+execution.
+
+```sh
+bizyeet services transition preview "$SERVICE_ID" --status in_progress
+bizyeet services transition execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services transition status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use the hidden receipt prompt or private `--receipt-stdin` pipe. Retain the
+original execution UUID; reconcile uncertainty with read-only `status`, never
+another mutation. The command is source-only until a package release and is
+not an authenticated tenant canary.
+
+Service delivery is a separate irreversible lifecycle action, not a value of
+`services transition --status`. The source CLI previews one opaque service ID
+through the canonical OAuth delivery endpoint. The server requires
+`customers.write`, plus `mail.send` if automatic status email is configured,
+and checks live role, service version, document requirements and human approval.
+Preview does not mark the service delivered or send mail.
+
+```sh
+bizyeet services deliver preview "$SERVICE_ID"
+bizyeet services deliver execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services deliver status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Approve the exact preview in the dashboard and provide its receipt through the
+hidden prompt or private `--receipt-stdin` pipe. Never repeat the execute POST
+with a new key after uncertainty; query read-only `status` with the original
+key. This source command is not a package release or a live tenant canary.
 
 ## Lead update contract (not yet released)
 

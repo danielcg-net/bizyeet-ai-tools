@@ -19,6 +19,25 @@ await Promise.all(["list", "get"].flatMap((method) => ["safe-reference", "bad\u0
 const emptyPage = { data: { items: [], total: 0 }, meta: { contract_version: "v1", next_cursor: null } };
 const token = (): Promise<string> => Promise.resolve("oauth-access");
 
+await test("booking capability discovery uses canonical read transport and strips backend metadata", async () => {
+  const request = mock.fn((url: string, init: RequestInit) => {
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/api/agent/bookings/capabilities");
+    assert.deepEqual(Object.fromEntries(parsed.searchParams), { api_version: "v1" });
+    assert.equal(init.method, "GET");
+    assert.equal(new Headers(init.headers).get("authorization"), "Bearer oauth-access");
+    return Promise.resolve(Response.json({ data: { booking_provider: "none", upcoming_summary: "unavailable",
+      availability_slots: "unavailable", booking_detail: "unavailable", create: "unavailable",
+      reschedule: "unavailable", cancel: "unavailable", booking_links: { in_person: "unavailable", online: "unavailable" },
+      booking_url: "https://private.example.test" }, meta: { contract_version: "v1", tenant_id: "private" } }));
+  });
+  const client = createCanonicalCrmClient({ origin: "https://tenant.example", getAccessToken: token, request });
+  const result = await client.bookingCapabilities();
+  assert.equal(result.status, 200);
+  assert.doesNotMatch(JSON.stringify(result.body), /booking_url|tenant_id|private\.example/u);
+  assert.equal(request.mock.callCount(), 1);
+});
+
 await test("payment filters use the canonical agent endpoint without provider selection", async () => {
   const request = mock.fn((url: string, init: RequestInit) => {
     assert.equal(new URL(url).origin, "https://tenant.example");
