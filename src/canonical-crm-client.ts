@@ -23,6 +23,7 @@ import { servicePaymentResponse, validServicePaymentOptions, type ServicePayment
 import { serviceCreateExecutionResponse, serviceCreatePreviewResponse, serviceCreateStatusResponse } from "./service-create-response.js";
 import { serviceUpdateExecutionResponse, serviceUpdatePreviewResponse, serviceUpdateStatusResponse } from "./service-update-response.js";
 import { serviceTransitionExecutionResponse, serviceTransitionPreviewResponse, serviceTransitionStatusResponse } from "./service-transition-response.js";
+import { serviceDeliveryExecutionResponse, serviceDeliveryPreviewResponse, serviceDeliveryStatusResponse } from "./service-delivery-response.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 import { quoteResponse } from "./quote-response.js";
 import { quoteCreateExecutionResponse, quoteCreatePreviewResponse, quoteCreateStatusResponse,
@@ -112,6 +113,9 @@ export type CanonicalCrmClient = Readonly<{
   previewServiceTransition: (input: ServiceTransitionPreview) => Promise<CanonicalResult>;
   executeServiceTransition: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   serviceTransitionStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewServiceDelivery: (input: QuoteAcceptPreview) => Promise<CanonicalResult>;
+  executeServiceDelivery: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  serviceDeliveryStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
 }>;
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -578,10 +582,12 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
     } catch { return failure(503, "request_unavailable"); }
   };
-  const serviceTransition = async (input: unknown, preview: boolean): Promise<CanonicalResult> => {
+  const serviceLifecycle = async (input: unknown, preview: boolean, action: "transition" | "deliver"): Promise<CanonicalResult> => {
     if (!record(input) || (preview
-      ? Object.keys(input).length !== 2 || !validResourceId(input.resource_id) || typeof input.status !== "string"
-        || !["backlog", "in_progress", "executed", "cancelled"].includes(input.status)
+      ? !validResourceId(input.resource_id) || (action === "transition"
+        ? Object.keys(input).length !== 2 || typeof input.status !== "string"
+          || !["backlog", "in_progress", "executed", "cancelled"].includes(input.status)
+        : Object.keys(input).length !== 1)
       : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
         || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) return failure(400, "invalid_request");
     const serialized = ((): string => { try { return JSON.stringify(input); } catch { return ""; } })();
@@ -589,31 +595,34 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
-      const response = await request(`${origin}/api/agent/services/transition-${preview ? "preview" : "execute"}?api_version=v1`, {
+      const response = await request(`${origin}/api/agent/services/${action}-${preview ? "preview" : "execute"}?api_version=v1`, {
         method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
         body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
       });
       const body = await boundedResponse(response, 32_768);
       if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
-      const projected = preview && "resource_id" in input && typeof input.resource_id === "string" && "status" in input && typeof input.status === "string"
-        ? serviceTransitionPreviewResponse(body, input.resource_id, input.status) : serviceTransitionExecutionResponse(body);
+      const projected = preview && "resource_id" in input && typeof input.resource_id === "string"
+        ? action === "deliver" ? serviceDeliveryPreviewResponse(body, input.resource_id)
+          : serviceTransitionPreviewResponse(body, input.resource_id, String(input.status))
+        : action === "deliver" ? serviceDeliveryExecutionResponse(body) : serviceTransitionExecutionResponse(body);
       return projected && response.status === 200 ? { status: 200, body: projected }
         : failure(502, preview ? "invalid_response" : "execution_ambiguous");
     } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
   };
-  const serviceTransitionStatus = async (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => {
+  const serviceLifecycleStatus = async (input: CustomerUpdateStatusQuery, action: "transition" | "deliver"): Promise<CanonicalResult> => {
     if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
     try {
       const token = await dependencies.getAccessToken(origin);
       if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
       const parameters = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key });
-      const response = await requestRead(`${origin}/api/agent/services/transition-status?${parameters.toString()}`, {
+      const response = await requestRead(`${origin}/api/agent/services/${action}-status?${parameters.toString()}`, {
         method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         redirect: "error", signal: AbortSignal.timeout(15_000),
       });
       const body = await boundedResponse(response, 32_768);
       if (!response.ok) return { status: response.status, body };
-      const projected = serviceTransitionStatusResponse(body, input.preview_id);
+      const projected = action === "deliver" ? serviceDeliveryStatusResponse(body, input.preview_id)
+        : serviceTransitionStatusResponse(body, input.preview_id);
       return projected && response.status === 200 ? { status: 200, body: projected } : failure(502, "invalid_response");
     } catch { return failure(503, "request_unavailable"); }
   };
@@ -652,8 +661,11 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     previewServiceUpdate: (input: ServiceUpdatePreview): Promise<CanonicalResult> => serviceUpdate(input, true),
     executeServiceUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceUpdate(input, false),
     serviceUpdateStatus,
-    previewServiceTransition: (input: ServiceTransitionPreview): Promise<CanonicalResult> => serviceTransition(input, true),
-    executeServiceTransition: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceTransition(input, false),
-    serviceTransitionStatus,
+    previewServiceTransition: (input: ServiceTransitionPreview): Promise<CanonicalResult> => serviceLifecycle(input, true, "transition"),
+    executeServiceTransition: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceLifecycle(input, false, "transition"),
+    serviceTransitionStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => serviceLifecycleStatus(input, "transition"),
+    previewServiceDelivery: (input: QuoteAcceptPreview): Promise<CanonicalResult> => serviceLifecycle(input, true, "deliver"),
+    executeServiceDelivery: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceLifecycle(input, false, "deliver"),
+    serviceDeliveryStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => serviceLifecycleStatus(input, "deliver"),
   });
 };

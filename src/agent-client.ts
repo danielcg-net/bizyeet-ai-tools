@@ -466,3 +466,15 @@ export const executeServiceTransition = (input: WriteSession & Readonly<{ approv
 /** Reconcile a stored transition outcome without repeating its lifecycle effects. */
 export const serviceTransitionStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
   invoke({ ...input, operation: (client) => client.serviceTransitionStatus(input.query) });
+
+/** Preview one canonical service delivery without changing state or notifying customers. */
+export const previewServiceDelivery = (input: WriteSession & Readonly<{ proposal: Readonly<{ resource_id: string }> }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.previewServiceDelivery(input.proposal) });
+
+/** Execute only the exact approved delivery and never replay its mutation POST. */
+export const executeServiceDelivery = (input: WriteSession & Readonly<{ approval: CustomerUpdateExecution }>): Promise<AgentResult> =>
+  invoke({ ...input, retryUnauthorized: false, operation: (client) => client.executeServiceDelivery(input.approval) });
+
+/** Reconcile delivery through the stored read-only status endpoint. */
+export const serviceDeliveryStatus = (input: WriteSession & Readonly<{ query: CustomerUpdateStatusQuery }>): Promise<AgentResult> =>
+  invoke({ ...input, operation: (client) => client.serviceDeliveryStatus(input.query) });
