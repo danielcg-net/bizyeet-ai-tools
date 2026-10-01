@@ -39,7 +39,7 @@
     "marked": "18.0.13",
     "shell-quote": "1.10.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.70.1",
     "yaml": "^2.9.1"
   },
   "license": "Apache-2.0",
