@@ -37,7 +37,7 @@
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^10.11.0",
     "marked": "18.0.13",
-    "shell-quote": "1.10.0",
+    "shell-quote": "1.11.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.70.0",
     "yaml": "^2.9.1"
