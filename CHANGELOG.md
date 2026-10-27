@@ -3,12 +3,14 @@
 ## [0.1.0-beta.1] - 2026-10-26
 
 - Prepare the first CLI beta candidate, `@bizyeet/ai-tools@0.1.0-beta.1`, with
-  command `bizyeet` and proposed GitHub prerelease `v0.1.0-beta.1`. Publication
-  is pending; reviewed metadata and local tarball tests are not a public release.
+  command `bizyeet` and proposed GitHub prerelease `v0.1.0-beta.1`. At candidate preparation on 2026-10-26, publication was pending; verify the
+  matching npm version and GitHub prerelease before installation. Reviewed
+  metadata and local tarball tests are not publication evidence.
 - Define the beta subset as installation, version/help/diagnostics, OAuth setup,
   and bounded customer/lead list and exact reads when the authenticated server
-  advertises the required capability and `customers.read` is granted. Current
-  candidate live OAuth/read and hosted MCP acceptance remain unverified.
+  advertises the required capability and `customers.read` is granted. Live
+  OAuth/read and hosted MCP acceptance are not established by this changelog;
+  consult the exact release acceptance evidence.
 - Retain OAuth Authorization Code with PKCE S256 and headless Device
   Authorization, protected credential storage, refresh rotation and revocation.
   Local auth status does not prove server authorization; `auth check` contacts
@@ -32,7 +34,7 @@
   login. Package upgrades do not upgrade the hosted server or migrate OAuth grants.
 - Keep the first beta on npm's `beta` channel, with no automatic stable promotion.
   Protected publication, namespace ownership/trusted publisher configuration,
-  live acceptance and public install/provenance checks remain release gates.
+  live acceptance and public install/provenance checks are required release gates.
 
 See [installation and compatibility](docs/installation.md),
 [MCP setup](docs/mcp.md), and [release verification](docs/release-verification.md).

@@ -1,8 +1,9 @@
 # CLI installation and beta compatibility
 
-`0.1.0-beta.1` is a proposed candidate, pending publication. As of 2026-10-26,
-these instructions describe the intended public release; they do not claim the
-package, npm `beta` mapping or GitHub prerelease is available. A local tarball
+`0.1.0-beta.1` candidate metadata was prepared on 2026-10-26, with publication
+pending at that time. Availability is established by the matching npm version,
+verified npm `beta` mapping and GitHub prerelease, not by these instructions or
+source metadata. Verify the exact release before installation. A local tarball
 install or passing dry-run is not publication or live authentication acceptance.
 
 ## Install and inspect an exact release
@@ -36,7 +37,8 @@ Do not use an unversioned install to select this prerelease.
 To upgrade to this candidate after publication, review its notes and rerun the
 same exact-version install command above, then verify version/help/diagnostics.
 For a subsequent beta, replace the version only with a reviewed, published exact
-version. There is no automatic updater or recommended older release yet.
+version. There is no automatic updater. At candidate preparation no older published
+release had been verified for a downgrade.
 
 ```sh
 npm uninstall --global @bizyeet/ai-tools
@@ -58,8 +60,8 @@ credential service; POSIX fallback files require protected ownership/permissions
 
 | Surface | Candidate compatibility and remaining evidence |
 | --- | --- |
-| CLI installation and local diagnostics | Exact package/version/help; release matrix and registry install evidence still required. |
-| OAuth | Browser PKCE S256 or approved Device Authorization with exact requested scopes; current candidate live login/read acceptance still required. |
+| CLI installation and local diagnostics | Exact package/version/help; require release matrix and registry install evidence. |
+| OAuth | Browser PKCE S256 or approved Device Authorization with exact requested scopes; require exact candidate live login/read acceptance evidence. |
 | Customer/lead list and exact reads | API `v1`, `customers.read`, live permissions and advertised server capability; bounded projections/pages and opaque IDs/cursors. |
 | Other packaged business commands | Capability-dependent previews until the exact release/server/client combination has acceptance evidence. |
 | Hosted MCP | Independently deployed OAuth Streamable HTTP endpoint; authenticated advertised tool/schema set and granted scopes govern availability. |

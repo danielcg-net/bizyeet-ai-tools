@@ -79,7 +79,7 @@ See the official [artifact attestation guidance](https://docs.github.com/en/acti
 and [verification restrictions](https://cli.github.com/manual/gh_attestation_verify).
 
 See [exact-version installation and compatibility](installation.md) for the
-pending-publication status and the supported beta subset.
+dated candidate preparation status and the supported beta subset.
 
 ## Release metadata gate
 
@@ -100,7 +100,8 @@ PR-uploaded artifacts as inputs to a privileged release job.
 
 ## Rollback and withdrawal runbook
 
-There is no published version yet. The following is a required maintainer-run
+At candidate preparation on 2026-10-26, no published version had been verified.
+The following is a required maintainer-run
 procedure, not an automatic registry or tenant mutation:
 
 1. Record the affected exact version, digest, source revision, release run and
