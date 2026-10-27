@@ -35,7 +35,7 @@ if (process.env.PUBLICATION_REQUESTED === 'true') {
   const maintainer = ready.maintainer;
   const publisher = maintainer?.publisher;
   const configured = Date.parse(publisher?.trust_configured_at);
-  if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || (!publisher.first_publish_succeeded && Date.now() - configured > 172800000) || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation is missing direct publish authority or its initial trust window expired');
+  if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation identity/configuration is invalid');
   if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
   const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
   const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
@@ -128,16 +128,22 @@ const hashArchive = async response => {
 const response = await get('https://registry.npmjs.org/@bizyeet%2fai-tools');
 if (response.status === 404) fail('Package ownership/bootstrap is not established; do not publish a placeholder');
 const packument = await readJson(response);
-if (packument.name !== '@bizyeet/ai-tools' || !packument.versions || !packument['dist-tags']) fail('Malformed registry package');
+const record = value => typeof value === 'object' && value !== null && !Array.isArray(value);
+if (!record(packument) || !record(packument.versions) || !record(packument['dist-tags']) || packument.name !== '@bizyeet/ai-tools' || !packument.versions || !packument['dist-tags']) fail('Malformed registry package');
 const priorRelease = await github.rest.repos.getReleaseByTag({owner:'danielcg-net',repo:'bizyeet-ai-tools',tag:release.tag}).then(response => response.data).catch(error => { if (error.status === 404) return null; throw error; });
 if (priorRelease && (priorRelease.tag_name !== release.tag || priorRelease.body !== release.notes || priorRelease.prerelease !== true)) fail('Existing GitHub release differs; stop before npm publication');
 if (process.env.EXPECTED_BETA !== undefined && (packument['dist-tags'].beta ?? '') !== process.env.EXPECTED_BETA) fail('Concurrent beta mapping changed before publication');
 if (process.env.EXPECTED_LATEST !== undefined && (packument['dist-tags'].latest ?? '') !== process.env.EXPECTED_LATEST) fail('Concurrent latest mapping changed; no automatic repair');
 core.setOutput('latest-before', packument['dist-tags'].latest ?? '');
 core.setOutput('beta-before', packument['dist-tags'].beta ?? '');
+if (!Object.values(packument['dist-tags']).every(value => typeof value === 'string' && value.length <= 128)) fail('Malformed registry channel values');
+if (Object.hasOwn(packument.versions, release.version) && !record(packument.versions[release.version])) fail('Malformed registry version entry');
 const existing = packument.versions[release.version];
 if (!existing && priorRelease) fail('Existing GitHub release without matching npm publication');
 if (!existing) {
+  const publisher = release.readiness?.maintainer?.publisher;
+  const configured = Date.parse(publisher?.trust_configured_at);
+  if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || (!publisher.first_publish_succeeded && Date.now() - configured > 172800000)) fail('Initial publisher trust window expired or is unverifiable; new publication forbidden');
   if (Number(process.env.GITHUB_RUN_ATTEMPT ?? '1') > 1) fail('Previous run attempt has no reconciled publication; fresh reviewed run required, never blindly retry');
   if (process.env.REQUIRE_PUBLISHED === 'true') fail('Publish outcome is absent/ambiguous; reconcile before retry');
   core.setOutput('exists', 'false');
