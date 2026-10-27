@@ -472,7 +472,8 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const exportEnvironment = { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory };
       const exported = await runInstalled(exportArgs, directory, exportEnvironment).catch(async (error: unknown): Promise<never> => {
         if (process.platform !== "win32") throw error;
-        const diagnostic = await diagnoseInstalledExport(exportArgs, directory, exportEnvironment);
+        const diagnostic = await diagnoseInstalledExport(exportArgs, directory, exportEnvironment)
+          .catch((): string => "Native diagnostic unavailable; original failure preserved.");
         throw new Error(`${error instanceof Error ? error.message : "Installed export failed"}\nPost-failure diagnostic (may be warm; original failure preserved): ${diagnostic}`);
       });
       const summary: unknown = JSON.parse(exported);
