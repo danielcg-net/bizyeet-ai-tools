@@ -155,7 +155,13 @@ void test("Windows ACL subprocess excludes inherited PowerShell module paths in 
     assert.equal(child.SYNTHETIC_KEEP, "preserved");
     assert.equal(environment.PSModulePath, "incompatible-ps7");
     const script = Buffer.from(args.at(-1) ?? "", "base64").toString("utf16le");
-    assert.ok(script.includes("Import-Module -Name (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1')"));
+    const imports = ["Management", "Utility", "Security"].map((name) => `Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.${name}', 'Microsoft.PowerShell.${name}.psd1')) -ErrorAction Stop`);
+    imports.forEach((statement) => { assert.ok(script.includes(statement)); });
+    assert.equal(script.match(/^Import-Module /gmu)?.length, 3);
+    assert.ok(script.indexOf(imports[0] ?? "") < script.indexOf(imports[1] ?? ""));
+    assert.ok(script.indexOf(imports[1] ?? "") < script.indexOf(imports[2] ?? ""));
+    assert.ok(script.indexOf(imports[2] ?? "") < script.indexOf("$path ="));
+    assert.doesNotMatch(script, /Join-Path/u);
     return Promise.resolve("private");
   }, environment);
 });

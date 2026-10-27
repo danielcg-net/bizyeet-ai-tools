@@ -19,11 +19,18 @@ import { previewQuoteAccept, executeQuoteAccept, quoteAcceptStatus } from "./age
 import { previewQuoteDecline, executeQuoteDecline, quoteDeclineStatus } from "./agent-client.js";
 import { previewServiceCreate, executeServiceCreate, serviceCreateStatus } from "./agent-client.js";
 import { previewServiceUpdate, executeServiceUpdate, serviceUpdateStatus } from "./agent-client.js";
+import { previewServiceTransition, executeServiceTransition, serviceTransitionStatus } from "./agent-client.js";
+import { previewServiceDelivery, executeServiceDelivery, serviceDeliveryStatus } from "./agent-client.js";
+import { readServiceHistory, readServicePayments } from "./agent-client.js";
+import { validServiceHistoryOptions } from "./service-history-contract.js";
+import { validServicePaymentOptions } from "./service-payment-contract.js";
 import { readCommunications } from "./agent-client.js";
 import { validCommunicationOptions, validCommunicationResource, type CommunicationResource } from "./communication-contract.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { getExpense, listExpenses } from "./agent-client.js";
 import { validExpenseListOptions } from "./expense-contract.js";
+import { getExpenseSchedule, listExpenseSchedules } from "./agent-client.js";
+import { validExpenseScheduleListOptions } from "./expense-schedule-contract.js";
 import { readChanges, readApprovalReceipt, readQuoteProposal, readRecordProposal, readServiceProposal } from "./write-input.js";
 import { credentialStore, isCommittedCredentialCleanupFailure } from "./credential-store.js";
 import { isUncertainCredentialPersistence, uncertainCredentialPersistenceError } from "./credential-cleanup.js";
@@ -61,6 +68,8 @@ type CliStorage = Readonly<{
 
 type CliRuntime = Readonly<{
   readCommunications?: (input: Omit<Parameters<typeof readCommunications>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  readServiceHistory?: (input: Omit<Parameters<typeof readServiceHistory>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  readServicePayments?: (input: Omit<Parameters<typeof readServicePayments>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getQuote?: (input: Omit<Parameters<typeof getQuote>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getCatalogItem?: (input: Omit<Parameters<typeof getCatalogItem>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listCatalog?: (input: Omit<Parameters<typeof listCatalog>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -73,6 +82,8 @@ type CliRuntime = Readonly<{
   readMarginReport?: (input: Omit<Parameters<typeof readMarginReport>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getExpense?: (input: Omit<Parameters<typeof getExpense>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listExpenses?: (input: Omit<Parameters<typeof listExpenses>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  getExpenseSchedule?: (input: Omit<Parameters<typeof getExpenseSchedule>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  listExpenseSchedules?: (input: Omit<Parameters<typeof listExpenseSchedules>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   receivedPaymentSummary?: (input: Omit<Parameters<typeof receivedPaymentSummary>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   getPayment?: (input: Omit<Parameters<typeof getAgentPayment>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   listPayments?: (input: Omit<Parameters<typeof listAgentPayments>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
@@ -110,6 +121,12 @@ type CliRuntime = Readonly<{
   previewServiceUpdate?: (input: Omit<Parameters<typeof previewServiceUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   executeServiceUpdate?: (input: Omit<Parameters<typeof executeServiceUpdate>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   serviceUpdateStatus?: (input: Omit<Parameters<typeof serviceUpdateStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewServiceTransition?: (input: Omit<Parameters<typeof previewServiceTransition>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeServiceTransition?: (input: Omit<Parameters<typeof executeServiceTransition>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  serviceTransitionStatus?: (input: Omit<Parameters<typeof serviceTransitionStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  previewServiceDelivery?: (input: Omit<Parameters<typeof previewServiceDelivery>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  executeServiceDelivery?: (input: Omit<Parameters<typeof executeServiceDelivery>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
+  serviceDeliveryStatus?: (input: Omit<Parameters<typeof serviceDeliveryStatus>[0], "fetcher" | "metadata" | "now">) => Promise<AgentResult>;
   readChanges?: typeof readChanges;
   readQuoteProposal?: typeof readQuoteProposal;
   readRecordProposal?: typeof readRecordProposal;
@@ -134,6 +151,8 @@ const storage: CliStorage = {
 
 const runtime: CliRuntime = {
   readCommunications: async (input) => readCommunications({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  readServiceHistory: async (input) => readServiceHistory({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  readServicePayments: async (input) => readServicePayments({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getQuote: async (input) => getQuote({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getCatalogItem: async (input) => getCatalogItem({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listCatalog: async (input) => listCatalog({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -146,6 +165,8 @@ const runtime: CliRuntime = {
   readMarginReport: async (input) => readMarginReport({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getExpense: async (input) => getExpense({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listExpenses: async (input) => listExpenses({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  getExpenseSchedule: async (input) => getExpenseSchedule({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  listExpenseSchedules: async (input) => listExpenseSchedules({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   receivedPaymentSummary: async (input) => receivedPaymentSummary({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   getPayment: async (input) => getAgentPayment({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   listPayments: async (input) => listAgentPayments({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
@@ -189,6 +210,12 @@ const runtime: CliRuntime = {
   previewServiceUpdate: async (input) => previewServiceUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   executeServiceUpdate: async (input) => executeServiceUpdate({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   serviceUpdateStatus: async (input) => serviceUpdateStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewServiceTransition: async (input) => previewServiceTransition({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeServiceTransition: async (input) => executeServiceTransition({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  serviceTransitionStatus: async (input) => serviceTransitionStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  previewServiceDelivery: async (input) => previewServiceDelivery({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  executeServiceDelivery: async (input) => executeServiceDelivery({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
+  serviceDeliveryStatus: async (input) => serviceDeliveryStatus({ ...input, fetcher: fetch, now: Date.now, metadata: () => discoverOAuth(new URL(input.profile.issuer), fetch) }),
   checkIdentity: async (input) => {
     const metadata = (): ReturnType<typeof discoverOAuth> => discoverOAuth(new URL(input.profile.issuer), fetch);
     return checkIdentity({ ...input, fetcher: fetch, metadata, now: Date.now });
@@ -218,6 +245,8 @@ const helpMessage = [
   "       bizyeet leads get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet services list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet services get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet services history <opaque-id> [--limit <1-100>] [--cursor <opaque>] [--profile <name>] [--export]",
+  "       bizyeet services payments <opaque-id> [--limit <1-100>] [--cursor <opaque>] [--fields <name,...>] [--status <sent|received>] [--date-field <field>] [--start <UTC>] [--end <UTC>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
   "       bizyeet quotes list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet quotes get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet catalog list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--profile <name>] [--export]",
@@ -226,6 +255,8 @@ const helpMessage = [
   "       bizyeet payments get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet expenses list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--status <due|paid|skipped>] [--category <name>] [--currency <ISO>] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
   "       bizyeet expenses get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
+  "       bizyeet expenses schedules list [--limit <1-100>] [--cursor <opaque>] [--search <text>] [--fields <name,...>] [--category <name>] [--currency <ISO>] [--frequency <daily|weekly|monthly|quarterly|yearly>] [--active <0|1>] [--sort <field>] [--dir <asc|desc>] [--profile <name>] [--export]",
+  "       bizyeet expenses schedules get <opaque-id> [--fields <name,...>] [--profile <name>] [--export]",
   "       bizyeet bookings upcoming [--hours <1-720>] [--profile <name>] [--export]",
   "       bizyeet bookings capabilities [--profile <name>] [--export]",
   "       bizyeet <customers|leads|quotes|services|payments> communications <opaque-id> [--page <1-10000>] [--limit <10|20|50>] [--profile <name>] [--export]",
@@ -263,6 +294,12 @@ const helpMessage = [
   "       bizyeet services update preview <service-id> --input-stdin [--profile <name>]",
   "       bizyeet services update execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
   "       bizyeet services update status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet services transition preview <service-id> --status <backlog|in_progress|executed|cancelled> [--profile <name>]",
+  "       bizyeet services transition execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet services transition status <preview-id> --idempotency-key <uuid> [--profile <name>]",
+  "       bizyeet services deliver preview <service-id> [--profile <name>]",
+  "       bizyeet services deliver execute <preview-id> --idempotency-key <uuid> [--receipt-stdin] [--profile <name>]",
+  "       bizyeet services deliver status <preview-id> --idempotency-key <uuid> [--profile <name>]",
   "Quote acceptance can create a service, promote a lead, and trigger configured email; only the signed-in dashboard can approve it.",
   "Quote decline changes only the quote lifecycle; it creates no service, payment, or customer communication and requires dashboard approval.",
   "Service creation may send configured email or a calendar invite; inspect the dashboard preview before approval.",
@@ -608,6 +645,33 @@ const expenseRead = async (input: readonly string[], dependencies: CliStorage, e
   } catch (error) { return requestFailure(error); }
 };
 
+const expenseScheduleRead = async (input: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const [command, ...rawOptions] = input;
+  if (command !== "list" && command !== "get") return unsupportedCommand(`expenses schedules ${command ?? ""}`.trim());
+  try {
+    const target = command === "get" ? resourceTarget(rawOptions, ["--profile", "--fields"], ["--export"]) : undefined;
+    if (command === "get" && !target) return invalidInput("expenses schedules get requires one opaque ID.");
+    const args = target?.options ?? rawOptions;
+    const filters = Object.freeze(["cursor", "search", "sort", "dir", "category", "currency", "frequency", "active"]);
+    const valueOptions = ["--profile", "--fields", ...(command === "list" ? ["--limit", ...filters.map((key) => `--${key}`)] : [])];
+    if (!hasOnlyOptions(args, valueOptions, ["--export"])
+      || valueOptions.some((key) => valuesFor(args, key).length > 1 || valuesFor(args, key).some((value) => !value))
+      || args.filter((arg) => arg === "--export").length > 1) return invalidInput("Expense schedule read options are invalid.");
+    const fields = valuesFor(args, "--fields").length > 0 ? { fields: oneOption(args, "--fields", "").split(",") } : {};
+    const options = command === "get" ? fields : { ...fields, page_size: Number(oneOption(args, "--limit", "25")),
+      ...Object.fromEntries(filters.filter((key) => valuesFor(args, `--${key}`).length > 0).map((key) => [key, oneOption(args, `--${key}`, "")])),
+    };
+    if (!validExpenseScheduleListOptions(options)) return invalidInput("Expense schedule read options are invalid.");
+    const authenticated = await authenticatedProfile(args, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    const session = { credentials: authenticated.credentials, profile: authenticated.profile,
+      persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(authenticated.name, credentials) };
+    if (command === "list" && execution.listExpenseSchedules) return await readOutput(await execution.listExpenseSchedules({ ...session, options }), args.includes("--export"), execution);
+    if (target && execution.getExpenseSchedule) return await readOutput(await execution.getExpenseSchedule({ ...session, resourceId: target.id, options }), args.includes("--export"), execution);
+    return unsupportedCommand(`expenses schedules ${command}`);
+  } catch (error) { return requestFailure(error); }
+};
+
 const summaryRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
   try {
     if (!hasOnlyOptions(args, ["--range", "--start-date", "--end-date", "--profile"], ["--export"])
@@ -668,6 +732,42 @@ const communicationRead = async (resource: CommunicationResource, args: readonly
     const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
     return await readOutput(await execution.readCommunications({ credentials: authenticated.credentials, profile: authenticated.profile,
       resource, resourceId: target.id, options, persistCredentials }), target.options.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
+const serviceHistoryRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    const target = resourceTarget(args, ["--profile", "--limit", "--cursor"], ["--export"]);
+    if (!target || target.options.filter((arg) => arg === "--export").length > 1
+      || ["--profile", "--limit", "--cursor"].some((flag) => valuesFor(target.options, flag).length > 1
+        || valuesFor(target.options, flag).some((value) => !value))) return invalidInput("Service history options are invalid.");
+    const rawLimit = oneOption(target.options, "--limit", "25");
+    const options = { limit: /^[1-9]\d*$/u.test(rawLimit) ? Number(rawLimit) : NaN,
+      ...(target.options.includes("--cursor") ? { cursor: oneOption(target.options, "--cursor", "") } : {}) };
+    if (!validServiceHistoryOptions(options)) return invalidInput("Service history options are invalid.");
+    const authenticated = await authenticatedProfile(target.options, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.readServiceHistory) return unsupportedCommand("services history");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.readServiceHistory({ credentials: authenticated.credentials, profile: authenticated.profile,
+      resourceId: target.id, options, persistCredentials }), target.options.includes("--export"), execution);
+  } catch (error) { return requestFailure(error); }
+};
+
+const servicePaymentRead = async (args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  try {
+    const flags = ["--profile", "--limit", "--cursor", "--fields", "--search", "--status", "--date-field", "--start", "--end", "--sort", "--dir"];
+    const target = resourceTarget(args, flags, ["--export"]);
+    if (!target || target.options.filter((arg) => arg === "--export").length > 1
+      || flags.some((flag) => valuesFor(target.options, flag).length > 1 || valuesFor(target.options, flag).some((value) => !value))) return invalidInput("Service payment options are invalid.");
+    const options = crmListOptions("payments", target.options);
+    if (!validServicePaymentOptions(options)) return invalidInput("Service payment options are invalid.");
+    const authenticated = await authenticatedProfile(target.options, dependencies);
+    if ("exitCode" in authenticated) return authenticated;
+    if (!execution.readServicePayments) return unsupportedCommand("services payments");
+    const persistCredentials: PersistCredentials = (credentials) => dependencies.saveCredentials(authenticated.name, credentials);
+    return await readOutput(await execution.readServicePayments({ credentials: authenticated.credentials, profile: authenticated.profile,
+      resourceId: target.id, options, persistCredentials }), target.options.includes("--export"), execution);
   } catch (error) { return requestFailure(error); }
 };
 
@@ -735,6 +835,7 @@ const crmRead = async (resource: "customers" | "leads" | "payments" | "services"
   if ((resource === "customers" || resource === "leads") && command === "update") return recordUpdate(resource, options, dependencies, execution);
   if (resource === "quotes" && (command === "create" || command === "update" || command === "accept" || command === "decline")) return quoteWrite(command, options, dependencies, execution);
   if (resource === "services" && (command === "create" || command === "update")) return serviceWrite(command, options, dependencies, execution);
+  if (resource === "services" && (command === "transition" || command === "deliver")) return serviceLifecycleWrite(command, options, dependencies, execution);
   try {
     if (beforeSeparator(options).filter((option) => option === "--export").length > 1) return invalidInput("Use --export only once.");
     const listOptions = command === "list" ? crmListOptions(resource, options) : undefined;
@@ -957,6 +1058,53 @@ const serviceWrite = async (operation: "create" | "update", args: readonly strin
   } catch (error) { return requestFailure(error); }
 };
 
+const serviceLifecycleWrite = async (action: "transition" | "deliver", args: readonly string[], dependencies: CliStorage, execution: CliRuntime): Promise<CliResult> => {
+  const [mode, ...targetArgs] = args;
+  if (mode !== "preview" && mode !== "execute" && mode !== "status") return invalidInput(`Use services ${action} preview, execute, or status.`);
+  const target = resourceTarget(targetArgs, mode === "preview" ? action === "transition" ? ["--profile", "--status"] : ["--profile"]
+    : ["--profile", "--idempotency-key"],
+    mode === "execute" ? ["--receipt-stdin"] : []);
+  if (!target) return invalidInput(`Service ${action} requires one opaque service or preview ID.`);
+  const options = target.options;
+  if (valuesFor(options, "--profile").length > 1) return invalidInput("Use --profile only once.");
+  const statusValues = valuesFor(options, "--status");
+  const keyValues = valuesFor(options, "--idempotency-key");
+  const toStatus = mode === "preview" && statusValues.length === 1 ? statusValues[0] ?? "" : "";
+  const key = mode !== "preview" && keyValues.length === 1 ? keyValues[0] ?? "" : "";
+  if (mode === "preview" && !validResourceId(target.id)) return invalidInput("Preview requires one opaque service ID.");
+  if (mode === "preview" && action === "transition" && (statusValues.length !== 1
+    || !["backlog", "in_progress", "executed", "cancelled"].includes(toStatus))) return invalidInput(
+      "Transition preview requires one opaque service ID and --status backlog, in_progress, executed, or cancelled. Delivery is separate.");
+  if (mode !== "preview" && (!isUuid(target.id) || !isUuid(key) || keyValues.length !== 1
+    || (mode === "status" && options.includes("--receipt-stdin"))
+    || (mode === "execute" && options.filter((value) => value === "--receipt-stdin").length > 1))) return invalidInput(
+      `${action} execution and status require a preview UUID and one --idempotency-key UUID.`);
+  try {
+    const selected = await authenticatedProfile(options, dependencies);
+    if ("exitCode" in selected) return selected;
+    const session = { credentials: selected.credentials, profile: selected.profile,
+      persistCredentials: (credentials: import("./profile-store.js").StoredCredentials): Promise<void> => dependencies.saveCredentials(selected.name, credentials) };
+    if (mode === "preview") {
+      if (action === "deliver") {
+        if (!execution.previewServiceDelivery) throw new Error("Service delivery runtime unavailable");
+        return resourceOutput(await execution.previewServiceDelivery({ ...session, proposal: { resource_id: target.id } }));
+      }
+      if (!execution.previewServiceTransition) throw new Error("Service transition runtime unavailable");
+      return resourceOutput(await execution.previewServiceTransition({ ...session, proposal: { resource_id: target.id,
+        status: toStatus as "backlog" | "in_progress" | "executed" | "cancelled" } }));
+    }
+    if (mode === "status") {
+      const status = action === "deliver" ? execution.serviceDeliveryStatus : execution.serviceTransitionStatus;
+      if (!status) throw new Error("Service lifecycle status runtime unavailable");
+      return resourceOutput(await status({ ...session, query: { preview_id: target.id, idempotency_key: key } }));
+    }
+    const execute = action === "deliver" ? execution.executeServiceDelivery : execution.executeServiceTransition;
+    if (!execution.readApprovalReceipt || !execute) throw new Error("Service lifecycle runtime unavailable");
+    return resourceOutput(await execute({ ...session, approval: { preview_id: target.id,
+      idempotency_key: key, approval_receipt: await execution.readApprovalReceipt(options.includes("--receipt-stdin")) } }));
+  } catch (error) { return requestFailure(error); }
+};
+
 /** Resolves a CLI invocation without printing OAuth credentials or mutating user input. */
 export const run = async (args: readonly string[], dependencies: CliStorage = storage, execution: CliRuntime = runtime, onVerification: (device: DeviceAuthorization) => void = () => undefined): Promise<CliResult> => {
   const optionArgs = beforeSeparator(args);
@@ -986,7 +1134,7 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
       return profileFailure(error, "Profile operation failed. Stop concurrent commands, check credential storage and retry.");
     }
   }
-  if (first === "expenses" && second === "schedules") return unsupportedCommand("expenses schedules");
+  if (first === "expenses" && second === "schedules") return expenseScheduleRead(args.slice(2), dependencies, execution);
   if (first === "expenses") return expenseRead(args.slice(1), dependencies, execution);
   if (first === "bookings" && second === "upcoming") return bookingRead(args.slice(2), dependencies, execution);
   if (first === "bookings" && second === "capabilities") return bookingCapabilityRead(args.slice(2), dependencies, execution);
@@ -994,6 +1142,8 @@ export const run = async (args: readonly string[], dependencies: CliStorage = st
   if (first === "reports" && second === "margin") return marginRead(args.slice(2), dependencies, execution);
   if (first === "payments" && second === "received-summary") return summaryRead(args.slice(2), dependencies, execution);
   if (validCommunicationResource(first) && second === "communications") return communicationRead(first, args.slice(2), dependencies, execution);
+  if (first === "services" && second === "history") return serviceHistoryRead(args.slice(2), dependencies, execution);
+  if (first === "services" && second === "payments") return servicePaymentRead(args.slice(2), dependencies, execution);
   if (first === "customers" || first === "leads" || first === "payments" || first === "services" || first === "quotes" || first === "catalog") return crmRead(first, args.slice(1), dependencies, execution);
   if (first !== "auth") return unsupportedCommand(first ?? "");
   if (second === "login") return login(args.slice(2), dependencies, execution, onVerification);

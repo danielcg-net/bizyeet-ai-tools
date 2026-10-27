@@ -1,10 +1,12 @@
+import { secureWindowsExport } from "./export-security.js";
+import { installedBinEnvironment, isolatedTestEnvironment } from "../scripts/test-child-environment.js";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
-import { basename, delimiter, join } from "node:path";
+import { basename, join } from "node:path";
 import { text } from "node:stream/consumers";
 import test, { mock } from "node:test";
 import { nativeKeychain } from "./keychain.js";
@@ -27,14 +29,19 @@ const exitCode = (child: ReturnType<typeof spawn>): Promise<number | null> => ne
 });
 
 type ProcessResult = Readonly<{ output: string; errors: string; code: number | null }>;
-const runResult = async (command: string, args: readonly string[], cwd: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<ProcessResult> => {
-  const child = spawn(command, args, { cwd, env: environment, stdio: ["pipe", "pipe", "pipe"] });
-  child.stdin.end(input);
-  const [output, errors, code] = await Promise.all([collect(child.stdout), collect(child.stderr), exitCode(child)]);
-  return { output, errors, code };
+const runResult = async (command: string, args: readonly string[], cwd: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<ProcessResult> => {
+  const ownedEnvironment = environment === undefined ? await mkdtemp(join(tmpdir(), "bizyeet-test-env-")) : undefined;
+  try {
+    const child = spawn(command, args, { cwd, env: environment ?? isolatedTestEnvironment(ownedEnvironment ?? ""), stdio: ["pipe", "pipe", "pipe"] });
+    child.stdin.end(input);
+    const [output, errors, code] = await Promise.all([collect(child.stdout), collect(child.stderr), exitCode(child)]);
+    return { output, errors, code };
+  } finally {
+    if (ownedEnvironment) await rm(ownedEnvironment, {recursive: true, force: true});
+  }
 };
 
-const run = async (command: string, args: readonly string[], cwd: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<string> => {
+const run = async (command: string, args: readonly string[], cwd: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<string> => {
   const { output, errors, code } = await runResult(command, args, cwd, environment, input);
   if (code !== 0) throw new Error(`${command} exited with ${code === null ? "no exit code" : code.toString()}: ${errors}`);
   return output;
@@ -47,7 +54,7 @@ const packedArchive = async (directory: string): Promise<string> => {
   return join(directory, archives[0] ?? "");
 };
 
-const runNpm = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<string> => {
+const runNpm = async (args: readonly string[], directory: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<string> => {
   const cli = process.env.npm_execpath;
   if (!cli) throw new Error("Run package tests through npm test.");
   return run(process.execPath, [cli, ...args], directory, environment, input);
@@ -71,7 +78,7 @@ const credentialConfig = async (directory: string, issuer = "https://example.tes
   await writeFile(join(configuration, "profiles.json"), `${JSON.stringify({ [profile]: { clientId: "attacker", issuer: "https://attacker.invalid" } })}\n`, { encoding: "utf8", mode: 0o666 });
   if (process.platform === "win32") await nativeKeychain.save(profile, credentials);
   else await writeFile(join(configuration, "credentials.json"), `${JSON.stringify({ [profile]: credentials })}\n`, { encoding: "utf8", mode: 0o600 });
-  return { ...process.env, BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") };
+  return isolatedTestEnvironment(directory, process.env, { BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") });
 };
 
 const opaqueId = "--synthetic:customer~id";
@@ -80,6 +87,9 @@ const previewId = "11111111-1111-4111-8111-111111111111";
 const executionKey = "22222222-2222-4222-8222-222222222222";
 const receipt = "r".repeat(43);
 const quoteId = "sales1.fingerprint.quotes.quote";
+const expenseScheduleId = "expsch1.fingerprint.schedule";
+const expenseSchedule = Object.freeze({ id: expenseScheduleId, name: "Monthly fuel", amount: "12.50", frequency: "monthly", active: 1,
+  notes: "private-schedule-notes", tenant_id: "private-tenant" });
 const serviceId = "sales1.fingerprint.services.service";
 const quoteLineId = `${quoteId}.items.line`;
 const quoteRevision = { title: "Revised", expectedPricingRevision: 2,
@@ -322,6 +332,10 @@ const serveSyntheticApi = (request: IncomingMessage, response: ServerResponse): 
         ? { id: quoteId, title: "Revised", status: "draft", items: [{ id: quoteLineId, description: "Transfer", quantity: "2", unit_price: "25.00" }] }
         : { id: opaqueId, business: "Proposed", ...(url.pathname.startsWith("/api/agent/leads/") ? { pipeline_stage: "New Lead" } : {}) }, audit_reference: previewId } } }, meta: { contract_version: "v1" } }
     : url.pathname === "/api/agent/me" ? { tenant_id: "synthetic-tenant", client_id: "public-client", scope: ["customers.read"] }
+    : url.pathname === "/api/agent/expense-schedules" ? { data: { items: [expenseSchedule], total: 1 },
+      meta: { contract_version: "v1", next_cursor: null, request_id: "synthetic-schedule", tenant_id: "private-tenant" } }
+    : url.pathname === `/api/agent/expense-schedules/${expenseScheduleId}` ? { data: expenseSchedule,
+      meta: { contract_version: "v1", request_id: "synthetic-schedule", tenant_id: "private-tenant" } }
     : ["catalog", "quotes", "services"].some((resource) => url.pathname === `/api/agent/${resource}`) ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId, unit_cost: "private-cost", tenant_id: "private-tenant" }], total: 1 }, meta: { contract_version: "v1", request_id: "synthetic-sales", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
     : ["catalog", "quotes", "services"].some((resource) => url.pathname === `/api/agent/${resource}/${encodeURIComponent(opaqueId)}`) ? { data: { id: opaqueId, unit_cost: "private-cost", tenant_id: "private-tenant" }, meta: { contract_version: "v1", request_id: "synthetic-sales" } }
     : ["/api/agent/customers", "/api/agent/leads"].includes(url.pathname) ? { data: { items: url.searchParams.has("cursor") ? [] : [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: url.searchParams.has("cursor") ? null : opaqueCursor } }
@@ -380,7 +394,7 @@ void test("installed CLI bounds failure output and never follows upstream recove
         npm_config_http_proxy: "http://127.0.0.1:1" };
       // Measure only the installed CLI's streams. npm exec may prepend its own
       // diagnostics (including unknown inherited npm_config_* warnings).
-      const installedCli = join(directory, "node_modules", "@bizyeet", "ai-tools", "dist", "src", "cli.js");
+      const installedCli = join(directory, "node_modules", "@bizyeet", "cli", "dist", "src", "cli.js");
       await [...recoveryCases, { name: "oversized", code: "request_unavailable", exit: 7 }].reduce(async (previous, scenario) => {
         await previous;
         await context.test(scenario.name, async () => {
@@ -436,7 +450,7 @@ void test("installed CLI bounds failure output and never follows upstream recove
   } finally { await cleanup(directory); }
 });
 
-void test("installed CLI verifies identity and performs canonical list-to-exact-read over trusted local HTTPS", async () => {
+void test("installed CLI verifies identity and performs canonical list-to-exact-read over trusted local HTTPS", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "bizyeet-cli-https-"));
   const certificate = join(directory, "synthetic-cert.pem");
   const key = join(directory, "synthetic-key.pem");
@@ -457,8 +471,11 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const list = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--profile", testProfile(directory)], directory, environment);
       const listed: unknown = JSON.parse(list);
       assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
-      const exported = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)], directory,
-        { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory });
+      const exportArgs = ["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)];
+      const exportEnvironment = { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory };
+      const exportStarted = performance.now();
+      const exported = await runInstalled(exportArgs, directory, exportEnvironment);
+      if (process.platform === "win32") context.diagnostic(`Unchanged first installed-bin export completed in ${String(Math.round(performance.now() - exportStarted))}ms`);
       const summary: unknown = JSON.parse(exported);
       assert.ok(typeof summary === "object" && summary !== null && "data" in summary);
       assert.ok(typeof summary.data === "object" && summary.data !== null && "path" in summary.data && typeof summary.data.path === "string");
@@ -484,6 +501,15 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.deepEqual((JSON.parse(margin) as { data: { kind: string; total: number } }).data,
         { kind: "completed_services", items: [], totals: [], total: 0 });
       assert.doesNotMatch(margin, /private|synthetic-access|synthetic-refresh/u);
+      const scheduleList = await runInstalled(["expenses", "schedules", "list", "--limit", "1", "--fields", "id,name,amount",
+        "--frequency", "monthly", "--profile", testProfile(directory)], directory, environment);
+      const scheduleDetail = await runInstalled(["expenses", "schedules", "get", expenseScheduleId, "--fields", "name,frequency",
+        "--profile", testProfile(directory)], directory, environment);
+      assert.deepEqual(JSON.parse(scheduleList) as unknown, { data: { items: [{ id: expenseScheduleId, name: "Monthly fuel", amount: "12.50" }], total: 1 },
+        meta: { contract_version: "v1", request_id: "synthetic-schedule", next_cursor: null } });
+      assert.deepEqual(JSON.parse(scheduleDetail) as unknown, { data: { id: expenseScheduleId, name: "Monthly fuel", frequency: "monthly" },
+        meta: { contract_version: "v1", request_id: "synthetic-schedule" } });
+      assert.doesNotMatch(scheduleList + scheduleDetail, /private-schedule-notes|private-tenant|synthetic-access|synthetic-refresh/u);
       const bookingCapabilities = await runInstalled(["bookings", "capabilities", "--profile", testProfile(directory)], directory, environment);
       assert.deepEqual((JSON.parse(bookingCapabilities) as { data: { booking_provider: string; create: string } }).data,
         { booking_provider: "none", upcoming_summary: "unavailable", availability_slots: "unavailable", booking_detail: "unavailable",
@@ -598,7 +624,8 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
         assert.equal(handler.mock.callCount() - before, 1);
         assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
       }, Promise.resolve());
-      assert.equal(handler.mock.callCount(), 52);
+      // Current main has 48 requests; customer and lead create each add preview/execute/status.
+      assert.equal(handler.mock.callCount(), 54);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
@@ -643,23 +670,29 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
     const archive = await packedArchive(directory);
     await runNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
     const environment = await credentialConfig(directory);
-    const inheritedPath = Object.entries(environment).find(([key]) => key.toLowerCase() === "path")?.[1];
-    const pathEnvironment = { ...Object.fromEntries(Object.entries(environment).filter(([key]) => key.toLowerCase() !== "path")),
-      PATH: [join(directory, "node_modules", ".bin"), inheritedPath].filter(Boolean).join(delimiter) };
+    const pathEnvironment = await installedBinEnvironment(directory, environment);
     const located = await run(commandLookup().command, commandLookup().args, directory, pathEnvironment);
-    const help = await runInstalled(["--help"], directory, pathEnvironment);
-    const version = await runInstalled(["--version"], directory, pathEnvironment);
-    const diagnostics = await runInstalled(["diagnostics", "--json"], directory, pathEnvironment);
+    // Invalid storage configuration must not affect these local-only commands.
+    const localEnvironment = { ...pathEnvironment, BIZYEET_CREDENTIAL_STORE: "invalid" };
+    const help = await runInstalled(["--help"], directory, localEnvironment);
+    const version = await runInstalled(["--version"], directory, localEnvironment);
+    const diagnostics = await runInstalled(["diagnostics", "--json"], directory, localEnvironment);
     const status = await runInstalled(["auth", "status", "--profile", testProfile(directory)], directory, pathEnvironment);
 
     assert.match(located, /bizyeet/u);
     assert.match(help, /OAuth/u);
-    assert.match(version, /"version":"0\.0\.0-development"/u);
+    const metadata = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as Readonly<{ name: string; version: string }>;
+    const installedMetadata = JSON.parse(await readFile(join(directory, "node_modules", "@bizyeet", "cli", "package.json"), "utf8")) as Readonly<{ name: string; version: string }>;
+    assert.deepEqual({ name: installedMetadata.name, version: installedMetadata.version }, { name: metadata.name, version: metadata.version });
+    assert.deepEqual((JSON.parse(version) as Readonly<{ data: unknown }>).data, { version: metadata.version });
+    assert.equal((JSON.parse(diagnostics) as Readonly<{ data: Readonly<{ version: string }> }>).data.version, metadata.version);
     assert.match(diagnostics, /"automatic":false/u);
     assert.match(diagnostics, /"required":">=24"/u);
     assert.doesNotMatch(diagnostics, /synthetic-access|synthetic-refresh/u);
     assert.match(status, /"authenticated":true/u);
     assert.doesNotMatch(status, /synthetic-access|synthetic-refresh/u);
+    // A credential-dependent control proves the child receives the invalid setting.
+    await assert.rejects(runInstalled(["auth", "status"], directory, localEnvironment), /exited with 2/u);
     await assert.rejects(runInstalled(["unknown-command"], directory, pathEnvironment), /exited with 2/u);
     await assert.rejects(runInstalled(["customers", "list", "--limit", "--fields"], directory, pathEnvironment), /exited with 2/u);
   } finally {
@@ -685,4 +718,23 @@ void test("installed POSIX CLI works in explicit file mode without optional nati
   } finally {
     await cleanup(directory);
   }
+});
+
+void test("isolated Windows fixture environments retain native owner-only export ACL support", {skip: process.platform !== "win32"}, async (context): Promise<void> => {
+  const directory = await mkdtemp(join(tmpdir(), "bizyeet-isolated-acl-"));
+  try {
+    const environment = isolatedTestEnvironment(directory);
+    assert.equal(environment.GH_TOKEN, undefined);
+    assert.equal(environment.PSModulePath, undefined);
+    assert.equal(environment.PSModuleAnalysisCachePath, join(directory, "powershell-module-cache"));
+    assert.equal(environment.HOME, directory);
+    assert.ok(environment.ProgramFiles);
+    const started = performance.now();
+    await secureWindowsExport(directory, "directory", undefined, environment);
+    const path = join(directory, "empty.json");
+    await writeFile(path, "");
+    await secureWindowsExport(path, "file", undefined, environment);
+    await secureWindowsExport(path, "verify", undefined, environment);
+    context.diagnostic(`Private native directory/file/verify ACL completed in ${String(Math.round(performance.now() - started))}ms`);
+  } finally { await rm(directory, {recursive: true, force: true}); }
 });

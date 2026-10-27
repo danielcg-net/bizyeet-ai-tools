@@ -3,7 +3,14 @@ import test from "node:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildArtifactBundle, declaredBinTarget, packedFileName, rebuildForRelease, releaseNpmTimeout, validateSbom } from "./release-artifacts.js";
+import { buildArtifactBundle, declaredBinTarget, packedFileName, rebuildForRelease, releaseNpmTimeout, validateSbom, verifyInstalledVersion } from "./release-artifacts.js";
+
+void test("requires exact installed version in the existing structured CLI envelope", (): void => {
+  assert.doesNotThrow(() => { verifyInstalledVersion('{"data":{"version":"0.1.0-beta.1"}}', "0.1.0-beta.1"); });
+  ["malformed", "null", "{}", '{"data":{"version":"0.0.0-development"}}', '{"data":{"version":1}}'].forEach((output) => {
+    assert.throws(() => { verifyInstalledVersion(output, "0.1.0-beta.1"); });
+  });
+});
 
 void test("full release validation has its own bounded deadline without extending packaging or installation", () => {
   assert.equal(releaseNpmTimeout(Object.freeze(["run", "check"])), 600_000);
@@ -44,17 +51,17 @@ void test("refuses to overwrite an existing verification directory before invoki
 });
 
 void test("accepts one bounded package filename and rejects traversal or extra artifacts", (): void => {
-  assert.equal(packedFileName([{ filename: "bizyeet-ai-tools-0.0.0-development.tgz" }]), "bizyeet-ai-tools-0.0.0-development.tgz");
+  assert.equal(packedFileName([{ filename: "bizyeet-cli-0.0.0-development.tgz" }]), "bizyeet-cli-0.0.0-development.tgz");
   [[], {}, [{ filename: "../artifact.tgz" }], [{ filename: "/artifact.tgz" }], [{ filename: "x\\artifact.tgz" }], [{ filename: "a.tgz" }, { filename: "b.tgz" }], [{ filename: "a\n.tgz" }]].forEach((value): void => { assert.throws(() => packedFileName(value)); });
 });
 
 void test("requires CycloneDX metadata before accepting an SBOM", (): void => {
-  assert.doesNotThrow((): void => { validateSbom({ bomFormat: "CycloneDX", specVersion: "1.5", metadata: { component: { name: "@bizyeet/ai-tools" } } }); });
+  assert.doesNotThrow((): void => { validateSbom({ bomFormat: "CycloneDX", specVersion: "1.5", metadata: { component: { name: "@bizyeet/cli" } } }); });
   [null, [], {}, { bomFormat: "SPDX", specVersion: "1.5", metadata: {} }, { bomFormat: "CycloneDX", specVersion: "1.5", metadata: {} }].forEach((value): void => { assert.throws((): void => { validateSbom(value); }); });
 });
 
 void test("requires the declared bizyeet command inside the installed package", (): void => {
   const root = join(tmpdir(), "installed-toolkit");
-  assert.equal(declaredBinTarget({ name: "@bizyeet/ai-tools", bin: { bizyeet: "./dist/src/cli.js" } }, root), join(root, "dist", "src", "cli.js"));
-  [{}, { name: "@bizyeet/ai-tools" }, ...["../outside.js", "/outside.js", "C:\\outside.js", "..\\outside.js", "dist/cli.cmd"].map((path): Readonly<Record<string, unknown>> => ({ name: "@bizyeet/ai-tools", bin: { bizyeet: path } }))].forEach((value): void => { assert.throws(() => declaredBinTarget(value, root)); });
+  assert.equal(declaredBinTarget({ name: "@bizyeet/cli", bin: { bizyeet: "./dist/src/cli.js" } }, root), join(root, "dist", "src", "cli.js"));
+  [{}, { name: "@bizyeet/cli" }, ...["../outside.js", "/outside.js", "C:\\outside.js", "..\\outside.js", "dist/cli.cmd"].map((path): Readonly<Record<string, unknown>> => ({ name: "@bizyeet/cli", bin: { bizyeet: path } }))].forEach((value): void => { assert.throws(() => declaredBinTarget(value, root)); });
 });

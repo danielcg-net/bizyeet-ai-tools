@@ -1,6 +1,20 @@
-# BizYeet AI Tools
+# BizYeet CLI
 
-Public CLI, MCP adapter, schemas, and Codex guidance for tenant-authorized BizYeet AI agents.
+Public CLI, shared API contracts, schemas, and Codex guidance for tenant-authorized BizYeet AI agents.
+
+The `@bizyeet/cli@0.1.0-beta.1` candidate uses the `cli-v0.1.0-beta.1` tag and dedicated `release-cli.yml` workflow. New-package ownership and trusted publication setup remain unverified. Package
+availability is established by a matching npm version and GitHub prerelease,
+not source metadata; verify both before installing. See
+[exact-version installation, upgrade and compatibility](https://github.com/danielcg-net/bizyeet-ai-tools/blob/main/docs/installation.md)
+and the [candidate changelog](CHANGELOG.md). The beta subset is local CLI
+version/help/diagnostics, OAuth setup and bounded customer/lead reads where the
+authenticated server advertises the required capability and scope. Live acceptance is not established by this README; consult the exact release
+evidence before business use. Other packaged commands are
+capability-dependent previews until their exact combinations have acceptance
+evidence. The hosted MCP runtime is independently deployed; this package does
+not contain a standalone MCP server executable. Companion `docs/` and `skills/`
+guidance is maintained in the official source repository; it is not installed
+by the npm package.
 
 The shared `createCanonicalCrmClient` transport is available for CLI/MCP adapters
 after their OAuth flow obtains a resource-bound access token. It calls only the
@@ -47,7 +61,7 @@ a network request or reading stored credentials.
 runtime requirement, with the official releases link for manual updates. It
 does not access credentials, call the network, claim that this is the latest
 release, or install updates. Use `bizyeet auth check` separately to verify
-server authorization. The current development package is not a published release.
+server authorization. Source metadata does not establish package publication.
 
 ```sh
 # Browser Authorization Code + PKCE S256 flow.
@@ -228,14 +242,19 @@ Service reads use the same OAuth `customers.read` scope and canonical routing:
 ```sh
 bizyeet services list --limit 25 --fields id,name,pricing_revision
 bizyeet services get service_opaque_id --fields id,items,pricing_revision
+bizyeet services history service_opaque_id --limit 25
+bizyeet services payments service_opaque_id --limit 25 --fields id,amount,status,currency
 ```
 
 Line handles and revision tokens are opaque server facts, not native database IDs.
 List projections cannot include items; use detail reads. Private costs are excluded.
-These commands require a compatible server deployment; revision and line-handle
-support is not a release claim for the pending backend update. Service writes
-remain unavailable in this CLI. MCP declarations describe the matching read
-contract; availability depends on the connected server's advertised tools.
+Service history returns only status transitions and timestamps; its cursor is
+bound to that service. These source commands and MCP declarations require a
+compatible deployment and do not imply package publication or live-tenant
+validation. Service-linked payments require both `customers.read` and
+`payments.read`; private relationship fields and provider metadata are excluded.
+Service create/update commands have separate trusted approval requirements;
+these read commands grant no write authority.
 
 Quote reads also use `customers.read` and canonical routing:
 
@@ -385,8 +404,19 @@ that no scheduled costs are due. Amount strings and currencies are preserved wit
 conversion. Notes and native tenant or schedule identifiers are never readable through this
 interface. Use the returned opaque IDs and cursor; do not substitute native database IDs.
 Live OAuth scope and dashboard expense permission are enforced by the canonical API.
-`--profile` and secure `--export` use the shared read flow. Expense schedules are not
-currently part of this public CLI or MCP contract.
+`--profile` and secure `--export` use the shared read flow.
+
+Recurring expense schedules have separate read-only list and exact-get commands:
+
+```sh
+bizyeet expenses schedules list --limit 25 --frequency monthly --active 1
+bizyeet expenses schedules get <opaque-schedule-id> --fields name,amount,frequency
+```
+
+The matching MCP tools are `bizyeet_expense_schedules_list` and
+`bizyeet_expense_schedules_get`, also using `expenses.read`. A schedule ID is
+opaque and distinct from an expense ID. Internal notes and tenant identifiers
+are excluded. These reads never create or materialize expense occurrences.
 
 ## Tax collection reports
 
@@ -656,6 +686,43 @@ receipt through the hidden prompt or private `--receipt-stdin` pipe. Keep the
 original execution UUID; on an uncertain result, query read-only `status`
 instead of sending another update. This is source-only and not a package
 release or production canary.
+
+The source CLI can preview a non-delivery service lifecycle change through the
+canonical OAuth transition endpoint. Use an opaque service ID from `services
+get`; `delivered` is intentionally excluded and has a separate delivery
+action. The server requires `customers.write` and also `mail.send` if tenant
+configuration could send status email or a calendar invitation. Preview has no
+effect; a signed-in human must approve the exact dashboard preview before
+execution.
+
+```sh
+bizyeet services transition preview "$SERVICE_ID" --status in_progress
+bizyeet services transition execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services transition status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Use the hidden receipt prompt or private `--receipt-stdin` pipe. Retain the
+original execution UUID; reconcile uncertainty with read-only `status`, never
+another mutation. The command is source-only until a package release and is
+not an authenticated tenant canary.
+
+Service delivery is a separate irreversible lifecycle action, not a value of
+`services transition --status`. The source CLI previews one opaque service ID
+through the canonical OAuth delivery endpoint. The server requires
+`customers.write`, plus `mail.send` if automatic status email is configured,
+and checks live role, service version, document requirements and human approval.
+Preview does not mark the service delivered or send mail.
+
+```sh
+bizyeet services deliver preview "$SERVICE_ID"
+bizyeet services deliver execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+bizyeet services deliver status "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
+```
+
+Approve the exact preview in the dashboard and provide its receipt through the
+hidden prompt or private `--receipt-stdin` pipe. Never repeat the execute POST
+with a new key after uncertainty; query read-only `status` with the original
+key. This source command is not a package release or a live tenant canary.
 
 ## Lead update contract (not yet released)
 

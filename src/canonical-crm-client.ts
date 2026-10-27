@@ -11,13 +11,19 @@ import { marginReportResponse } from "./margin-report-response.js";
 import { validPaymentQuery } from "./payment-contract.js";
 import { validExpenseListOptions } from "./expense-contract.js";
 import { expenseResponse } from "./expense-response.js";
+import { validExpenseScheduleGetOptions, validExpenseScheduleListOptions } from "./expense-schedule-contract.js";
+import { expenseScheduleResponse } from "./expense-schedule-response.js";
 import { validBookingSummaryOptions, type BookingSummaryOptions } from "./booking-contract.js";
 import { bookingSummaryResponse } from "./booking-response.js";
 import { bookingCapabilitiesResponse } from "./booking-capabilities-response.js";
 import { validServiceReadFields } from "./service-read-contract.js";
 import { serviceResponse } from "./service-response.js";
+import { serviceHistoryResponse, validServiceHistoryOptions, type ServiceHistoryOptions } from "./service-history-contract.js";
+import { servicePaymentResponse, validServicePaymentOptions, type ServicePaymentOptions } from "./service-payment-contract.js";
 import { serviceCreateExecutionResponse, serviceCreatePreviewResponse, serviceCreateStatusResponse } from "./service-create-response.js";
 import { serviceUpdateExecutionResponse, serviceUpdatePreviewResponse, serviceUpdateStatusResponse } from "./service-update-response.js";
+import { serviceTransitionExecutionResponse, serviceTransitionPreviewResponse, serviceTransitionStatusResponse } from "./service-transition-response.js";
+import { serviceDeliveryExecutionResponse, serviceDeliveryPreviewResponse, serviceDeliveryStatusResponse } from "./service-delivery-response.js";
 import { validQuoteReadFields } from "./quote-read-contract.js";
 import { quoteResponse } from "./quote-response.js";
 import { quoteCreateExecutionResponse, quoteCreatePreviewResponse, quoteCreateStatusResponse,
@@ -34,7 +40,7 @@ import { communicationResponse, validCommunicationOptions, validCommunicationRes
 export { validResourceId } from "./resource-id.js";
 
 export type CrmResource = "customers" | "leads";
-export type ReadResource = CrmResource | "payments" | "expenses" | "services" | "quotes" | "catalog";
+export type ReadResource = CrmResource | "payments" | "expenses" | "expense-schedules" | "services" | "quotes" | "catalog";
 export type ReadOptions = Readonly<{ fields?: readonly string[] }>;
 export type ListOptions = ReadOptions & Readonly<{
   page_size?: number;
@@ -65,6 +71,7 @@ export type QuoteUpdatePreview = Readonly<{ resource_id: string; quote: Readonly
 export type QuoteAcceptPreview = Readonly<{ resource_id: string }>;
 export type ServiceCreatePreview = Readonly<{ service: Readonly<Record<string, unknown>> }>;
 export type ServiceUpdatePreview = Readonly<{ resource_id: string; service: Readonly<Record<string, unknown>> }>;
+export type ServiceTransitionPreview = Readonly<{ resource_id: string; status: "backlog" | "in_progress" | "executed" | "cancelled" }>;
 export type ClientDependencies = Readonly<{
   origin: string;
   /** Obtain an OAuth access token bound to this resource origin; never an API key. */
@@ -74,6 +81,8 @@ export type ClientDependencies = Readonly<{
 }>;
 export type CanonicalCrmClient = Readonly<{
   communications: (resource: CommunicationResource, id: string, options?: CommunicationOptions) => Promise<CanonicalResult>;
+  serviceHistory: (id: string, options?: ServiceHistoryOptions) => Promise<CanonicalResult>;
+  servicePayments: (id: string, options?: ServicePaymentOptions) => Promise<CanonicalResult>;
   receivedPaymentSummary: (options?: PaymentSummaryOptions) => Promise<CanonicalResult>;
   bookingSummary: (options?: BookingSummaryOptions) => Promise<CanonicalResult>;
   bookingCapabilities: () => Promise<CanonicalResult>;
@@ -114,11 +123,17 @@ export type CanonicalCrmClient = Readonly<{
   previewServiceUpdate: (input: ServiceUpdatePreview) => Promise<CanonicalResult>;
   executeServiceUpdate: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
   serviceUpdateStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewServiceTransition: (input: ServiceTransitionPreview) => Promise<CanonicalResult>;
+  executeServiceTransition: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  serviceTransitionStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
+  previewServiceDelivery: (input: QuoteAcceptPreview) => Promise<CanonicalResult>;
+  executeServiceDelivery: (input: CustomerUpdateExecution) => Promise<CanonicalResult>;
+  serviceDeliveryStatus: (input: CustomerUpdateStatusQuery) => Promise<CanonicalResult>;
 }>;
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses" || value === "services" || value === "quotes" || value === "catalog";
+const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses" || value === "expense-schedules" || value === "services" || value === "quotes" || value === "catalog";
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
 const utcTimestamp = (value: unknown): value is string => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+00:00)$/iu.test(value)) return false;
@@ -226,7 +241,9 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       || Object.keys(options).some((key) => !(id === null ? ["fields", "page_size", "cursor", "search"] : ["fields"]).includes(key)))) return failure(400, "invalid_request");
     if (resource === "services" && (!validServiceReadFields(options.fields ?? [], id !== null)
       || Object.keys(options).some((key) => !(id === null ? ["fields", "page_size", "cursor", "search"] : ["fields"]).includes(key)))) return failure(400, "invalid_request");
-    if (resource === "expenses") {
+    if (resource === "expense-schedules") {
+      if (id === null ? !validExpenseScheduleListOptions(options) : !validExpenseScheduleGetOptions(options)) return failure(400, "invalid_request");
+    } else if (resource === "expenses") {
       if (!validExpenseListOptions(options) || (id !== null && Object.keys(options).some((key) => key !== "fields"))) return failure(400, "invalid_request");
     } else {
       if ([options.category, options.currency, options.schedule, options.start_date, options.end_date, options.frequency, options.active].some((value) => value !== undefined)) return failure(400, "invalid_request");
@@ -253,6 +270,11 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         ? { status: response.status, body } : failure(502, "invalid_response");
       if (resource === "expenses") {
         const projected = validExpenseListOptions(options) ? expenseResponse(body, options, id) : undefined;
+        return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
+      }
+      if (resource === "expense-schedules") {
+        const validOptions = id === null ? validExpenseScheduleListOptions(options) : validExpenseScheduleGetOptions(options);
+        const projected = validOptions ? expenseScheduleResponse(body, options, id) : undefined;
         return projected ? { status: response.status, body: projected } : failure(502, "invalid_response");
       }
       if (resource === "services") {
@@ -313,6 +335,21 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     const parameters = new URLSearchParams([["api_version", "v1"], ...(options.page === undefined ? [] : [["page", String(options.page)]]),
       ...(options.page_size === undefined ? [] : [["page_size", String(options.page_size)]])]);
     return reportRead(`/api/agent/${resource}/${encodeURIComponent(id)}/communications`, parameters, (body) => communicationResponse(body, options));
+  };
+  const serviceHistory = async (id: string, options: ServiceHistoryOptions = {}): Promise<CanonicalResult> => {
+    if (!validResourceId(id) || !validServiceHistoryOptions(options)) return failure(400, "invalid_request");
+    const parameters = new URLSearchParams({ api_version: "v1", limit: String(options.limit ?? 25) });
+    if (options.cursor !== undefined) parameters.set("cursor", options.cursor);
+    return reportRead(`/api/agent/services/${encodeURIComponent(id)}/history`, parameters,
+      (body) => serviceHistoryResponse(body, options));
+  };
+  const servicePayments = async (id: string, options: ServicePaymentOptions = {}): Promise<CanonicalResult> => {
+    if (!validResourceId(id) || !validServicePaymentOptions(options)) return failure(400, "invalid_request");
+    const parameters = new URLSearchParams({ api_version: "v1", limit: String(options.limit ?? 25) });
+    Object.entries(options as Readonly<Record<string, unknown>>).filter(([key, value]) => key !== "limit" && value !== undefined)
+      .forEach(([key, value]) => { parameters.set(key, Array.isArray(value) ? value.join(",") : String(value)); });
+    return reportRead(`/api/agent/services/${encodeURIComponent(id)}/payments`, parameters,
+      (body) => servicePaymentResponse(body, options));
   };
   const taxReport = async (options: TaxReportOptions = {}): Promise<CanonicalResult> => {
     if (!validTaxReportOptions(options)) return failure(400, "invalid_request");
@@ -603,8 +640,54 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
       return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
     } catch { return failure(503, "request_unavailable"); }
   };
+  const serviceLifecycle = async (input: unknown, preview: boolean, action: "transition" | "deliver"): Promise<CanonicalResult> => {
+    if (!record(input) || (preview
+      ? !validResourceId(input.resource_id) || (action === "transition"
+        ? Object.keys(input).length !== 2 || typeof input.status !== "string"
+          || !["backlog", "in_progress", "executed", "cancelled"].includes(input.status)
+        : Object.keys(input).length !== 1)
+      : Object.keys(input).length !== 3 || !uuid(input.preview_id) || !uuid(input.idempotency_key)
+        || typeof input.approval_receipt !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(input.approval_receipt))) return failure(400, "invalid_request");
+    const serialized = ((): string => { try { return JSON.stringify(input); } catch { return ""; } })();
+    if (!serialized || new TextEncoder().encode(serialized).byteLength > 16_384) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const response = await request(`${origin}/api/agent/services/${action}-${preview ? "preview" : "execute"}?api_version=v1`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
+      const projected = preview && "resource_id" in input && typeof input.resource_id === "string"
+        ? action === "deliver" ? serviceDeliveryPreviewResponse(body, input.resource_id)
+          : serviceTransitionPreviewResponse(body, input.resource_id, String(input.status))
+        : action === "deliver" ? serviceDeliveryExecutionResponse(body) : serviceTransitionExecutionResponse(body);
+      return projected && response.status === 200 ? { status: 200, body: projected }
+        : failure(502, preview ? "invalid_response" : "execution_ambiguous");
+    } catch { return failure(503, preview ? "request_unavailable" : "execution_ambiguous"); }
+  };
+  const serviceLifecycleStatus = async (input: CustomerUpdateStatusQuery, action: "transition" | "deliver"): Promise<CanonicalResult> => {
+    if (!record(input) || Object.keys(input).length !== 2 || !uuid(input.preview_id) || !uuid(input.idempotency_key)) return failure(400, "invalid_request");
+    try {
+      const token = await dependencies.getAccessToken(origin);
+      if (!token || /\s/u.test(token)) return failure(401, "authorization_required");
+      const parameters = new URLSearchParams({ api_version: "v1", preview_id: input.preview_id, idempotency_key: input.idempotency_key });
+      const response = await requestRead(`${origin}/api/agent/services/${action}-status?${parameters.toString()}`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      const body = await boundedResponse(response, 32_768);
+      if (!response.ok) return { status: response.status, body };
+      const projected = action === "deliver" ? serviceDeliveryStatusResponse(body, input.preview_id)
+        : serviceTransitionStatusResponse(body, input.preview_id);
+      return projected && response.status === 200 ? { status: 200, body: projected } : failure(502, "invalid_response");
+    } catch { return failure(503, "request_unavailable"); }
+  };
   return Object.freeze({
     communications,
+    serviceHistory,
+    servicePayments,
     receivedPaymentSummary,
     bookingSummary,
     bookingCapabilities,
@@ -645,5 +728,11 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
     previewServiceUpdate: (input: ServiceUpdatePreview): Promise<CanonicalResult> => serviceUpdate(input, true),
     executeServiceUpdate: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceUpdate(input, false),
     serviceUpdateStatus,
+    previewServiceTransition: (input: ServiceTransitionPreview): Promise<CanonicalResult> => serviceLifecycle(input, true, "transition"),
+    executeServiceTransition: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceLifecycle(input, false, "transition"),
+    serviceTransitionStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => serviceLifecycleStatus(input, "transition"),
+    previewServiceDelivery: (input: QuoteAcceptPreview): Promise<CanonicalResult> => serviceLifecycle(input, true, "deliver"),
+    executeServiceDelivery: (input: CustomerUpdateExecution): Promise<CanonicalResult> => serviceLifecycle(input, false, "deliver"),
+    serviceDeliveryStatus: (input: CustomerUpdateStatusQuery): Promise<CanonicalResult> => serviceLifecycleStatus(input, "deliver"),
   });
 };

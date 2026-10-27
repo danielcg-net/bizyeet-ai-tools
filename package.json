@@ -1,8 +1,17 @@
 {
-  "name": "@bizyeet/ai-tools",
-  "version": "0.0.0-development",
-  "private": true,
-  "description": "Public CLI and MCP tools for tenant-authorized BizYeet AI agents.",
+  "name": "@bizyeet/cli",
+  "version": "0.1.0-beta.1",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org",
+    "tag": "beta"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danielcg-net/bizyeet-ai-tools.git"
+  },
+  "description": "Public CLI for tenant-authorized BizYeet AI agents; hosted MCP is independently deployed.",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -33,18 +42,18 @@
   ],
   "devDependencies": {
     "@eslint/js": "^10.0.0",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.4",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "eslint": "^10.11.0",
-    "marked": "18.0.13",
-    "shell-quote": "1.10.0",
+    "eslint": "^10.12.0",
+    "marked": "18.0.14",
+    "shell-quote": "1.11.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.71.0",
     "yaml": "^2.9.1"
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@napi-rs/keyring": "^2.0.0",
+    "@napi-rs/keyring": "^2.1.0",
     "open": "11.0.4"
   }
 }

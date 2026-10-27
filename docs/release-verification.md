@@ -1,5 +1,23 @@
 # Release verification
 
+Prepare the required protected GitHub approval gate with the read-only-first
+[release environment helper](release-environment.md). Applying its reviewed plan
+is a separate authorized settings action, not publication approval.
+
+The dedicated `release-cli.yml` workflow releases only `@bizyeet/cli`, using
+`cli-vVERSION` tags (initial candidate `cli-v0.1.0-beta.1`). The legacy
+`release.yml` publication workflow is retired. The GitHub repository and
+existing `npm-release` human gate stay the same.
+
+[New-package readiness](release-readiness.md) is pending. Verify-only dispatches
+use `publish:false` and require no invented ownership or publisher evidence.
+Publication is blocked until separately approved actual setup is reviewed;
+neither source changes nor an unpublished verification run authorize publication.
+
+Hosted MCP has an independent private version/build/deployment. This npm package
+contains the CLI, not a hosted MCP server or a second MCP executable. CLI release
+success does not activate or prove a hosted MCP deployment.
+
 Run `npm run release:verify` from a clean checkout. It runs the full TypeScript,
 functional-immutability, unit, routing and workflow-security gates, then creates
 a real npm tarball in a fresh `release-artifacts/` directory. A bootstrap compilation
@@ -15,8 +33,9 @@ installation files are removed; the verification bundle is retained.
 
 The manifest records the source revision and dirty state, lockfile digest,
 artifact digest, runtime, and completed smoke check. It is an **unsigned build
-manifest**, not an attestation or proof of release authorization. The development
-package remains private and unpublished. This command never publishes, signs,
+manifest**, not an attestation or proof of release authorization. The
+`0.1.0-beta.1` candidate has publication metadata but remains unpublished until
+the protected publication gates actually succeed. This command never publishes, signs,
 uses tenant OAuth credentials, or exercises production business operations.
 
 The Release Verification workflow runs on GitHub-hosted Ubuntu, macOS and Windows
@@ -60,8 +79,9 @@ Ordinary PR checks retain their existing read-only/security-analysis permissions
 This workflow records provenance in GitHub's attestation service but never runs
 `npm publish`, creates a GitHub Release, changes a registry channel, enables
 OAuth clients or mutates tenant data. It does not claim human release approval or
-a SLSA level. The package remains private/development until a separate reviewed
-release change. The SBOM and local build manifest remain ordinary files in the
+a SLSA level. The candidate metadata enables publication review but does not
+prove any publication, publisher configuration or human approval. The SBOM and
+local build manifest remain ordinary files in the
 build bundle; the cryptographic provenance subject here is the npm tarball.
 
 `create-storage-record: false` disables the separate linked-artifact storage
@@ -76,15 +96,18 @@ permissions, or a passing local workflow test is not successful attestation proo
 See the official [artifact attestation guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
 and [verification restrictions](https://cli.github.com/manual/gh_attestation_verify).
 
+See [exact-version installation and compatibility](installation.md) for the
+dated candidate preparation status and the supported beta subset.
+
 ## Release metadata gate
 
-`npm run release:preflight -- --tag vVERSION` is a read-only local metadata gate.
+`npm run release:preflight -- --tag cli-vVERSION` is a read-only local metadata gate.
 It requires a non-development [SemVer](https://semver.org/) version (including
 prereleases, excluding build metadata), an exact matching tag string, consistent
 package/lockfile identities, explicit `private: false` and
 `publishConfig.access: public`, and one dated, substantive changelog entry.
-It intentionally fails on the current private development scaffold. Neither this
-command nor a passing unit fixture enables publication or proves that a Git tag
+The proposed exact invocation is `npm run release:preflight -- --tag cli-v0.1.0-beta.1`.
+Neither this command nor a passing unit fixture proves publication or that a Git tag
 exists, a release is approved, or the version is unused in the registry.
 
 A release PR must review those metadata changes, compatibility and migration
@@ -95,7 +118,8 @@ PR-uploaded artifacts as inputs to a privileged release job.
 
 ## Rollback and withdrawal runbook
 
-There is no published version yet. The following is a required maintainer-run
+At candidate preparation on 2026-10-26, no published version had been verified.
+The following is a required maintainer-run
 procedure, not an automatic registry or tenant mutation:
 
 1. Record the affected exact version, digest, source revision, release run and
