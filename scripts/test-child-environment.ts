@@ -18,5 +18,6 @@ export const isolatedTestEnvironment = (root: string, inherited: NodeJS.ProcessE
   npm_config_userconfig: join(root, "npm-user-config"),
   npm_config_globalconfig: join(root, "npm-global-config"),
   npm_config_cache: join(root, "npm-cache"),
+  PSModuleAnalysisCachePath: join(root, "powershell-module-cache"),
   ...Object.fromEntries(commandFiles.map((key) => [key, join(root, key.toLowerCase())])),
 });

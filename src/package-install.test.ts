@@ -674,6 +674,7 @@ void test("isolated Windows fixture environments retain native owner-only export
     const environment = isolatedTestEnvironment(directory);
     assert.equal(environment.GH_TOKEN, undefined);
     assert.equal(environment.PSModulePath, undefined);
+    assert.equal(environment.PSModuleAnalysisCachePath, join(directory, "powershell-module-cache"));
     assert.equal(environment.HOME, directory);
     assert.ok(environment.ProgramFiles);
     await secureWindowsExport(directory, "directory", undefined, environment);
