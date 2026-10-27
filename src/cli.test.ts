@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import { isCliEntrypoint, run } from "./cli.js";
 import { agentFailure } from "./agent-error.js";
@@ -144,7 +145,8 @@ void test("reports the packaged version without reading credentials", async (): 
   const result = await run(["--version"]);
 
   assert.equal(result.exitCode, 0);
-  assert.match(result.message, /"version":"0\.0\.0-development"/u);
+  const metadata = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as Readonly<{ version: string }>;
+  assert.equal((JSON.parse(result.message) as Readonly<{ data: Readonly<{ version: string }> }>).data.version, metadata.version);
 });
 
 void test("local diagnostics provide runtime and truthful manual-update guidance without credentials", async () => {

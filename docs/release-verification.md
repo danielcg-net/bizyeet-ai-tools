@@ -15,8 +15,9 @@ installation files are removed; the verification bundle is retained.
 
 The manifest records the source revision and dirty state, lockfile digest,
 artifact digest, runtime, and completed smoke check. It is an **unsigned build
-manifest**, not an attestation or proof of release authorization. The development
-package remains private and unpublished. This command never publishes, signs,
+manifest**, not an attestation or proof of release authorization. The
+`0.1.0-beta.1` candidate has publication metadata but remains unpublished until
+the protected publication gates actually succeed. This command never publishes, signs,
 uses tenant OAuth credentials, or exercises production business operations.
 
 The Release Verification workflow runs on GitHub-hosted Ubuntu, macOS and Windows
@@ -60,8 +61,9 @@ Ordinary PR checks retain their existing read-only/security-analysis permissions
 This workflow records provenance in GitHub's attestation service but never runs
 `npm publish`, creates a GitHub Release, changes a registry channel, enables
 OAuth clients or mutates tenant data. It does not claim human release approval or
-a SLSA level. The package remains private/development until a separate reviewed
-release change. The SBOM and local build manifest remain ordinary files in the
+a SLSA level. The candidate metadata enables publication review but does not
+prove any publication, publisher configuration or human approval. The SBOM and
+local build manifest remain ordinary files in the
 build bundle; the cryptographic provenance subject here is the npm tarball.
 
 `create-storage-record: false` disables the separate linked-artifact storage
@@ -76,6 +78,9 @@ permissions, or a passing local workflow test is not successful attestation proo
 See the official [artifact attestation guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
 and [verification restrictions](https://cli.github.com/manual/gh_attestation_verify).
 
+See [exact-version installation and compatibility](installation.md) for the
+pending-publication status and the supported beta subset.
+
 ## Release metadata gate
 
 `npm run release:preflight -- --tag vVERSION` is a read-only local metadata gate.
@@ -83,8 +88,8 @@ It requires a non-development [SemVer](https://semver.org/) version (including
 prereleases, excluding build metadata), an exact matching tag string, consistent
 package/lockfile identities, explicit `private: false` and
 `publishConfig.access: public`, and one dated, substantive changelog entry.
-It intentionally fails on the current private development scaffold. Neither this
-command nor a passing unit fixture enables publication or proves that a Git tag
+The proposed exact invocation is `npm run release:preflight -- --tag v0.1.0-beta.1`.
+Neither this command nor a passing unit fixture proves publication or that a Git tag
 exists, a release is approved, or the version is unused in the registry.
 
 A release PR must review those metadata changes, compatibility and migration

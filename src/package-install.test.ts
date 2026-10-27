@@ -620,7 +620,12 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
 
     assert.match(located, /bizyeet/u);
     assert.match(help, /OAuth/u);
-    assert.match(version, /"version":"0\.0\.0-development"/u);
+    const metadata = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as Readonly<{ name: string; version: string }>;
+    const installedMetadata = JSON.parse(await readFile(join(directory, "node_modules", "@bizyeet", "ai-tools", "package.json"), "utf8")) as Readonly<{ name: string; version: string }>;
+    assert.equal(installedMetadata.name, metadata.name);
+    assert.equal(installedMetadata.version, metadata.version);
+    assert.equal((JSON.parse(version) as Readonly<{ data: Readonly<{ version: string }> }>).data.version, metadata.version);
+    assert.equal((JSON.parse(diagnostics) as Readonly<{ data: Readonly<{ version: string }> }>).data.version, metadata.version);
     assert.match(diagnostics, /"automatic":false/u);
     assert.match(diagnostics, /"required":">=24"/u);
     assert.doesNotMatch(diagnostics, /synthetic-access|synthetic-refresh/u);
