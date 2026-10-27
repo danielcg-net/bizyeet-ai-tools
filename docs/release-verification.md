@@ -9,10 +9,11 @@ The dedicated `release-cli.yml` workflow releases only `@bizyeet/cli`, using
 `release.yml` publication workflow is retired. The GitHub repository and
 existing `npm-release` human gate stay the same.
 
-[New-package readiness](release-readiness.md) is pending. Verify-only dispatches
-use `publish:false` and require no invented ownership or publisher evidence.
-Publication is blocked until separately approved actual setup is reviewed;
-neither source changes nor an unpublished verification run authorize publication.
+[New-package readiness](release-readiness.md) records actual approved bootstrap
+and publisher setup, including a conservative trust-window bound. Verify-only
+dispatches use `publish:false`; setup evidence does not approve a candidate.
+Actual publication still requires fresh source/run/tag/provenance validation and
+the native human gate. Neither source changes nor an unpublished run authorize it.
 
 Hosted MCP has an independent private version/build/deployment. This npm package
 contains the CLI, not a hosted MCP server or a second MCP executable. CLI release

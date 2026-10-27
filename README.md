@@ -2,7 +2,7 @@
 
 Public CLI, shared API contracts, schemas, and Codex guidance for tenant-authorized BizYeet AI agents.
 
-The `@bizyeet/cli@0.1.0-beta.1` candidate uses the `cli-v0.1.0-beta.1` tag and dedicated `release-cli.yml` workflow. New-package ownership and trusted publication setup remain unverified. Package
+The `@bizyeet/cli@0.1.0-beta.1` candidate uses the proposed `cli-v0.1.0-beta.1` tag and dedicated `release-cli.yml` workflow. [Bootstrap and publisher setup evidence](docs/release-readiness.md) does not approve or prove beta publication. Package
 availability is established by a matching npm version and GitHub prerelease,
 not source metadata; verify both before installing. See
 [exact-version installation, upgrade and compatibility](https://github.com/danielcg-net/bizyeet-ai-tools/blob/main/docs/installation.md)
