@@ -1,6 +1,6 @@
 # CLI installation and beta compatibility
 
-`0.1.0-beta.1` candidate metadata was prepared on 2026-10-26, with publication
+`@bizyeet/cli@0.1.0-beta.1` candidate metadata was prepared on 2026-10-27, with publication
 pending at that time. Availability is established by the matching npm version,
 verified npm `beta` mapping and GitHub prerelease, not by these instructions or
 source metadata. Verify the exact release before installation. A local tarball
