@@ -141,12 +141,15 @@ void test("help documents the OAuth-only command surface", async (): Promise<voi
   assert.doesNotMatch(result.message, /access_token|refresh_token/u);
 });
 
-void test("reports the packaged version without reading credentials", async (): Promise<void> => {
-  const result = await run(["--version"]);
+void test("reports only the packaged version without credentials or network access", async (context): Promise<void> => {
+  const forbidden = (): never => { throw new Error("Version must remain local"); };
+  const fetcher = context.mock.method(globalThis, "fetch", forbidden);
+  const result = await run(["--version"], { readCredentials: forbidden, removeCredentials: forbidden, saveCredentials: forbidden });
 
   assert.equal(result.exitCode, 0);
   const metadata = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as Readonly<{ version: string }>;
-  assert.equal((JSON.parse(result.message) as Readonly<{ data: Readonly<{ version: string }> }>).data.version, metadata.version);
+  assert.deepEqual((JSON.parse(result.message) as Readonly<{ data: unknown }>).data, { version: metadata.version });
+  assert.equal(fetcher.mock.callCount(), 0);
 });
 
 void test("local diagnostics provide runtime and truthful manual-update guidance without credentials", async () => {
