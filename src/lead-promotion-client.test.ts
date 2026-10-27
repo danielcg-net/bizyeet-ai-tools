@@ -64,3 +64,36 @@ await test("uncertain promotion execution never retries or exposes provider deta
   assert.deepEqual(await client.executeLeadPromotion(approval), { status: 503, body: { error: { code: "execution_ambiguous" } } });
   assert.equal(request.mock.callCount(), 1);
 });
+
+await Promise.all([
+  {state: "pending", reconciliation_required: false, outcome: null},
+  {state: "unknown", reconciliation_required: true, outcome: null},
+  {state: "failed", reconciliation_required: false, outcome: {status: 409, error: {code: "conflict"}}},
+  {state: "ambiguous", reconciliation_required: true, outcome: {status: 503, error: {code: "execution_ambiguous"}}},
+].map((status) => test(`promotion ${status.state} status remains read-only and projects only safe reconciliation evidence`, async () => {
+  const request = mock.fn((url: string, init: RequestInit): Promise<Response> => {
+    assert.equal(init.method, "GET");
+    assert.equal(new URL(url).pathname, "/api/agent/leads/promotion-status");
+    assert.equal(new URL(url).searchParams.get("preview_id"), previewId);
+    assert.equal(new URL(url).searchParams.get("idempotency_key"), key);
+    return Promise.resolve(Response.json({data: {preview_id: previewId, retry_mutation: false, ...status,
+      private_hint: "hidden"}, meta: {contract_version: "v1", private_hint: "hidden"}}));
+  });
+  const client = createCanonicalCrmClient({origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request});
+  const result = await client.leadPromotionStatus({preview_id: previewId, idempotency_key: key});
+  assert.equal(result.status, 200);
+  assert.deepEqual((result.body as {data: unknown}).data, {preview_id: previewId, state: status.state,
+    retry_mutation: false, reconciliation_required: status.reconciliation_required, outcome: status.outcome});
+  assert.doesNotMatch(JSON.stringify(result), /private_hint|hidden|oauth-token/u);
+  assert.equal(request.mock.callCount(), 1);
+})));
+
+await test("promotion status rejects undocumented or private customer outcome shapes without another mutation", async () => {
+  const request = mock.fn(() => Promise.resolve(Response.json(envelope({preview_id: previewId,
+    state: "succeeded", retry_mutation: false, reconciliation_required: false,
+    outcome: {status: 201, data: {...outcome, resource: {...outcome.resource, pipeline_stage: "Won", notes: "private-result"}}}}))));
+  const client = createCanonicalCrmClient({origin: "https://tenant.example", getAccessToken: () => Promise.resolve("oauth-token"), request});
+  assert.deepEqual(await client.leadPromotionStatus({preview_id: previewId, idempotency_key: key}),
+    {status: 502, body: {error: {code: "invalid_response"}}});
+  assert.equal(request.mock.callCount(), 1);
+});

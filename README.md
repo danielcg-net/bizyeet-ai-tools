@@ -755,6 +755,13 @@ For example, `record.json` might contain
 checks create-only preconditions and returns a dashboard `approval_path`; it
 does not create a record.
 
+The draft CLI supports a bounded email input subset: at most 320 characters,
+one `@`, a dotted domain and no whitespace. Unicode local/domain text and quoted
+local text without whitespace are accepted by this local shape check;
+whitespace-bearing quoted addresses are outside this subset. This is not a
+complete RFC email validator or a claim about another implementation's policy.
+The remote preview remains authoritative for business validation.
+
 ```sh
 bizyeet customers create preview --input-stdin < record.json
 bizyeet customers create execute "$PREVIEW_ID" --idempotency-key "$EXECUTION_KEY"
@@ -771,7 +778,8 @@ replacement create. No conversion, quote, message, or outbound send is implied.
 
 The opt-in source CLI includes `leads promote preview`, `execute`, and `status`.
 It requires a separate `leads.promote` OAuth grant, an enabled server capability,
-and exact dashboard human approval. It is not enabled in production. The
+and exact dashboard human approval. Deployment, enablement and live acceptance
+must be verified independently before use. The
 create-only effect atomically creates and links one new customer, then marks the
 lead Won; a matching existing customer is a conflict, never an update or reuse.
 No message is sent.

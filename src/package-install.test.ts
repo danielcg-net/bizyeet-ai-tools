@@ -626,6 +626,14 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       }, Promise.resolve());
       // Current main has 48 requests; customer and lead create each add preview/execute/status.
       assert.equal(handler.mock.callCount(), 54);
+      const createRequests = handler.mock.calls.map((call) => ({method: call.arguments[0].method,
+        path: new URL(call.arguments[0].url ?? "/", "https://localhost").pathname}))
+        .filter((call) => /^\/api\/agent\/(customers|leads)\/create-/u.test(call.path));
+      assert.deepEqual(createRequests, ["customers", "leads"].flatMap((kind) => [
+        {method: "POST", path: `/api/agent/${kind}/create-preview`},
+        {method: "POST", path: `/api/agent/${kind}/create-execute`},
+        {method: "GET", path: `/api/agent/${kind}/create-status`},
+      ]));
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);

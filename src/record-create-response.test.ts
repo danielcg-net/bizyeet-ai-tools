@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { recordCreateExecutionResponse, recordCreatePreviewResponse, recordCreateStatusResponse } from "./record-create-response.js";
+import { recordCreateExecutionResponse, recordCreatePreviewResponse, recordCreateStatusResponse, validRecordCreateInput } from "./record-create-response.js";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const handle = `crm1.${"a".repeat(64)}.customers.123`;
@@ -13,6 +13,17 @@ const preview = { preview_id: id, request_hash: "h".repeat(43), expires_at: "209
 const resource = { id: handle, business: "New customer", company: "New customer", contact_name: null,
   updated_at: "2026-09-28T00:00:00.000Z" };
 const outcome = { resource, audit_reference: id };
+
+await test("create email input supports a bounded subset without claiming complete RFC validation", () => {
+  (["customers", "leads"] as const).forEach((kind) => {
+    ["person@example.invalid", "用户@例子.测试", '"quoted"@example.invalid', `${"x".repeat(308)}@example.com`].forEach((email) => {
+      assert.equal(validRecordCreateInput({business: "New record", email}, kind), true);
+    });
+    ["", '"quoted local"@example.invalid', "person\n@example.invalid", "person\u00a0@example.invalid", "person@@example.invalid", "person@example", `${"x".repeat(309)}@example.com`].forEach((email) => {
+      assert.equal(validRecordCreateInput({business: "New record", email}, kind), false);
+    });
+  });
+});
 
 await test("projects a bounded customer-create preview without upstream metadata or private fields", () => {
   const projected = recordCreatePreviewResponse({ data: { ...preview, internal_secret: "never-return" }, meta }, "customers");
