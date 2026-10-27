@@ -145,6 +145,7 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
       - name: Verify exact beta metadata and full installed package gate
+        shell: bash
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |

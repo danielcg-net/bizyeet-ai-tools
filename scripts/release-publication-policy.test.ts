@@ -13,6 +13,16 @@ void test("only exact reviewed main-dispatched publication workflow obtains priv
   assert.deepEqual(validateWorkflow("release.yml", source.replaceAll("\n", "\r\n")), []);
   assert.ok(validateWorkflow("other.yml", source).length > 0);
 });
+void test("the cross-platform candidate gate uses Bash for its shared environment-variable syntax", (): void => {
+  const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<{matrix: Readonly<{
+    strategy: Readonly<{matrix: Readonly<{os: readonly string[]; node: readonly number[]}>}>;
+    steps: readonly Readonly<{name?: string; shell?: string; run?: string}>[];
+  }>}>}>;
+  const gate = workflow.jobs.matrix.steps.find((step) => step.name === "Verify exact beta metadata and full installed package gate");
+  assert.deepEqual(workflow.jobs.matrix.strategy.matrix, {os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: [24, 26]});
+  assert.equal(gate?.shell, "bash");
+  assert.match(gate.run ?? "", /--tag "\$RELEASE_TAG"/u);
+});
 void test("drift checks reject manual changes and explicit generation restores only canonical inline code", (): void => {
   const changed = source.replaceAll("Untrusted dispatch source", "unreviewed code");
   assert.ok(validateWorkflow("release.yml", changed).some((error) => error.includes("template drift")));
@@ -28,6 +38,8 @@ void test("drift checks reject manual changes and explicit generation restores o
   ["permissions", "id-token: write", "id-token: write\n      packages: write"],
   ["approval", "environment: npm-release", "environment: unused"],
   ["matrix evidence", "needs:\n      - readiness\n      - matrix", "needs: readiness"],
+  ["matrix shell", "shell: bash", "shell: pwsh"],
+  ["missing matrix shell", "        shell: bash\n", ""],
   ["artifact", "artifact-ids: ${{ needs.build.outputs.artifact-id }}", "artifact-ids: 123"],
   ["cross run", "path: bundle", "path: bundle\n          run-id: 123"],
   ["signer", "--source-digest", "--unused"],
