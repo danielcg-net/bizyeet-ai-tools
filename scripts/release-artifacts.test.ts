@@ -51,17 +51,17 @@ void test("refuses to overwrite an existing verification directory before invoki
 });
 
 void test("accepts one bounded package filename and rejects traversal or extra artifacts", (): void => {
-  assert.equal(packedFileName([{ filename: "bizyeet-ai-tools-0.0.0-development.tgz" }]), "bizyeet-ai-tools-0.0.0-development.tgz");
+  assert.equal(packedFileName([{ filename: "bizyeet-cli-0.0.0-development.tgz" }]), "bizyeet-cli-0.0.0-development.tgz");
   [[], {}, [{ filename: "../artifact.tgz" }], [{ filename: "/artifact.tgz" }], [{ filename: "x\\artifact.tgz" }], [{ filename: "a.tgz" }, { filename: "b.tgz" }], [{ filename: "a\n.tgz" }]].forEach((value): void => { assert.throws(() => packedFileName(value)); });
 });
 
 void test("requires CycloneDX metadata before accepting an SBOM", (): void => {
-  assert.doesNotThrow((): void => { validateSbom({ bomFormat: "CycloneDX", specVersion: "1.5", metadata: { component: { name: "@bizyeet/ai-tools" } } }); });
+  assert.doesNotThrow((): void => { validateSbom({ bomFormat: "CycloneDX", specVersion: "1.5", metadata: { component: { name: "@bizyeet/cli" } } }); });
   [null, [], {}, { bomFormat: "SPDX", specVersion: "1.5", metadata: {} }, { bomFormat: "CycloneDX", specVersion: "1.5", metadata: {} }].forEach((value): void => { assert.throws((): void => { validateSbom(value); }); });
 });
 
 void test("requires the declared bizyeet command inside the installed package", (): void => {
   const root = join(tmpdir(), "installed-toolkit");
-  assert.equal(declaredBinTarget({ name: "@bizyeet/ai-tools", bin: { bizyeet: "./dist/src/cli.js" } }, root), join(root, "dist", "src", "cli.js"));
-  [{}, { name: "@bizyeet/ai-tools" }, ...["../outside.js", "/outside.js", "C:\\outside.js", "..\\outside.js", "dist/cli.cmd"].map((path): Readonly<Record<string, unknown>> => ({ name: "@bizyeet/ai-tools", bin: { bizyeet: path } }))].forEach((value): void => { assert.throws(() => declaredBinTarget(value, root)); });
+  assert.equal(declaredBinTarget({ name: "@bizyeet/cli", bin: { bizyeet: "./dist/src/cli.js" } }, root), join(root, "dist", "src", "cli.js"));
+  [{}, { name: "@bizyeet/cli" }, ...["../outside.js", "/outside.js", "C:\\outside.js", "..\\outside.js", "dist/cli.cmd"].map((path): Readonly<Record<string, unknown>> => ({ name: "@bizyeet/cli", bin: { bizyeet: path } }))].forEach((value): void => { assert.throws(() => declaredBinTarget(value, root)); });
 });

@@ -16,7 +16,7 @@ void test("the actual publisher argument resolves as a local file in npm's own b
   const root = await mkdtemp(join(tmpdir(), "bizyeet-npm-spec-"));
   try {
     await mkdir(join(root, "bundle"));
-    const source = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+    const source = await readFile(new URL("../../.github/workflows/release-cli.yml", import.meta.url), "utf8");
     const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<{publish: Readonly<{steps: readonly Readonly<{run?: string}>[]}>}>}>;
     const lines = workflow.jobs.publish.steps.flatMap((step) => step.run?.split("\n").filter((line) => /^\s*npm publish /u.test(line)) ?? []);
     assert.equal(lines.length, 1);

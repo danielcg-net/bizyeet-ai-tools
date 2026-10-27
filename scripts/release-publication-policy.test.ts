@@ -7,11 +7,13 @@ import { parseDocument } from "yaml";
 
 // Checkout may use CRLF on Windows. Build LF/CRLF cases from one canonical
 // fixture so conversion never manufactures invalid CRCRLF YAML.
-const source = (await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
+const source = (await readFile(new URL("../../.github/workflows/release-cli.yml", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
 void test("only exact reviewed main-dispatched publication workflow obtains privileged exceptions", (): void => {
-  assert.deepEqual(validateWorkflow("release.yml", source), []);
-  assert.deepEqual(validateWorkflow("release.yml", source.replaceAll("\n", "\r\n")), []);
+  assert.deepEqual(validateWorkflow("release-cli.yml", source), []);
+  assert.deepEqual(validateWorkflow("release-cli.yml", source.replaceAll("\n", "\r\n")), []);
   assert.ok(validateWorkflow("other.yml", source).length > 0);
+  assert.ok(validateWorkflow("release.yml", source).length > 0);
+  assert.ok(validateWorkflow("release-cli.yml", source.replaceAll("/.github/workflows/release-cli.yml", "/.github/workflows/release.yml")).length > 0);
 });
 void test("the cross-platform candidate gate uses Bash for its shared environment-variable syntax", (): void => {
   const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<{matrix: Readonly<{
@@ -25,10 +27,10 @@ void test("the cross-platform candidate gate uses Bash for its shared environmen
 });
 void test("drift checks reject manual changes and explicit generation restores only canonical inline code", (): void => {
   const changed = source.replaceAll("Untrusted dispatch source", "unreviewed code");
-  assert.ok(validateWorkflow("release.yml", changed).some((error) => error.includes("template drift")));
+  assert.ok(validateWorkflow("release-cli.yml", changed).some((error) => error.includes("template drift")));
   const generated = renderReleaseWorkflow(changed);
   assert.deepEqual(parseDocument(generated).toJS({maxAliasCount: 0}) as unknown, parseDocument(source).toJS({maxAliasCount: 0}) as unknown);
-  assert.deepEqual(validateWorkflow("release.yml", generated), []);
+  assert.deepEqual(validateWorkflow("release-cli.yml", generated), []);
 });
 void test("the static signing summary explicitly projects only presentation environment inputs", (): void => {
   const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<{attest: Readonly<{steps: readonly Readonly<{name: string; id?: string; env?: Readonly<Record<string, string>>; with?: Readonly<{script?: string}>}>[]}>}>}>;
@@ -70,7 +72,7 @@ void test("the static signing summary explicitly projects only presentation envi
 ].forEach(([name, before, after]) => {
   void test(`rejects release boundary regression: ${name ?? "unknown"}`, (): void => {
     assert.ok(before !== undefined && after !== undefined && source.includes(before));
-    assert.ok(validateWorkflow("release.yml", source.replaceAll(before, after)).length > 0);
+    assert.ok(validateWorkflow("release-cli.yml", source.replaceAll(before, after)).length > 0);
   });
 });
 

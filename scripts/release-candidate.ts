@@ -39,9 +39,9 @@ export const releaseCandidateErrors = (input: Readonly<{ metadata: unknown; lock
     ...(typeof version === "string" && /^\d+\.\d+\.\d+-beta\.[1-9][0-9]*$/u.test(version) ? [] : ["Only numbered beta prereleases are supported."]),
     ...(record(metadata.repository) && metadata.repository.type === "git" && metadata.repository.url === "git+https://github.com/danielcg-net/bizyeet-ai-tools.git" ? [] : ["Repository must match the trusted publisher identity."]),
     ...(record(metadata.bin) && metadata.bin.bizyeet === "./dist/src/cli.js" ? [] : ["Installed command must match the reviewed CLI entrypoint."]),
-    ...(metadata.name === "@bizyeet/ai-tools" ? [] : ["Unexpected package name."]),
+    ...(metadata.name === "@bizyeet/cli" ? [] : ["Unexpected package name."]),
     ...(valid ? [] : ["Select a non-development SemVer version without build metadata."]),
-    ...(valid && input.tag === `v${version}` ? [] : ["Release tag must exactly match v plus the package version."]),
+    ...(valid && input.tag === `cli-v${version}` ? [] : ["Release tag must exactly match cli-v plus the package version."]),
     ...(metadata.private === false ? [] : ["Publication must be explicitly enabled by a reviewed package change."]),
     ...(record(metadata.publishConfig) && metadata.publishConfig.access === "public" ? [] : ["Public package access must be explicit."]),
     ...(lockfile.lockfileVersion === 3 && lockfile.name === metadata.name && lockfile.version === version && root.name === metadata.name && root.version === version ? [] : ["Package and lockfile root identity/version must agree."]),
@@ -51,7 +51,7 @@ export const releaseCandidateErrors = (input: Readonly<{ metadata: unknown; lock
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const tag = process.argv[3];
-  if (process.argv.length !== 4 || process.argv[2] !== "--tag" || tag === undefined) throw new Error("Usage: npm run release:preflight -- --tag vVERSION");
+  if (process.argv.length !== 4 || process.argv[2] !== "--tag" || tag === undefined) throw new Error("Usage: npm run release:preflight -- --tag cli-vVERSION");
   const root = new URL("../../", import.meta.url);
   const [metadata, lockfile, changelog] = await Promise.all([
     readFile(new URL("package.json", root), "utf8"),

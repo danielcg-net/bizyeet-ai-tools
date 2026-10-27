@@ -12,7 +12,7 @@ import { isolatedTestEnvironment } from "./test-child-environment.js";
 
 type Data = Readonly<Record<string, unknown>>;
 type Step = Readonly<{ name: string; with?: Readonly<{script?: string}> }>;
-const source = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+const source = await readFile(new URL("../../.github/workflows/release-cli.yml", import.meta.url), "utf8");
 const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<Record<string, Readonly<{steps: readonly Step[]}>>>}>;
 const script = (job: string, name: string): string => {
   const value = workflow.jobs[job]?.steps.find((step) => step.name === name)?.with?.script;
@@ -21,12 +21,12 @@ const script = (job: string, name: string): string => {
 };
 const execute = promisify(execFile);
 const sha = "a".repeat(40);
-const tag = "v0.1.0-beta.1";
-const tarball = "bizyeet-ai-tools-0.1.0-beta.1.tgz";
+const tag = "cli-v0.1.0-beta.1";
+const tarball = "bizyeet-cli-0.1.0-beta.1.tgz";
 const hash = (text: string): string => createHash("sha256").update(text).digest("hex");
-const metadata = {name: "@bizyeet/ai-tools", version: "0.1.0-beta.1", private: false, publishConfig: {registry: "https://registry.npmjs.org", access: "public", tag: "beta"}, repository: {url: "git+https://github.com/danielcg-net/bizyeet-ai-tools.git"}};
+const metadata = {name: "@bizyeet/cli", version: "0.1.0-beta.1", private: false, publishConfig: {registry: "https://registry.npmjs.org", access: "public", tag: "beta"}, repository: {url: "git+https://github.com/danielcg-net/bizyeet-ai-tools.git"}};
 const notes = "## [0.1.0-beta.1] - 2026-10-27\n\n- Install and verify tenant-authorized read commands.\n";
-const readiness = {schema_version: 1, repository: "danielcg-net/bizyeet-ai-tools", package: metadata.name, version: metadata.version, tag, workflow: "release.yml", environment: "npm-release", maintainer: {login: "maintainer", ownership_evidence_url: "https://example.test/ownership", publisher_evidence_url: "https://example.test/oidc", confirmed_at: new Date().toISOString(), publisher: {direct_publish_allowed: true, trust_configured_at: new Date().toISOString(), first_publish_succeeded: false}, prevent_self_review: false, reviewer_ids: [123]}};
+const readiness = {schema_version: 1, repository: "danielcg-net/bizyeet-ai-tools", package: metadata.name, version: metadata.version, tag, workflow: "release-cli.yml", environment: "npm-release", maintainer: {login: "maintainer", ownership_evidence_url: "https://example.test/ownership", publisher_evidence_url: "https://example.test/oidc", confirmed_at: new Date().toISOString(), publisher: {direct_publish_allowed: true, trust_configured_at: new Date().toISOString(), first_publish_succeeded: false}, prevent_self_review: false, reviewer_ids: [123]}};
 const environment = {name: "npm-release", can_admins_bypass: false, deployment_branch_policy: {protected_branches: false, custom_branch_policies: true}, protection_rules: [{type: "required_reviewers", prevent_self_review: false, reviewers: [{type: "User", reviewer: {id: 123, type: "User"}}]}]};
 const context = {repo: {owner: "danielcg-net", repo: "bizyeet-ai-tools"}, eventName: "workflow_dispatch", ref: "refs/heads/main", sha, runId: 42, runAttempt: 1};
 const reviewSummary = releaseReviewScript;
@@ -93,10 +93,26 @@ const runInline = async (code: string, input: Data, files: Readonly<Record<strin
 };
 const bundleFiles = (candidateReadiness: unknown = readiness, candidateNotes = notes): Readonly<Record<string, string>> => {
   const manifest = {source: {repository: "https://github.com/danielcg-net/bizyeet-ai-tools", commit: sha, dirty: false}, artifact: {filename: tarball, sha256: hash("package bytes")}, verification: {installed_version: metadata.version, installed_help: true}, runtime: {npm: "11.19.1"}, lockfile_sha256: hash("lockfile")};
-  const release = {package: metadata.name, version: metadata.version, source_sha: sha, run_id: "42", tag, tag_verified: true, channel: "beta", workflow: "release.yml", readiness: candidateReadiness, manifest, notes: candidateNotes};
+  const release = {package: metadata.name, version: metadata.version, source_sha: sha, run_id: "42", tag, tag_verified: true, channel: "beta", workflow: "release-cli.yml", readiness: candidateReadiness, manifest, notes: candidateNotes};
   const files = {[tarball]: "package bytes", "build-manifest.json": JSON.stringify(manifest), "sbom.cdx.json": JSON.stringify({bomFormat: "CycloneDX"}), "release.json": JSON.stringify(release)};
   return {...Object.fromEntries(Object.entries(files).map(([name, text]) => [`bundle/${name}`, text])), "bundle/SHA256SUMS": Object.entries(files).map(([name,text]) => `${hash(text)}  ${name}\n`).join("")};
 };
+
+void test("actual CLI gate rejects legacy package, tag, workflow and setup substitution", async (): Promise<void> => {
+  await assert.rejects(runInline(verification, fixture({metadata: {...metadata, name: "@bizyeet/ai-tools"}})), /metadata identity/u);
+  await assert.rejects(runInline(verification, fixture(), {}, {RELEASE_TAG: "v0.1.0-beta.1"}), /numbered beta tags/u);
+  await assert.rejects(runInline(verification, fixture(), {}, {RELEASE_TAG: "mcp-v0.1.0-beta.1"}), /numbered beta tags/u);
+  await assert.rejects(runInline(verification, fixture({readiness: null})), /missing source file/u);
+  await assert.rejects(runInline(verification, fixture({readiness: {...readiness, package: "@bizyeet/ai-tools", workflow: "release.yml"}})), /configuration attestation/u);
+  await [{package: "@bizyeet/ai-tools"}, {workflow: "release.yml"}, {tag: "mcp-v0.1.0-beta.1"}].reduce(async (previous, identity): Promise<void> => {
+    await previous;
+    const files = bundleFiles();
+    const release = {...JSON.parse(files["bundle/release.json"] ?? "") as Data, ...identity};
+    const rewritten = {...Object.fromEntries(Object.entries(files).filter(([path]) => path !== "bundle/SHA256SUMS")), "bundle/release.json": JSON.stringify(release)};
+    const consistent = {...rewritten, "bundle/SHA256SUMS": Object.entries(rewritten).map(([path, text]) => `${hash(text)}  ${path.slice("bundle/".length)}\n`).join("")};
+    await assert.rejects(runInline(verification, fixture(), consistent, {BUNDLE_REQUIRED: "true"}), /Bundle identity/u);
+  }, Promise.resolve());
+});
 
 void test("actual inline source gate permits default unpublished candidate without tag/setup and rejects hostile dispatch", async (): Promise<void> => {
   await runInline(verification, fixture({readiness: null, environment: null, tagSha: null}), {}, {PUBLICATION_REQUESTED: "false"});
@@ -117,7 +133,7 @@ void test("actual inline source gate permits default unpublished candidate witho
 void test("actual inline bundle gate accepts exact trusted bundle and rejects tampering, missing evidence and cross-run substitution", async (): Promise<void> => {
   const files = bundleFiles();
   await runInline(verification, fixture(), files, {BUNDLE_REQUIRED: "true"});
-  await assert.rejects(runInline(verification, fixture(), {...files, [`bundle/${tarball}`]: "altered"}, {BUNDLE_REQUIRED: "true"}), /digest differs: bizyeet-ai-tools/u);
+  await assert.rejects(runInline(verification, fixture(), {...files, [`bundle/${tarball}`]: "altered"}, {BUNDLE_REQUIRED: "true"}), /digest differs: bizyeet-cli/u);
   await assert.rejects(runInline(verification, fixture({rejectStats: true}), {...files, "bundle/extra.js": "malicious"}, {BUNDLE_REQUIRED: "true"}), /Unexpected bundle/u);
   await assert.rejects(runInline(verification, fixture({context: {...context, runId: 43}}), files, {BUNDLE_REQUIRED: "true"}), /identity or verification/u);
   await assert.rejects(runInline(verification, fixture({lock: "other lock"}), files, {BUNDLE_REQUIRED: "true"}), /Lockfile digest/u);
@@ -135,7 +151,7 @@ void test("actual inline verifier binds canonical tarball bytes to manifest dige
     // tarball checksum: the verifier must recompute the actual unchanged bytes.
     return {...rewritten, "bundle/SHA256SUMS": Object.entries(rewritten).map(([path, text]) => `${path === `bundle/${tarball}` && changes.digest ? changes.digest : hash(text)}  ${path.slice("bundle/".length)}\n`).join("")};
   };
-  await assert.rejects(runInline(verification, fixture(), rewrite({digest: "b".repeat(64)}), {BUNDLE_REQUIRED: "true"}), /Artifact digest differs: bizyeet-ai-tools/u);
+  await assert.rejects(runInline(verification, fixture(), rewrite({digest: "b".repeat(64)}), {BUNDLE_REQUIRED: "true"}), /Artifact digest differs: bizyeet-cli/u);
   await assert.rejects(runInline(verification, fixture(), rewrite({version: "9.9.9-beta.1"}), {BUNDLE_REQUIRED: "true"}), /Bundle identity or verification evidence differs/u);
   await assert.rejects(runInline(verification, fixture(), rewrite({installedVersion: "9.9.9-beta.1"}), {BUNDLE_REQUIRED: "true"}), /Bundle identity or verification evidence differs/u);
 });
@@ -155,7 +171,7 @@ void test("actual privileged inline gate binds notes to exact source CHANGELOG d
   }, Promise.resolve());
 });
 
-const registryUrl = "https://registry.npmjs.org/@bizyeet%2fai-tools";
+const registryUrl = "https://registry.npmjs.org/@bizyeet%2fcli";
 void test("actual registry gate supports the inert bootstrap baseline without treating it as beta or OIDC success", async (): Promise<void> => {
   const packument = {name: metadata.name, versions: {"0.0.0": {name: metadata.name, version: "0.0.0"}, "0.0.0-stage": {name: metadata.name, version: "0.0.0-stage", stub: true}}, "dist-tags": {bootstrap: "0.0.0", latest: "0.0.0"}};
   const input = fixture({responses: {[registryUrl]: {status: 200, body: packument}}});
@@ -191,8 +207,8 @@ void test("actual registry gate separates unused version from package bootstrap/
 
 void test("actual registry gate verifies published bytes and stops on concurrent channel, digest or provenance failures", async (): Promise<void> => {
   const files = bundleFiles();
-  const archiveUrl = `https://registry.npmjs.org/@bizyeet/ai-tools/-/ai-tools-${metadata.version}.tgz`;
-  const attestationsUrl = `https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2fai-tools@${metadata.version}`;
+  const archiveUrl = `https://registry.npmjs.org/@bizyeet/cli/-/cli-${metadata.version}.tgz`;
+  const attestationsUrl = `https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2fcli@${metadata.version}`;
   const dist = {tarball: archiveUrl, integrity: `sha512-${createHash("sha512").update("package bytes").digest("base64")}`, attestations: {url: attestationsUrl}};
   const packument = {name: metadata.name, versions: {[metadata.version]: {name: metadata.name, version: metadata.version, dist}}, "dist-tags": {beta: metadata.version}};
   const responses = {[registryUrl]: {status: 200, body: packument}, [archiveUrl]: {status: 200, body: "package bytes"}, [attestationsUrl]: {status: 200, body: {attestations: [{predicateType: "https://slsa.dev/provenance/v1", bundle: {fixture: true}}]}}};
@@ -215,7 +231,7 @@ void test("actual release reconciliation accepts only matching complete assets a
   await assert.rejects(runInline(githubRelease, fixture({existingRelease: {...existingRelease, assets: [{name: tarball, digest: "wrong"}]}}), files), /digest differs/u);
   await assert.rejects(runInline(githubRelease, fixture({existingRelease: {...existingRelease, draft: true}}), files), /MUTATION/u);
   const resumed = await runInline(githubRelease, fixture({now: Date.now() + 259_200_000, allowMutations: true, hideDraft: true, existingRelease: {...existingRelease, draft: true, assets: assets.slice(1)}}), files);
-  assert.match(resumed, /mutation:upload:bizyeet-ai-tools/u);
+  assert.match(resumed, /mutation:upload:bizyeet-cli/u);
   assert.match(resumed, /mutation:finalize/u);
   assert.doesNotMatch(resumed, /mutation:create/u);
   assert.equal(resumed.split("mutation:upload:").length, 2);
