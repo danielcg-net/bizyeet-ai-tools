@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "repository": "danielcg-net/bizyeet-ai-tools",
+  "package": "@bizyeet/ai-tools",
+  "version": "0.1.0-beta.1",
+  "tag": "v0.1.0-beta.1",
+  "workflow": "release.yml",
+  "environment": "npm-release",
+  "maintainer": {
+    "login": "danielcgomes",
+    "ownership_evidence_url": "https://registry.npmjs.org/@bizyeet%2fai-tools",
+    "publisher_evidence_url": "https://bizyeet.youtrack.cloud/issue/bizyeet-1192#focus=Comments-7-5163.0-0",
+    "confirmed_at": "2026-10-27T12:32:12Z",
+    "prevent_self_review": false,
+    "reviewer_ids": [23157483],
+    "publisher": {
+      "direct_publish_allowed": true,
+      "trust_configured_at": "2026-10-27T13:07:27Z",
+      "first_publish_succeeded": false
+    }
+  }
+}

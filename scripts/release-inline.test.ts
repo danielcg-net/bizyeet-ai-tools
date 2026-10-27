@@ -115,6 +115,17 @@ void test("actual inline bundle gate accepts exact trusted bundle and rejects ta
 });
 
 const registryUrl = "https://registry.npmjs.org/@bizyeet%2fai-tools";
+void test("actual registry gate supports the inert bootstrap baseline without treating it as beta or OIDC success", async (): Promise<void> => {
+  const packument = {name: metadata.name, versions: {"0.0.0": {name: metadata.name, version: "0.0.0"}, "0.0.0-stage": {name: metadata.name, version: "0.0.0-stage", stub: true}}, "dist-tags": {bootstrap: "0.0.0", latest: "0.0.0"}};
+  const input = fixture({responses: {[registryUrl]: {status: 200, body: packument}}});
+  const files = bundleFiles();
+  const output = await runInline(registry, input, files, {EXPECTED_LATEST: "0.0.0", EXPECTED_BETA: ""});
+  assert.match(output, /"key":"exists","value":"false"/u);
+  assert.match(output, /"key":"latest-before","value":"0\.0\.0"/u);
+  assert.match(output, /"key":"beta-before","value":""/u);
+  await assert.rejects(runInline(registry, input, files, {EXPECTED_LATEST: ""}), /Concurrent latest mapping/u);
+  await assert.rejects(runInline(registry, {...input, now: Date.now() + 259_200_000}, files), /trust window expired/u);
+});
 void test("actual registry gate separates unused version from package bootstrap/auth/network and malformed failures", async (): Promise<void> => {
   const files = bundleFiles();
   const packument = {name: metadata.name, versions: {}, "dist-tags": {}};
