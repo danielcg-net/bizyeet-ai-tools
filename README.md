@@ -1,6 +1,20 @@
 # BizYeet AI Tools
 
-Public CLI, MCP adapter, schemas, and Codex guidance for tenant-authorized BizYeet AI agents.
+Public CLI, MCP contracts, schemas, and Codex guidance for tenant-authorized BizYeet AI agents.
+
+The `0.1.0-beta.1` candidate metadata was prepared on 2026-10-26. Package
+availability is established by a matching npm version and GitHub prerelease,
+not source metadata; verify both before installing. See
+[exact-version installation, upgrade and compatibility](https://github.com/danielcg-net/bizyeet-ai-tools/blob/main/docs/installation.md)
+and the [candidate changelog](CHANGELOG.md). The beta subset is local CLI
+version/help/diagnostics, OAuth setup and bounded customer/lead reads where the
+authenticated server advertises the required capability and scope. Live acceptance is not established by this README; consult the exact release
+evidence before business use. Other packaged commands are
+capability-dependent previews until their exact combinations have acceptance
+evidence. The hosted MCP runtime is independently deployed; this package does
+not contain a standalone MCP server executable. Companion `docs/` and `skills/`
+guidance is maintained in the official source repository; it is not installed
+by the npm package.
 
 The shared `createCanonicalCrmClient` transport is available for CLI/MCP adapters
 after their OAuth flow obtains a resource-bound access token. It calls only the
@@ -47,7 +61,7 @@ a network request or reading stored credentials.
 runtime requirement, with the official releases link for manual updates. It
 does not access credentials, call the network, claim that this is the latest
 release, or install updates. Use `bizyeet auth check` separately to verify
-server authorization. The current development package is not a published release.
+server authorization. Source metadata does not establish package publication.
 
 ```sh
 # Browser Authorization Code + PKCE S256 flow.

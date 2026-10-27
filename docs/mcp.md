@@ -1,7 +1,31 @@
 # Codex MCP connection
 
+The CLI `0.1.0-beta.1` candidate metadata was prepared on 2026-10-26, when
+publication was pending. Verify the matching npm version and GitHub prerelease
+before installing; source metadata does not establish availability. The OAuth Streamable HTTP
+MCP endpoint at your approved tenant origin's `/mcp` is deployed independently
+from the private BizYeet backend. The npm package contains no standalone MCP
+server executable, and installing it neither deploys that endpoint nor enables
+a tenant. See [candidate compatibility](installation.md#candidate-support-boundary).
+
+The shared business contract is API `v1`; the authenticated server's advertised
+tool/schema set, granted scopes and live permissions determine availability.
+For this beta, bounded customer/lead reads are the intended business subset when
+advertised and authorized. Other source descriptors remain capability-dependent
+previews without exact release/server/client acceptance. Live OAuth/read and
+hosted MCP acceptance are not established by this guidance; consult the exact
+release acceptance evidence. Record observed tools,
+schemas, server deployment reference and client/CLI versions before recommending
+a combination; an npm version alone cannot identify the hosted server version.
+Package upgrades do not upgrade the server or grant scopes.
+
 For Codex-specific setup, the companion [Codex and AI-harness guide](codex-harness.md)
 uses a trusted-project `.codex/config.toml` plus scoped `codex mcp login`.
+The MCP client completes its own OAuth login for this endpoint and contacts the
+authenticated server to discover available tools and schemas; it cannot infer
+them from the CLI version or source descriptors. Request `customers.read` for
+the customer/lead read subset, and only the exact additional scopes required
+for separately approved capabilities. This login is separate from CLI profiles.
 It never uses a copied bearer token or API key. Do not use `codex mcp add` for
 normal tenant setup: that CLI command writes a global server configuration.
 
