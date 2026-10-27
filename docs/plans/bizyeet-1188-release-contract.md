@@ -117,6 +117,14 @@ a first successful publish within two days. The publishing job must contain no
 npm write token or fallback credential; OIDC failure stops the run. Ownership,
 trust setup and policy changes require separate maintainer authorization.
 
+Ownership and external publisher configuration evidence may be a reviewed,
+candidate-bound maintainer attestation recording the package, repository, workflow,
+environment, allowed action, setup time and expiry check. Do not invent a registry
+configuration-query API or treat this attestation as proof that OIDC will succeed.
+The registry OIDC exchange enforces actual publisher binding; authentication failure
+stops publication. GitHub environment policy remains independently fetched and
+verified with the documented read permission. Verify registry provenance afterward.
+
 Initial namespace/package provisioning is an explicit execution prerequisite.
 A registry 404 does not prove name availability, ownership or that initial OIDC
 publication is supported. The current npm guide starts from package settings;
