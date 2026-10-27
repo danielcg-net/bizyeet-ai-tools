@@ -21,6 +21,11 @@ Package upgrades do not upgrade the server or grant scopes.
 
 For Codex-specific setup, the companion [Codex and AI-harness guide](codex-harness.md)
 uses a trusted-project `.codex/config.toml` plus scoped `codex mcp login`.
+The MCP client completes its own OAuth login for this endpoint and contacts the
+authenticated server to discover available tools and schemas; it cannot infer
+them from the CLI version or source descriptors. Request `customers.read` for
+the customer/lead read subset, and only the exact additional scopes required
+for separately approved capabilities. This login is separate from CLI profiles.
 It never uses a copied bearer token or API key. Do not use `codex mcp add` for
 normal tenant setup: that CLI command writes a global server configuration.
 
