@@ -1,5 +1,9 @@
 # Release verification
 
+Prepare the required protected GitHub approval gate with the read-only-first
+[release environment helper](release-environment.md). Applying its reviewed plan
+is a separate authorized settings action, not publication approval.
+
 Run `npm run release:verify` from a clean checkout. It runs the full TypeScript,
 functional-immutability, unit, routing and workflow-security gates, then creates
 a real npm tarball in a fresh `release-artifacts/` directory. A bootstrap compilation
