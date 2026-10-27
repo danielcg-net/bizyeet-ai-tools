@@ -33,6 +33,10 @@ single-maintainer contract (`prevent_self_review:false`), disables admin bypass,
 and uses only the custom `main` branch policy. Human approval is configured in
 the initial environment request before the branch policy is created. The helper
 rechecks identity/state before mutation and independently reads back both steps.
+Before treating an environment 404 as absence, both planning and the immediate
+pre-apply recheck require a complete bounded environment inventory with the target
+absent. Repository admin role alone does not prove a token can read a particular
+environment; denied, incomplete or conflicting inventory stops without a PUT.
 An already correct environment is a no-op. Different reviewers, bypass/self-review
 settings, nonzero timers, extra protection rules, branches/tags or incomplete
 policy pagination stop the operation; existing environment settings are never

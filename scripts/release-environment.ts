@@ -44,12 +44,24 @@ const mainPolicy = (value: unknown): boolean => {
   return true;
 };
 
+const requireAbsentInventory = (value: unknown): void => {
+  if (!record(value) || !Number.isSafeInteger(value.total_count) || !Array.isArray(value.environments) || value.total_count !== value.environments.length || value.environments.length > 100) return fail("Environment inventory is incomplete; absence cannot be established.");
+  const entries: readonly unknown[] = value.environments;
+  if (entries.some((entry) => !record(entry) || !positiveId(entry.id) || typeof entry.name !== "string" || entry.name.length === 0 || entry.name.length > 255)) return fail("Environment inventory is malformed; absence cannot be established.");
+  const names = entries.map((entry) => record(entry) && typeof entry.name === "string" ? entry.name.toLowerCase() : "");
+  const ids = entries.map((entry) => record(entry) ? entry.id : null);
+  if (new Set(names).size !== entries.length || new Set(ids).size !== entries.length || names.includes("npm-release")) return fail("Environment inventory conflicts with not-found; no creation is permitted.");
+};
+
 const inspect = async (github: Github): Promise<Snapshot> => {
   const actor = actorFrom(ok(await github({ method: "GET", path: "user" })));
   const repo = ok(await github({ method: "GET", path: root }));
   if (!record(repo) || repo.full_name !== repository || repo.private !== false || !record(repo.permissions) || repo.permissions.admin !== true) return fail("Current human must administer the exact public release repository.");
   const response = await github({ method: "GET", path: environment });
-  if (response.status === 404 && record(response.data) && response.data.message === "Not Found") return { actor, gate: null };
+  if (response.status === 404 && record(response.data) && response.data.message === "Not Found") {
+    requireAbsentInventory(ok(await github({ method: "GET", path: `${root}/environments?per_page=100` })));
+    return { actor, gate: null };
+  }
   const id = gateFrom(ok(response), actor);
   return { actor, gate: { id, main: mainPolicy(ok(await github({ method: "GET", path: `${policies}?per_page=100` }))) } };
 };

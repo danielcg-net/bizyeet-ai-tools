@@ -10,7 +10,7 @@ const gate = (overrides: Record<string, unknown> = {}): unknown => ({ id: 456, n
   node_id: "api-owned", updated_at: "2026-10-27T00:00:00Z", ...overrides });
 const policy = (): unknown => ({ id: 789, name: "main", type: "branch", node_id: "api-owned" });
 const response = (data: unknown, status = 200): Readonly<{ data: unknown; status: number }> => ({ data, status });
-const snapshot = (value: unknown = gate(), entries: readonly unknown[] = [policy()]): readonly ReturnType<typeof response>[] => [response(actor()), response(repo()), ...(value === null ? [response({ message: "Not Found" }, 404)] : [response(value), response({ total_count: entries.length, branch_policies: entries })])];
+const snapshot = (value: unknown = gate(), entries: readonly unknown[] = [policy()]): readonly ReturnType<typeof response>[] => [response(actor()), response(repo()), ...(value === null ? [response({ message: "Not Found" }, 404), response({ total_count: 0, environments: [] })] : [response(value), response({ total_count: entries.length, branch_policies: entries })])];
 type Request = Readonly<{ method: "GET" | "PUT" | "POST"; path: string; body?: unknown }>;
 const client = (responses: readonly (ReturnType<typeof response> | Error)[]): ReturnType<typeof mock.fn<(request: Request) => Promise<ReturnType<typeof response>>>> => {
   const github: ReturnType<typeof mock.fn<(request: Request) => Promise<ReturnType<typeof response>>>> = mock.fn<(request: Request) => Promise<ReturnType<typeof response>>>((): Promise<ReturnType<typeof response>> => {
@@ -121,6 +121,32 @@ void test("creation failure leaves human gate and reports exact partial ID, with
 void test("malformed or truncated policy pagination never authorizes recovery", async () => {
   const github = client([response(actor()), response(repo()), response(gate()), response({ total_count: 2, branch_policies: [] })]);
   await assert.rejects(setupReleaseEnvironment(github, true, 456), /incomplete/u);
+  assert.deepEqual(writes(github), []);
+});
+
+void test("permission-hidden 404 cannot overwrite an environment found in complete inventory", async () => {
+  const inventories = [
+    response({ total_count: 1, environments: [{ id: 456, name: "npm-release" }] }),
+    response({ total_count: 1, environments: [{ id: 456, name: "NPM-RELEASE" }] }),
+    response({ total_count: 1, environments: [] }), response({ total_count: 0, environments: [] }, 403),
+    response({ total_count: 0, environments: [] }, 404), response({ total_count: 1, environments: [{ id: 0, name: "other" }] }),
+    response({ total_count: 2, environments: [{ id: 1, name: "other" }, { id: 1, name: "duplicate" }] }),
+    response({ total_count: 2, environments: [{ id: 1, name: "other" }, { id: 2, name: "OTHER" }] }),
+    response({ total_count: 101, environments: Array.from({ length: 101 }, (_, index) => ({ id: index + 1, name: `other-${String(index)}` })) }),
+  ];
+  await Promise.all(inventories.map(async (inventory) => {
+    const github = client([response(actor()), response(repo()), response({ message: "Not Found" }, 404), inventory]);
+    await assert.rejects(setupReleaseEnvironment(github, true));
+    assert.deepEqual(writes(github), []);
+  }));
+  const safe = client([response(actor()), response(repo()), response({ message: "Not Found" }, 404), response({ total_count: 1, environments: [{ id: 789, name: "other" }] })]);
+  assert.equal((await setupReleaseEnvironment(safe)).plan.action, "create");
+  assert.deepEqual(writes(safe), []);
+});
+
+void test("fresh absence check also requires a complete inventory before the first PUT", async () => {
+  const github = client([...snapshot(null), response(actor()), response(repo()), response({ message: "Not Found" }, 404), response({ total_count: 1, environments: [{ id: 456, name: "npm-release" }] })]);
+  await assert.rejects(setupReleaseEnvironment(github, true), /inventory conflicts/u);
   assert.deepEqual(writes(github), []);
 });
 
