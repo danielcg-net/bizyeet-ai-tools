@@ -451,7 +451,7 @@ void test("installed CLI bounds failure output and never follows upstream recove
   } finally { await cleanup(directory); }
 });
 
-void test("installed CLI verifies identity and performs canonical list-to-exact-read over trusted local HTTPS", async () => {
+void test("installed CLI verifies identity and performs canonical list-to-exact-read over trusted local HTTPS", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "bizyeet-cli-https-"));
   const certificate = join(directory, "synthetic-cert.pem");
   const key = join(directory, "synthetic-key.pem");
@@ -479,6 +479,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       // a passing warmed installed-bin export is not final acceptance evidence.
       if (process.platform === "win32") {
         const cold = await probeInstalledExport(exportArgs, directory, exportEnvironment);
+        context.diagnostic(`Temporary cold native diagnostic: ${nativeDiagnostic(cold.errors)}`);
         assert.equal(cold.code, 0, `Temporary cold native diagnostic: ${nativeDiagnostic(cold.errors)}`);
       }
       const exported = await runInstalled(exportArgs, directory, exportEnvironment).catch(async (error: unknown): Promise<never> => {
@@ -622,7 +623,8 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
         assert.equal(handler.mock.callCount() - before, 1);
         assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
       }, Promise.resolve());
-      assert.equal(handler.mock.callCount(), 48);
+      // The temporary Windows cold diagnostic makes exactly one extra read.
+      assert.equal(handler.mock.callCount(), 48 + (process.platform === "win32" ? 1 : 0));
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
