@@ -49,13 +49,15 @@ void test("the real build summary executable writes actual candidate fields into
     await writeFile(join(root, "package.json"), '{"type":"module"}');
     await writeFile(join(root, "dist", "scripts", "release-review-summary.js"), await readFile(new URL("./release-review-summary.js", import.meta.url)));
     await writeFile(join(root, "release-artifacts", "release.json"), JSON.stringify(candidate()));
-    const env = isolatedTestEnvironment(root, process.env, {...environment(), REVIEW_ATTESTED: "true", PROVENANCE_ARTIFACT_ID: "987654"});
+    const env: NodeJS.ProcessEnv = {...isolatedTestEnvironment(root, process.env, {...environment(), REVIEW_ATTESTED: "true", PROVENANCE_ARTIFACT_ID: "987654"}), GH_TOKEN: "SYNTHETIC_UNEXPECTED_SUMMARY_SECRET", UNEXPECTED_SUMMARY_INPUT: "SYNTHETIC_UNEXPECTED_SUMMARY_SECRET"};
     await promisify(execFile)(process.execPath, [join(root, "dist", "scripts", "release-review-summary.js")], {cwd: root, env, timeout: 10_000});
     const summary = await readFile(env.GITHUB_STEP_SUMMARY ?? "", "utf8");
     assert.match(summary, new RegExp(source, "u"));
     assert.ok(summary.includes(digest));
     assert.match(summary, /actions\/runs\/40517089097/u);
     assert.match(summary, /Cryptographic attestation: pending/u);
+    assert.doesNotMatch(summary, /SYNTHETIC_UNEXPECTED_SUMMARY_SECRET/u);
+    assert.doesNotMatch(await readFile(new URL("./release-review-summary.js", import.meta.url), "utf8"), /\.\.\.process\.env/u);
     assert.doesNotMatch(summary, /artifacts\/987654|a{40}|runs\/42(?:\D|$)/u);
   } finally { await rm(root, {recursive: true, force: true}); }
 });

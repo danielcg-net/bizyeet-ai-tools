@@ -359,7 +359,15 @@ jobs:
             ].join("\n\n");
             if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');
             const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
-            const review = readReview(release, {...process.env, GITHUB_SHA: context.sha, GITHUB_RUN_ID: String(context.runId), REVIEW_ATTESTED: "true"});
+            const review = readReview(release, {
+              PUBLICATION_REQUESTED: process.env.PUBLICATION_REQUESTED,
+              RELEASE_TAG: process.env.RELEASE_TAG,
+              CANDIDATE_ARTIFACT_ID: process.env.CANDIDATE_ARTIFACT_ID,
+              PROVENANCE_ARTIFACT_ID: process.env.PROVENANCE_ARTIFACT_ID,
+              GITHUB_SHA: context.sha,
+              GITHUB_RUN_ID: String(context.runId),
+              REVIEW_ATTESTED: "true"
+            });
             await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, renderReview(review));
   publish:
     if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish

@@ -30,6 +30,15 @@ void test("drift checks reject manual changes and explicit generation restores o
   assert.deepEqual(parseDocument(generated).toJS({maxAliasCount: 0}) as unknown, parseDocument(source).toJS({maxAliasCount: 0}) as unknown);
   assert.deepEqual(validateWorkflow("release.yml", generated), []);
 });
+void test("the static signing summary explicitly projects only presentation environment inputs", (): void => {
+  const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<{attest: Readonly<{steps: readonly Readonly<{name: string; with?: Readonly<{script?: string}>}>[]}>}>}>;
+  const script = workflow.jobs.attest.steps.find((step) => step.name === "Present attested candidate before approval")?.with?.script ?? "";
+  assert.doesNotMatch(script, /\.\.\.process\.env/u);
+  ["PUBLICATION_REQUESTED", "RELEASE_TAG", "CANDIDATE_ARTIFACT_ID", "PROVENANCE_ARTIFACT_ID"].forEach((key) => { assert.ok(script.includes(`${key}: process.env.${key}`)); });
+  assert.match(script, /GITHUB_SHA: context\.sha/u);
+  assert.match(script, /GITHUB_RUN_ID: String\(context\.runId\)/u);
+  assert.match(script, /REVIEW_ATTESTED: "true"/u);
+});
 [
   ["PR trigger", "workflow_dispatch:", "pull_request:"],
   ["source", "ref: ${{ github.sha }}", "ref: other"],

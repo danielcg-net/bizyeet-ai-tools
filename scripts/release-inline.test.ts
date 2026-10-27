@@ -233,3 +233,18 @@ void test("inline fixtures cannot modify parent Actions files or inherit credent
     });
   } finally { await rm(parent, {recursive: true, force: true}); }
 });
+
+void test("actual static summary passes only explicit presentation inputs and never renders unexpected environment canaries", async (): Promise<void> => {
+  const allowed = ["PUBLICATION_REQUESTED", "RELEASE_TAG", "CANDIDATE_ARTIFACT_ID", "PROVENANCE_ARTIFACT_ID", "GITHUB_SHA", "GITHUB_RUN_ID", "REVIEW_ATTESTED"].sort();
+  const call = "const review = readReview(release, ";
+  assert.equal(reviewSummary.split(call).length, 2);
+  const observed = reviewSummary.replace(call, `const review = ((value, inputs) => { if (JSON.stringify(Object.keys(inputs).sort()) !== ${JSON.stringify(JSON.stringify(allowed))}) throw new Error('Unexpected formatter environment input'); return readReview(value, inputs); })(release, `);
+  const canary = "SYNTHETIC_UNEXPECTED_SUMMARY_SECRET";
+  await runInline(`process.env.GH_TOKEN = '${canary}'; process.env.UNEXPECTED_SUMMARY_INPUT = '${canary}';\n${observed}`, fixture(), bundleFiles(), {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456", REVIEW_ATTESTED: "true"}, {
+    inspect: async (_root, environment): Promise<void> => {
+      const summary = await readFile(environment.GITHUB_STEP_SUMMARY ?? "", "utf8");
+      assert.match(summary, /strict source\/signer\/main\/hosted verification succeeded/u);
+      assert.ok(!summary.includes(canary));
+    },
+  });
+});

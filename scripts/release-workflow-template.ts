@@ -205,7 +205,15 @@ const readReview = ${releaseReviewInput.toString().replaceAll("\r\n", "\n")};
 const renderReview = ${renderReleaseReview.toString().replaceAll("\r\n", "\n")};
 if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');
 const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
-const review = readReview(release, {...process.env, GITHUB_SHA: context.sha, GITHUB_RUN_ID: String(context.runId), REVIEW_ATTESTED: "true"});
+const review = readReview(release, {
+  PUBLICATION_REQUESTED: process.env.PUBLICATION_REQUESTED,
+  RELEASE_TAG: process.env.RELEASE_TAG,
+  CANDIDATE_ARTIFACT_ID: process.env.CANDIDATE_ARTIFACT_ID,
+  PROVENANCE_ARTIFACT_ID: process.env.PROVENANCE_ARTIFACT_ID,
+  GITHUB_SHA: context.sha,
+  GITHUB_RUN_ID: String(context.runId),
+  REVIEW_ATTESTED: "true"
+});
 await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, renderReview(review));`;
 
 const templates: Readonly<Record<string, string>> = {"Present attested candidate before approval":releaseReviewScript,"Revalidate exact source, tag, policy and candidate":sourceAndCandidateScript,"Reconcile registry before any publish":registryScript,"Recheck captured registry mapping immediately before publication":registryScript,"Verify registry bytes, beta mapping and retrieve npm provenance":registryScript,"Create immutable matching prerelease or verify complete outcome":githubReleaseScript};

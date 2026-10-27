@@ -46,5 +46,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (!summary) throw new Error("A workflow-owned summary destination is required.");
   const root = new URL("../../", import.meta.url);
   const release: unknown = JSON.parse(await readFile(new URL("release-artifacts/release.json", root), "utf8"));
-  await appendFile(summary, renderReleaseReview(releaseReviewInput(release, {...process.env, REVIEW_ATTESTED: "false"})));
+  await appendFile(summary, renderReleaseReview(releaseReviewInput(release, {
+    PUBLICATION_REQUESTED: process.env.PUBLICATION_REQUESTED,
+    RELEASE_TAG: process.env.RELEASE_TAG,
+    CANDIDATE_ARTIFACT_ID: process.env.CANDIDATE_ARTIFACT_ID,
+    PROVENANCE_ARTIFACT_ID: process.env.PROVENANCE_ARTIFACT_ID,
+    GITHUB_SHA: process.env.GITHUB_SHA,
+    GITHUB_RUN_ID: process.env.GITHUB_RUN_ID,
+    REVIEW_ATTESTED: "false",
+  })));
 }
