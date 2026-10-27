@@ -1,3 +1,4 @@
+import { secureWindowsExport } from "./export-security.js";
 import { isolatedTestEnvironment } from "../scripts/test-child-environment.js";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -665,4 +666,20 @@ void test("installed POSIX CLI works in explicit file mode without optional nati
   } finally {
     await cleanup(directory);
   }
+});
+
+void test("isolated Windows fixture environments retain native owner-only export ACL support", {skip: process.platform !== "win32"}, async (): Promise<void> => {
+  const directory = await mkdtemp(join(tmpdir(), "bizyeet-isolated-acl-"));
+  try {
+    const environment = isolatedTestEnvironment(directory);
+    assert.equal(environment.GH_TOKEN, undefined);
+    assert.equal(environment.PSModulePath, undefined);
+    assert.equal(environment.HOME, directory);
+    assert.ok(environment.ProgramFiles);
+    await secureWindowsExport(directory, "directory", undefined, environment);
+    const path = join(directory, "empty.json");
+    await writeFile(path, "");
+    await secureWindowsExport(path, "file", undefined, environment);
+    await secureWindowsExport(path, "verify", undefined, environment);
+  } finally { await rm(directory, {recursive: true, force: true}); }
 });

@@ -190,11 +190,11 @@ void test("actual release reconciliation accepts only matching complete assets a
 void test("inline fixtures cannot modify parent Actions files or inherit credentials and executable injection", async (): Promise<void> => {
   const parent = await mkdtemp(join(tmpdir(), "bizyeet-parent-canaries-"));
   const keys = ["GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE"];
-  const injected = {GH_TOKEN: "parent-secret", GITHUB_TOKEN: "parent-secret", NODE_AUTH_TOKEN: "parent-secret", NPM_TOKEN: "parent-secret", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "parent-secret", ACTIONS_RUNTIME_TOKEN: "parent-secret", NODE_OPTIONS: "--require=/must-not-execute", NODE_PATH: "/must-not-load", BASH_ENV: "/must-not-execute"};
+  const injected = {GH_TOKEN: "parent-secret", GITHUB_TOKEN: "parent-secret", NODE_AUTH_TOKEN: "parent-secret", NPM_TOKEN: "parent-secret", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "parent-secret", ACTIONS_RUNTIME_TOKEN: "parent-secret", NODE_OPTIONS: "--require=/must-not-execute", NODE_PATH: "/must-not-load", BASH_ENV: "/must-not-execute", AWS_SECRET_ACCESS_KEY: "parent-secret", AWS_SESSION_TOKEN: "parent-secret", AZURE_CLIENT_SECRET: "parent-secret", GH_ENTERPRISE_TOKEN: "parent-secret", GITLAB_TOKEN: "parent-secret", "npm_config_//registry.npmjs.org/:_authToken": "parent-secret"};
   try {
     const canaries = Object.fromEntries(keys.map((key) => [key, join(parent, key)]));
     await Promise.all(Object.values(canaries).map(async (path): Promise<void> => { await writeFile(path, "PARENT CANARY"); }));
-    const probe = `${reviewSummary}\nawait Promise.all(['GITHUB_OUTPUT','GITHUB_ENV','GITHUB_PATH','GITHUB_STATE'].map(key => fs.appendFile(process.env[key], 'private fixture command')));`;
+    const probe = `${reviewSummary}\nif (${JSON.stringify(Object.keys(injected))}.some(key => process.env[key] !== undefined)) throw new Error("Parent authority entered child");\nawait Promise.all(['GITHUB_OUTPUT','GITHUB_ENV','GITHUB_PATH','GITHUB_STATE'].map(key => fs.appendFile(process.env[key], 'private fixture command')));`;
     await runInline(probe, fixture(), bundleFiles(), {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456", REVIEW_ATTESTED: "true"}, {
       inherited: {...process.env, ...canaries, ...injected},
       inspect: async (root, environment): Promise<void> => {
