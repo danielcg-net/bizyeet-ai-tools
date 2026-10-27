@@ -18,7 +18,7 @@ export const readinessErrors = (value: unknown, version: string): readonly strin
   const publisher = record(maintainer.publisher) ? maintainer.publisher : {};
   const configured = typeof publisher.trust_configured_at === "string" ? Date.parse(publisher.trust_configured_at) : NaN;
   return [
-    ...(value.schema_version === 1 && value.repository === "danielcg-net/bizyeet-ai-tools" && value.package === "@bizyeet/ai-tools" && value.workflow === "release.yml" && value.environment === "npm-release" && value.version === version && value.tag === `v${version}` ? [] : ["Readiness identity differs from reviewed candidate."]),
+    ...(value.schema_version === 1 && value.repository === "danielcg-net/bizyeet-ai-tools" && value.package === "@bizyeet/cli" && value.workflow === "release-cli.yml" && value.environment === "npm-release" && value.version === version && value.tag === `cli-v${version}` ? [] : ["Readiness identity differs from reviewed candidate."]),
     ...(publisher.direct_publish_allowed === true && typeof publisher.first_publish_succeeded === "boolean" && Number.isFinite(configured) && configured <= Date.now() ? [] : ["Direct publication identity and valid OIDC configuration time must be attested; new-publication expiry is checked after registry reconciliation."]),
     ...(typeof maintainer.login === "string" && /^[A-Za-z0-9-]+$/u.test(maintainer.login) ? [] : ["Maintainer identity is required."]),
     ...([maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every((url) => typeof url === "string" && /^https:\/\/\S+$/u.test(url)) ? [] : ["Reviewed ownership/bootstrap and exact OIDC binding evidence is required."]),
@@ -42,7 +42,7 @@ export const preparePublicationBundle = async (root: string, tag: string): Promi
   const sha = (await execute("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
   if (sha !== process.env.GITHUB_SHA || manifest.source.commit !== sha || manifest.source.dirty !== false || manifest.verification.installed_version !== metadata.version) throw new Error("Source or installed version differs from the dispatch candidate.");
   const notes = canonicalReleaseNotes(changelog, metadata.version);
-  const release = { schema_version: 1, package: metadata.name, version: metadata.version, tag, channel: "beta", source_sha: sha, workflow: "release.yml", tag_verified: process.env.PUBLICATION_REQUESTED === "true", run_id: process.env.GITHUB_RUN_ID, run_attempt: process.env.GITHUB_RUN_ATTEMPT, readiness, manifest, notes };
+  const release = { schema_version: 1, package: metadata.name, version: metadata.version, tag, channel: "beta", source_sha: sha, workflow: "release-cli.yml", tag_verified: process.env.PUBLICATION_REQUESTED === "true", run_id: process.env.GITHUB_RUN_ID, run_attempt: process.env.GITHUB_RUN_ATTEMPT, readiness, manifest, notes };
   const text = JSON.stringify(release, null, 2) + "\n";
   await writeFile(`${root}/release-artifacts/release.json`, text, { flag: "wx" });
   const sums = await readFile(`${root}/release-artifacts/SHA256SUMS`, "utf8");
@@ -51,6 +51,6 @@ export const preparePublicationBundle = async (root: string, tag: string): Promi
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const tag = process.argv[3];
-  if (process.argv.length !== 4 || process.argv[2] !== "--tag" || !tag) throw new Error("Usage: release-publication --tag vVERSION");
+  if (process.argv.length !== 4 || process.argv[2] !== "--tag" || !tag) throw new Error("Usage: release-publication --tag cli-vVERSION");
   await preparePublicationBundle(fileURLToPath(new URL("../../", import.meta.url)), tag);
 }

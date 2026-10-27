@@ -1,5 +1,7 @@
 # Beta release contract
 
+> Historical first-package contract. Active CLI delivery now uses `@bizyeet/cli`, `cli-vVERSION` and `release-cli.yml`; see [current release guidance](../release-verification.md). Old `@bizyeet/ai-tools` setup and immutable `v0.1.0-beta.1` failure history do not authorize the new namespace.
+
 This plan defines the proposed first distribution of the public CLI. It does
 not authorize publication or establish production readiness. Delivery is tracked
 by [BIZYEET-1188](https://bizyeet.youtrack.cloud/issue/bizyeet-1188) and

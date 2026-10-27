@@ -22,7 +22,7 @@ if (!branch.protected) fail('main must be protected');
 const comparison = await get('/repos/{owner}/{repo}/compare/{basehead}', { basehead: context.sha + '...main' });
 if (!['identical', 'ahead'].includes(comparison.status)) fail('Dispatch SHA is not merged main history');
 const tag = process.env.RELEASE_TAG;
-if (!/^v\d+\.\d+\.\d+-beta\.[1-9][0-9]*$/.test(tag)) fail('Only numbered beta tags are supported');
+if (!/^cli-v\d+\.\d+\.\d+-beta\.[1-9][0-9]*$/.test(tag)) fail('Only numbered beta tags are supported');
 if (process.env.PUBLICATION_REQUESTED === 'true') {
 const ref = await get('/repos/{owner}/{repo}/git/ref/tags/{tag}', { tag });
 const target = ref.object.type === 'tag' ? (await get('/repos/{owner}/{repo}/git/tags/{tag_sha}', { tag_sha: ref.object.sha })).object : ref.object;
@@ -34,14 +34,14 @@ const content = async path => {
   return JSON.parse(Buffer.from(response.content, 'base64').toString('utf8'));
 };
 const metadata = await content('package.json');
-if (metadata.name !== '@bizyeet/ai-tools' || 'v' + metadata.version !== tag || metadata.private !== false || metadata.publishConfig?.registry !== 'https://registry.npmjs.org' || metadata.publishConfig?.access !== 'public' || metadata.publishConfig?.tag !== 'beta' || metadata.repository?.url !== 'git+https://github.com/danielcg-net/bizyeet-ai-tools.git') fail('Reviewed metadata identity differs');
+if (metadata.name !== '@bizyeet/cli' || 'cli-v' + metadata.version !== tag || metadata.private !== false || metadata.publishConfig?.registry !== 'https://registry.npmjs.org' || metadata.publishConfig?.access !== 'public' || metadata.publishConfig?.tag !== 'beta' || metadata.repository?.url !== 'git+https://github.com/danielcg-net/bizyeet-ai-tools.git') fail('Reviewed metadata identity differs');
 if (process.env.PUBLICATION_REQUESTED === 'true') {
   const ready = await content('scripts/release-readiness.json');
   const maintainer = ready.maintainer;
   const publisher = maintainer?.publisher;
   const configured = Date.parse(publisher?.trust_configured_at);
   if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation identity/configuration is invalid');
-  if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0) || new Set(maintainer.reviewer_ids).size !== maintainer.reviewer_ids.length) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+  if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release-cli.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0) || new Set(maintainer.reviewer_ids).size !== maintainer.reviewer_ids.length) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
   const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
   const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
   const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
@@ -51,14 +51,14 @@ if (process.env.PUBLICATION_REQUESTED === 'true') {
 }
 if (process.env.BUNDLE_REQUIRED === 'true') {
   const files = await fs.readdir('bundle', { withFileTypes: true });
-  const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
+  const tarball = 'bizyeet-cli-' + metadata.version + '.tgz';
   const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
   if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
   if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
   const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
   const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
   const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
-  if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
+  if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release-cli.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
   const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
   if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
   await Promise.all(sums.map(async (line, index) => {
@@ -125,11 +125,11 @@ const hashArchive = async response => {
   };
   return drain(0, 0);
 };
-const response = await get('https://registry.npmjs.org/@bizyeet%2fai-tools');
+const response = await get('https://registry.npmjs.org/@bizyeet%2fcli');
 if (response.status === 404) fail('Package ownership/bootstrap is not established; do not publish a placeholder');
 const packument = await readJson(response);
 const record = value => typeof value === 'object' && value !== null && !Array.isArray(value);
-if (!record(packument) || !record(packument.versions) || !record(packument['dist-tags']) || packument.name !== '@bizyeet/ai-tools' || !packument.versions || !packument['dist-tags']) fail('Malformed registry package');
+if (!record(packument) || !record(packument.versions) || !record(packument['dist-tags']) || packument.name !== '@bizyeet/cli' || !packument.versions || !packument['dist-tags']) fail('Malformed registry package');
 const priorRelease = await github.rest.repos.getReleaseByTag({owner:'danielcg-net',repo:'bizyeet-ai-tools',tag:release.tag}).then(response => response.data).catch(error => { if (error.status === 404) return null; throw error; });
 if (priorRelease && (priorRelease.tag_name !== release.tag || priorRelease.body !== release.notes || priorRelease.prerelease !== true)) fail('Existing GitHub release differs; stop before npm publication');
 if (process.env.EXPECTED_BETA !== undefined && (packument['dist-tags'].beta ?? '') !== process.env.EXPECTED_BETA) fail('Concurrent beta mapping changed before publication');
@@ -151,7 +151,7 @@ if (!existing) {
 } else {
   if (packument['dist-tags'].beta !== release.version) fail('Concurrent beta-channel change; maintainer reconciliation required');
   const dist = existing.dist;
-  if (existing.name !== release.package || existing.version !== release.version || dist?.tarball !== 'https://registry.npmjs.org/@bizyeet/ai-tools/-/ai-tools-' + release.version + '.tgz' || typeof dist.integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+=*$/.test(dist.integrity) || typeof dist.attestations?.url !== 'string' || !['https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2fai-tools@' + release.version, 'https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2Fai-tools@' + release.version].includes(dist.attestations.url)) fail('Registry metadata/provenance identity differs');
+  if (existing.name !== release.package || existing.version !== release.version || dist?.tarball !== 'https://registry.npmjs.org/@bizyeet/cli/-/cli-' + release.version + '.tgz' || typeof dist.integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+=*$/.test(dist.integrity) || typeof dist.attestations?.url !== 'string' || !['https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2fcli@' + release.version, 'https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2Fcli@' + release.version].includes(dist.attestations.url)) fail('Registry metadata/provenance identity differs');
   const archive = await get(dist.tarball);
   if (archive.status !== 200) fail('Published bytes unavailable');
   const bytes = await hashArchive(archive);
@@ -241,7 +241,7 @@ export const releaseTemplateErrors = (workflow: Mapping): readonly string[] => {
   const steps = Object.values(jobs).flatMap((job) => record(job) && Array.isArray(job.steps) ? job.steps as readonly unknown[] : []);
   return Object.entries(templates).flatMap(([name, expected]) => {
     const copies = steps.filter((step) => record(step) && step.name === name);
-    return copies.length > 0 && copies.every((step) => record(step) && record(step.with) && step.with.script === expected) ? [] : [`release.yml: inline template drift (${name})`];
+    return copies.length > 0 && copies.every((step) => record(step) && record(step.with) && step.with.script === expected) ? [] : [`release-cli.yml: inline template drift (${name})`];
   });
 };
 /** Explicit authoring helper; never called automatically by npm run check. */
@@ -260,7 +260,7 @@ export const renderReleaseWorkflow = (source: string): string => {
 };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const path = new URL("../../.github/workflows/release.yml", import.meta.url);
+  const path = new URL("../../.github/workflows/release-cli.yml", import.meta.url);
   const source = await readFile(path, "utf8");
   if (process.argv[2] === "--write" && process.argv.length === 3) await writeFile(path, renderReleaseWorkflow(source));
   else throw new Error("Usage: node dist/scripts/release-workflow-template.js --write (explicit authoring only)");

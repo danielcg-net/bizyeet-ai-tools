@@ -358,7 +358,7 @@ void test("installed CLI bounds failure output and never follows upstream recove
         npm_config_http_proxy: "http://127.0.0.1:1" };
       // Measure only the installed CLI's streams. npm exec may prepend its own
       // diagnostics (including unknown inherited npm_config_* warnings).
-      const installedCli = join(directory, "node_modules", "@bizyeet", "ai-tools", "dist", "src", "cli.js");
+      const installedCli = join(directory, "node_modules", "@bizyeet", "cli", "dist", "src", "cli.js");
       await [...recoveryCases, { name: "oversized", code: "request_unavailable", exit: 7 }].reduce(async (previous, scenario) => {
         await previous;
         await context.test(scenario.name, async () => {
@@ -631,7 +631,7 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
     assert.match(located, /bizyeet/u);
     assert.match(help, /OAuth/u);
     const metadata = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as Readonly<{ name: string; version: string }>;
-    const installedMetadata = JSON.parse(await readFile(join(directory, "node_modules", "@bizyeet", "ai-tools", "package.json"), "utf8")) as Readonly<{ name: string; version: string }>;
+    const installedMetadata = JSON.parse(await readFile(join(directory, "node_modules", "@bizyeet", "cli", "package.json"), "utf8")) as Readonly<{ name: string; version: string }>;
     assert.deepEqual({ name: installedMetadata.name, version: installedMetadata.version }, { name: metadata.name, version: metadata.version });
     assert.deepEqual((JSON.parse(version) as Readonly<{ data: unknown }>).data, { version: metadata.version });
     assert.equal((JSON.parse(diagnostics) as Readonly<{ data: Readonly<{ version: string }> }>).data.version, metadata.version);

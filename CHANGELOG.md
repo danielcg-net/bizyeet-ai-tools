@@ -1,9 +1,9 @@
 # Changelog
 
-## [0.1.0-beta.1] - 2026-10-26
+## [0.1.0-beta.1] - 2026-10-27
 
-- Prepare the first CLI beta candidate, `@bizyeet/ai-tools@0.1.0-beta.1`, with
-  command `bizyeet` and proposed GitHub prerelease `v0.1.0-beta.1`. At candidate preparation on 2026-10-26, publication was pending; verify the
+- Prepare the first CLI beta candidate, `@bizyeet/cli@0.1.0-beta.1`, with
+  command `bizyeet` and proposed GitHub prerelease `cli-v0.1.0-beta.1`. At candidate preparation on 2026-10-27, publication was pending; verify the
   matching npm version and GitHub prerelease before installation. Reviewed
   metadata and local tarball tests are not publication evidence.
 - Define the beta subset as installation, version/help/diagnostics, OAuth setup,

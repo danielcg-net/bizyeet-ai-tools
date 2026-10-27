@@ -132,7 +132,7 @@ export const validateWorkflow = (fileName: string, source: string): readonly str
     ...(!hasLeastPrivilegePermissions(workflow.permissions) ? [`${fileName}: permissions must use the approved least-privilege mapping`] : []),
     ...(!jobPermissionsAreSafe(fileName, workflow) ? [`${fileName}: job permissions must use the approved least-privilege mapping`] : []),
     ...(deepseekSecretReferences > 0 && !trustedSecretUse ? [`${fileName}: DeepSeek secret may only be used by the isolated review job`] : []),
-    ...(fileName === "release.yml" ? releaseTemplateErrors(workflow) : []),
+    ...(fileName === "release-cli.yml" ? releaseTemplateErrors(workflow) : []),
     ...invalidActionReferences.map((reference) => `${fileName}: action must use a full commit SHA (${reference})`),
   ];
 };

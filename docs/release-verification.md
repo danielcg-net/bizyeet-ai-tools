@@ -4,9 +4,19 @@ Prepare the required protected GitHub approval gate with the read-only-first
 [release environment helper](release-environment.md). Applying its reviewed plan
 is a separate authorized settings action, not publication approval.
 
-The first beta's [readiness evidence](release-readiness.md) records actual
-bootstrap/publisher observations and their time provenance. Its nonsecret
-attestation does not approve a particular candidate or prove OIDC publication.
+The dedicated `release-cli.yml` workflow releases only `@bizyeet/cli`, using
+`cli-vVERSION` tags (initial candidate `cli-v0.1.0-beta.1`). The legacy
+`release.yml` publication workflow is retired. The GitHub repository and
+existing `npm-release` human gate stay the same.
+
+[New-package readiness](release-readiness.md) is pending. Verify-only dispatches
+use `publish:false` and require no invented ownership or publisher evidence.
+Publication is blocked until separately approved actual setup is reviewed;
+neither source changes nor an unpublished verification run authorize publication.
+
+Hosted MCP has an independent private version/build/deployment. This npm package
+contains the CLI, not a hosted MCP server or a second MCP executable. CLI release
+success does not activate or prove a hosted MCP deployment.
 
 Run `npm run release:verify` from a clean checkout. It runs the full TypeScript,
 functional-immutability, unit, routing and workflow-security gates, then creates
@@ -91,12 +101,12 @@ dated candidate preparation status and the supported beta subset.
 
 ## Release metadata gate
 
-`npm run release:preflight -- --tag vVERSION` is a read-only local metadata gate.
+`npm run release:preflight -- --tag cli-vVERSION` is a read-only local metadata gate.
 It requires a non-development [SemVer](https://semver.org/) version (including
 prereleases, excluding build metadata), an exact matching tag string, consistent
 package/lockfile identities, explicit `private: false` and
 `publishConfig.access: public`, and one dated, substantive changelog entry.
-The proposed exact invocation is `npm run release:preflight -- --tag v0.1.0-beta.1`.
+The proposed exact invocation is `npm run release:preflight -- --tag cli-v0.1.0-beta.1`.
 Neither this command nor a passing unit fixture proves publication or that a Git tag
 exists, a release is approved, or the version is unused in the registry.
 

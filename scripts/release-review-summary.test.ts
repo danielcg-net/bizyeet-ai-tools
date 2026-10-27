@@ -12,8 +12,8 @@ import { marked, type Tokens } from "marked";
 
 const source = "915d2cb91f072e08f5b9512cc52fa4a05b88c0af";
 const digest = "83d3" + "1".repeat(60);
-const candidate = (): Readonly<Record<string, unknown>> => ({package: "@example/cli", source_sha: source, run_id: "40517089097", version: "1.2.3-beta.2", tag: "v1.2.3-beta.2", tag_verified: true, notes: "## Release notes\n\n- Prepare an exact CLI candidate with bounded tenant-authorized reads.\n", manifest: {artifact: {sha256: digest}}});
-const environment = (): Readonly<Record<string, string>> => ({GITHUB_SHA: source, GITHUB_RUN_ID: "40517089097", RELEASE_TAG: "v1.2.3-beta.2", CANDIDATE_ARTIFACT_ID: "123456", PUBLICATION_REQUESTED: "true", REVIEW_ATTESTED: "false"});
+const candidate = (): Readonly<Record<string, unknown>> => ({package: "@example/cli", source_sha: source, run_id: "40517089097", version: "1.2.3-beta.2", tag: "cli-v1.2.3-beta.2", tag_verified: true, notes: "## Release notes\n\n- Prepare an exact CLI candidate with bounded tenant-authorized reads.\n", manifest: {artifact: {sha256: digest}}});
+const environment = (): Readonly<Record<string, string>> => ({GITHUB_SHA: source, GITHUB_RUN_ID: "40517089097", RELEASE_TAG: "cli-v1.2.3-beta.2", CANDIDATE_ARTIFACT_ID: "123456", PUBLICATION_REQUESTED: "true", REVIEW_ATTESTED: "false"});
 
 void test("actual candidate data produces phase-correct pre-approval review evidence", (): void => {
   const build = renderReleaseReview(releaseReviewInput(candidate(), environment()));

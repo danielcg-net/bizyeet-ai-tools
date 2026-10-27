@@ -1,5 +1,5 @@
 {
-  "name": "@bizyeet/ai-tools",
+  "name": "@bizyeet/cli",
   "version": "0.1.0-beta.1",
   "private": false,
   "publishConfig": {
@@ -11,7 +11,7 @@
     "type": "git",
     "url": "git+https://github.com/danielcg-net/bizyeet-ai-tools.git"
   },
-  "description": "Public CLI and MCP tools for tenant-authorized BizYeet AI agents.",
+  "description": "Public CLI for tenant-authorized BizYeet AI agents; hosted MCP is independently deployed.",
   "type": "module",
   "engines": {
     "node": ">=24"

@@ -1,6 +1,6 @@
 # CLI installation and beta compatibility
 
-`0.1.0-beta.1` candidate metadata was prepared on 2026-10-26, with publication
+`@bizyeet/cli@0.1.0-beta.1` candidate metadata was prepared on 2026-10-27, with publication
 pending at that time. Availability is established by the matching npm version,
 verified npm `beta` mapping and GitHub prerelease, not by these instructions or
 source metadata. Verify the exact release before installation. A local tarball
@@ -15,7 +15,7 @@ the [official releases](https://github.com/danielcg-net/bizyeet-ai-tools/release
 before installing. After protected publication is verified:
 
 ```sh
-npm install --global @bizyeet/ai-tools@0.1.0-beta.1 --registry=https://registry.npmjs.org
+npm install --global @bizyeet/cli@0.1.0-beta.1 --registry=https://registry.npmjs.org
 bizyeet --version
 bizyeet --help
 bizyeet diagnostics --json
@@ -28,7 +28,7 @@ the latest version or updating automatically. Registry not-found means stop and
 check publication status; do not substitute an unofficial archive or registry.
 
 The initial channel is `beta`, never an automatic `latest` promotion. Once the
-published channel is verified, `@bizyeet/ai-tools@beta` selects its current mapping,
+published channel is verified, `@bizyeet/cli@beta` selects its current mapping,
 which can change. Prefer the explicit version above for reproducible installation.
 Do not use an unversioned install to select this prerelease.
 
@@ -41,7 +41,7 @@ version. There is no automatic updater. At candidate preparation no older publis
 release had been verified for a downgrade.
 
 ```sh
-npm uninstall --global @bizyeet/ai-tools
+npm uninstall --global @bizyeet/cli
 ```
 
 Removing the executable does not revoke OAuth grants or delete protected profiles

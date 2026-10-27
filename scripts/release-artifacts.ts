@@ -32,7 +32,7 @@ export const validateSbom = (value: unknown): void => {
 
 /** Resolve the declared installed command, rejecting missing or escaping bin mappings. */
 export const declaredBinTarget = (metadata: unknown, packageRoot: string): string => {
-  if (!record(metadata) || metadata.name !== "@bizyeet/ai-tools" || !record(metadata.bin) || typeof metadata.bin.bizyeet !== "string" || !/^[A-Za-z0-9._/-]+\.js$/u.test(metadata.bin.bizyeet) || isAbsolute(metadata.bin.bizyeet)) throw new Error("Invalid installed bizyeet command mapping.");
+  if (!record(metadata) || metadata.name !== "@bizyeet/cli" || !record(metadata.bin) || typeof metadata.bin.bizyeet !== "string" || !/^[A-Za-z0-9._/-]+\.js$/u.test(metadata.bin.bizyeet) || isAbsolute(metadata.bin.bizyeet)) throw new Error("Invalid installed bizyeet command mapping.");
   const target = resolve(packageRoot, metadata.bin.bizyeet);
   const path = relative(packageRoot, target);
   if (path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)) throw new Error("Installed command escapes its package.");
@@ -73,7 +73,7 @@ export const buildArtifactBundle = async (root: string, output: string): Promise
   // Never overwrite a prior verification bundle, including through a symlink.
   await mkdir(output, { mode: 0o700 });
   const metadata: unknown = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  if (!record(metadata) || metadata.name !== "@bizyeet/ai-tools" || typeof metadata.version !== "string") throw new Error("Invalid release package.");
+  if (!record(metadata) || metadata.name !== "@bizyeet/cli" || typeof metadata.version !== "string") throw new Error("Invalid release package.");
   // This process has loaded its verifier already. Rebuild all generated output
   // before tests/packing so ignored files from older revisions cannot survive.
   await rebuildForRelease(root, (): Promise<string> => npm(["run", "check"], root));
@@ -87,7 +87,7 @@ export const buildArtifactBundle = async (root: string, output: string): Promise
   const installed = await mkdtemp(join(tmpdir(), "bizyeet-artifact-smoke-"));
   try {
     await npm(["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], installed);
-    const packageRoot = join(installed, "node_modules", "@bizyeet", "ai-tools");
+    const packageRoot = join(installed, "node_modules", "@bizyeet", "cli");
     const installedMetadata: unknown = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
     await access(declaredBinTarget(installedMetadata, packageRoot));
     await access(join(installed, "node_modules", ".bin", process.platform === "win32" ? "bizyeet.cmd" : "bizyeet"));
@@ -101,7 +101,7 @@ export const buildArtifactBundle = async (root: string, output: string): Promise
   const commit = (await execute("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
   const dirty = (await execute("git", ["status", "--porcelain"], { cwd: root })).stdout.length > 0;
   const manifest = {
-    schema_version: 1, package: "@bizyeet/ai-tools", version: metadata.version,
+    schema_version: 1, package: "@bizyeet/cli", version: metadata.version,
     source: { repository: "https://github.com/danielcg-net/bizyeet-ai-tools", commit, dirty },
     runtime: { node: process.versions.node, npm: (await npm(["--version"], root)).trim(), platform: process.platform, architecture: process.arch },
     artifact: { filename, sha256: await hashFile(archive) },
