@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
+import { releaseTemplateErrors } from "./release-workflow-template.js";
+import { permitsProtectedRelease } from "./release-publication-policy.js";
 import { permitsTrustedAttestation } from "./provenance-policy.js";
 
 type Workflow = Readonly<Record<string, unknown>>;
@@ -91,6 +93,7 @@ const permitsTrustedDeepseekReview = (fileName: string, workflow: Workflow, jobI
 const jobPermissionsAreSafe = (fileName: string, workflow: Workflow): boolean =>
   isRecord(workflow.jobs) && Object.entries(workflow.jobs).every(([jobId, job]) =>
     isRecord(job) && (!("permissions" in job) || hasLeastPrivilegePermissions(job.permissions)
+      || permitsProtectedRelease(fileName, workflow, jobId)
       || permitsTrustedAttestation(fileName, workflow, jobId, job)
       || permitsTrustedDeepseekReview(fileName, workflow, jobId, job)),
   );
@@ -129,6 +132,7 @@ export const validateWorkflow = (fileName: string, source: string): readonly str
     ...(!hasLeastPrivilegePermissions(workflow.permissions) ? [`${fileName}: permissions must use the approved least-privilege mapping`] : []),
     ...(!jobPermissionsAreSafe(fileName, workflow) ? [`${fileName}: job permissions must use the approved least-privilege mapping`] : []),
     ...(deepseekSecretReferences > 0 && !trustedSecretUse ? [`${fileName}: DeepSeek secret may only be used by the isolated review job`] : []),
+    ...(fileName === "release.yml" ? releaseTemplateErrors(workflow) : []),
     ...invalidActionReferences.map((reference) => `${fileName}: action must use a full commit SHA (${reference})`),
   ];
 };
