@@ -35,6 +35,10 @@ export const releaseCandidateErrors = (input: Readonly<{ metadata: unknown; lock
   const version = metadata.version;
   const valid = releaseVersion(version);
   return [
+    ...(record(metadata.publishConfig) && metadata.publishConfig.registry === "https://registry.npmjs.org" && metadata.publishConfig.tag === "beta" ? [] : ["Registry and channel must explicitly select canonical npm and beta."]),
+    ...(typeof version === "string" && /^\d+\.\d+\.\d+-beta\.[1-9][0-9]*$/u.test(version) ? [] : ["Only numbered beta prereleases are supported."]),
+    ...(record(metadata.repository) && metadata.repository.type === "git" && metadata.repository.url === "git+https://github.com/danielcg-net/bizyeet-ai-tools.git" ? [] : ["Repository must match the trusted publisher identity."]),
+    ...(record(metadata.bin) && metadata.bin.bizyeet === "./dist/src/cli.js" ? [] : ["Installed command must match the reviewed CLI entrypoint."]),
     ...(metadata.name === "@bizyeet/ai-tools" ? [] : ["Unexpected package name."]),
     ...(valid ? [] : ["Select a non-development SemVer version without build metadata."]),
     ...(valid && input.tag === `v${version}` ? [] : ["Release tag must exactly match v plus the package version."]),
