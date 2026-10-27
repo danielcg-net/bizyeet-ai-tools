@@ -1,5 +1,5 @@
 import { readBoundedJson as boundedResponse } from "./bounded-json.js";
-import { canonicalErrorCode, correlationReference, recordedFailureCode } from "./agent-error.js";
+import { agentFailure, canonicalErrorCode, correlationReference, recordedFailureCode } from "./agent-error.js";
 import { isUuid as uuid } from "./uuid.js";
 import { validCursor } from "./cursor.js";
 import { validPaymentSummaryOptions, type PaymentSummaryOptions } from "./payment-summary-contract.js";
@@ -135,6 +135,10 @@ const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const validResource = (value: unknown): value is ReadResource => value === "customers" || value === "leads" || value === "payments" || value === "expenses" || value === "expense-schedules" || value === "services" || value === "quotes" || value === "catalog";
 const failure = (status: number, code: string): CanonicalResult => ({ status, body: { error: { code } } });
+const recordCreateFailure = (status: number, body: unknown): CanonicalResult => {
+  const error = agentFailure(status, body);
+  return {status, body: {error: {code: error.code, request_id: error.requestId, retryable: error.retryable}}};
+};
 const utcTimestamp = (value: unknown): value is string => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T[0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|\+00:00)$/iu.test(value)) return false;
   const timestamp = Date.parse(value);
@@ -439,7 +443,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         body: serialized, redirect: "error", signal: AbortSignal.timeout(15_000),
       });
       const body = await boundedResponse(response, 32_768);
-      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : { status: response.status, body };
+      if (!response.ok) return !preview && response.status >= 500 ? failure(response.status, "execution_ambiguous") : recordCreateFailure(response.status, body);
       const projected = preview ? resource === "promotion"
         ? leadPromotionPreviewResponse(body, (input as LeadPromotionPreview).record.leadId)
         : recordCreatePreviewResponse(body, resource)
@@ -459,7 +463,7 @@ export const createCanonicalCrmClient = (dependencies: ClientDependencies): Cano
         redirect: "error", signal: AbortSignal.timeout(15_000),
       });
       const body = await boundedResponse(response, 32_768);
-      if (!response.ok) return { status: response.status, body };
+      if (!response.ok) return recordCreateFailure(response.status, body);
       const projected = recordCreateStatusResponse(body, resource === "promotion" ? "customers" : resource, input.preview_id);
       return projected && response.status === 200 ? { status: response.status, body: projected } : failure(502, "invalid_response");
     } catch { return failure(503, "request_unavailable"); }
