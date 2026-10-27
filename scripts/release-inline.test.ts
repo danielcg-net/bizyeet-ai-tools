@@ -77,7 +77,7 @@ const runInline = async (code: string, input: Data, files: Readonly<Record<strin
     await mkdir(join(root, "signed"));
     await Promise.all(Object.entries(files).map(async ([name, content]): Promise<void> => { await writeFile(join(root, name), content); }));
     await writeFile(join(root, "fixture.json"), JSON.stringify(input));
-    await writeFile(join(root, "inline.cjs"), `${harness}\nasync function main(){\n${code}\n}\nmain().catch(error=>{console.error(error.message);process.exitCode=1;});\n`);
+    await writeFile(join(root, "inline.cjs"), `${harness}\nasync function main(require){\n${code}\n}\nmain(input.rejectStats ? id => {const loaded=require(id); return id === "node:fs/promises" ? {...loaded,lstat:async()=>{throw new Error("STAT SHOULD NOT RUN");}} : loaded;} : require).catch(error=>{console.error(error.message);process.exitCode=1;});\n`);
     return (await execute(process.execPath, [join(root, "inline.cjs"), join(root, "fixture.json")], {cwd: root, env: {...process.env, RELEASE_TAG: tag, PUBLICATION_REQUESTED: "true", BUNDLE_REQUIRED: "false", GITHUB_RUN_ATTEMPT: "1", ...env}, timeout: 10_000})).stdout;
   } finally { await rm(root, {recursive: true, force: true}); }
 };
@@ -97,6 +97,7 @@ void test("actual inline source gate permits default unpublished candidate witho
   await assert.rejects(runInline(verification, fixture({readiness: {...readiness, maintainer: {...readiness.maintainer, confirmed_at: "2999-01-01T00:00:00Z"}}})), /Publisher attestation/u);
   await assert.rejects(runInline(verification, fixture({environment: {...environment, protection_rules: [{type: "required_reviewers", prevent_self_review: false, reviewers: [{type: "Team", reviewer: {id: 123, type: "Team"}}]}]}})), /human environment policy/u);
   await assert.rejects(runInline(verification, fixture({policies: {total_count: 1, branch_policies: [{name: "*", type: "branch"}]}})), /human environment policy/u);
+  await assert.rejects(runInline(verification, fixture({readiness: {...readiness, maintainer: {...readiness.maintainer, reviewer_ids: [123, 123]}}})), /attestation/u);
   await assert.rejects(runInline(verification, fixture({protected: false})), /main must be protected/u);
   await assert.rejects(runInline(verification, fixture({comparison: "diverged"})), /not merged main history/u);
   await assert.rejects(runInline(verification, fixture({context: {...context, eventName: "pull_request"}})), /Untrusted dispatch/u);
@@ -106,8 +107,8 @@ void test("actual inline source gate permits default unpublished candidate witho
 void test("actual inline bundle gate accepts exact trusted bundle and rejects tampering, missing evidence and cross-run substitution", async (): Promise<void> => {
   const files = bundleFiles();
   await runInline(verification, fixture(), files, {BUNDLE_REQUIRED: "true"});
-  await assert.rejects(runInline(verification, fixture(), {...files, [`bundle/${tarball}`]: "altered"}, {BUNDLE_REQUIRED: "true"}), /digest differs/u);
-  await assert.rejects(runInline(verification, fixture(), {...files, "bundle/extra.js": "malicious"}, {BUNDLE_REQUIRED: "true"}), /Unexpected bundle/u);
+  await assert.rejects(runInline(verification, fixture(), {...files, [`bundle/${tarball}`]: "altered"}, {BUNDLE_REQUIRED: "true"}), /digest differs: bizyeet-ai-tools/u);
+  await assert.rejects(runInline(verification, fixture({rejectStats: true}), {...files, "bundle/extra.js": "malicious"}, {BUNDLE_REQUIRED: "true"}), /Unexpected bundle/u);
   await assert.rejects(runInline(verification, fixture({context: {...context, runId: 43}}), files, {BUNDLE_REQUIRED: "true"}), /identity or verification/u);
   await assert.rejects(runInline(verification, fixture({lock: "other lock"}), files, {BUNDLE_REQUIRED: "true"}), /Lockfile digest/u);
   await assert.rejects(runInline(verification, fixture(), {...files, "bundle/SHA256SUMS": ""}, {BUNDLE_REQUIRED: "true"}), /Checksum file/u);

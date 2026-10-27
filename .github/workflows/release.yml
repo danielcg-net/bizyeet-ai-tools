@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing immutable tag matching reviewed beta metadata
+        description: Beta tag matching reviewed metadata; must already exist for publication
         required: true
         type: string
       publish:
@@ -67,31 +67,31 @@ jobs:
               const publisher = maintainer?.publisher;
               const configured = Date.parse(publisher?.trust_configured_at);
               if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation identity/configuration is invalid');
-              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0) || new Set(maintainer.reviewer_ids).size !== maintainer.reviewer_ids.length) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
               const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
               const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
               const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
               const reviewers = rules[0]?.reviewers ?? [];
               const ids = reviewers.filter(entry => entry.type === 'User' && entry.reviewer?.type === 'User').map(entry => entry.reviewer.id);
-              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
+              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || new Set(ids).size !== ids.length || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
             }
             if (process.env.BUNDLE_REQUIRED === 'true') {
               const files = await fs.readdir('bundle', { withFileTypes: true });
               const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
               const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
-              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
               if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
+              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
               const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
               const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
               const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
               if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
               const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
               if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
-              await Promise.all(sums.map(async line => {
+              await Promise.all(sums.map(async (line, index) => {
                 const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
-                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry');
+                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry #' + String(index + 1));
                 const hash = crypto.createHash('sha256').update(await fs.readFile('bundle/' + match[2])).digest('hex');
-                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs');
+                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs: ' + match[2]);
               }));
               const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
               if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
@@ -253,31 +253,31 @@ jobs:
               const publisher = maintainer?.publisher;
               const configured = Date.parse(publisher?.trust_configured_at);
               if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation identity/configuration is invalid');
-              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0) || new Set(maintainer.reviewer_ids).size !== maintainer.reviewer_ids.length) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
               const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
               const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
               const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
               const reviewers = rules[0]?.reviewers ?? [];
               const ids = reviewers.filter(entry => entry.type === 'User' && entry.reviewer?.type === 'User').map(entry => entry.reviewer.id);
-              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
+              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || new Set(ids).size !== ids.length || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
             }
             if (process.env.BUNDLE_REQUIRED === 'true') {
               const files = await fs.readdir('bundle', { withFileTypes: true });
               const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
               const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
-              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
               if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
+              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
               const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
               const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
               const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
               if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
               const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
               if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
-              await Promise.all(sums.map(async line => {
+              await Promise.all(sums.map(async (line, index) => {
                 const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
-                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry');
+                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry #' + String(index + 1));
                 const hash = crypto.createHash('sha256').update(await fs.readFile('bundle/' + match[2])).digest('hex');
-                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs');
+                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs: ' + match[2]);
               }));
               const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
               if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
@@ -394,31 +394,31 @@ jobs:
               const publisher = maintainer?.publisher;
               const configured = Date.parse(publisher?.trust_configured_at);
               if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation identity/configuration is invalid');
-              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0) || new Set(maintainer.reviewer_ids).size !== maintainer.reviewer_ids.length) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
               const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
               const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
               const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
               const reviewers = rules[0]?.reviewers ?? [];
               const ids = reviewers.filter(entry => entry.type === 'User' && entry.reviewer?.type === 'User').map(entry => entry.reviewer.id);
-              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
+              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || new Set(ids).size !== ids.length || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
             }
             if (process.env.BUNDLE_REQUIRED === 'true') {
               const files = await fs.readdir('bundle', { withFileTypes: true });
               const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
               const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
-              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
               if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
+              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
               const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
               const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
               const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
               if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
               const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
               if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
-              await Promise.all(sums.map(async line => {
+              await Promise.all(sums.map(async (line, index) => {
                 const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
-                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry');
+                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry #' + String(index + 1));
                 const hash = crypto.createHash('sha256').update(await fs.readFile('bundle/' + match[2])).digest('hex');
-                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs');
+                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs: ' + match[2]);
               }));
               const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
               if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
@@ -711,31 +711,31 @@ jobs:
               const publisher = maintainer?.publisher;
               const configured = Date.parse(publisher?.trust_configured_at);
               if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation identity/configuration is invalid');
-              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0) || new Set(maintainer.reviewer_ids).size !== maintainer.reviewer_ids.length) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
               const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
               const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
               const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
               const reviewers = rules[0]?.reviewers ?? [];
               const ids = reviewers.filter(entry => entry.type === 'User' && entry.reviewer?.type === 'User').map(entry => entry.reviewer.id);
-              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
+              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || new Set(ids).size !== ids.length || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
             }
             if (process.env.BUNDLE_REQUIRED === 'true') {
               const files = await fs.readdir('bundle', { withFileTypes: true });
               const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
               const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
-              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
               if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
+              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
               const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
               const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
               const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
               if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
               const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
               if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
-              await Promise.all(sums.map(async line => {
+              await Promise.all(sums.map(async (line, index) => {
                 const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
-                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry');
+                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry #' + String(index + 1));
                 const hash = crypto.createHash('sha256').update(await fs.readFile('bundle/' + match[2])).digest('hex');
-                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs');
+                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs: ' + match[2]);
               }));
               const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
               if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');

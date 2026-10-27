@@ -21,7 +21,7 @@ export const readinessErrors = (value: unknown, version: string): readonly strin
     ...(publisher.direct_publish_allowed === true && typeof publisher.first_publish_succeeded === "boolean" && Number.isFinite(configured) && configured <= Date.now() ? [] : ["Direct publication identity and valid OIDC configuration time must be attested; new-publication expiry is checked after registry reconciliation."]),
     ...(typeof maintainer.login === "string" && /^[A-Za-z0-9-]+$/u.test(maintainer.login) ? [] : ["Maintainer identity is required."]),
     ...([maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every((url) => typeof url === "string" && /^https:\/\/\S+$/u.test(url)) ? [] : ["Reviewed ownership/bootstrap and exact OIDC binding evidence is required."]),
-    ...(typeof maintainer.prevent_self_review === "boolean" && Array.isArray(maintainer.reviewer_ids) && maintainer.reviewer_ids.length > 0 && maintainer.reviewer_ids.every((id: unknown) => Number.isSafeInteger(id) && Number(id) > 0) ? [] : ["Record exact human reviewer IDs and chosen self-review policy."]),
+    ...(typeof maintainer.prevent_self_review === "boolean" && Array.isArray(maintainer.reviewer_ids) && maintainer.reviewer_ids.length > 0 && maintainer.reviewer_ids.every((id: unknown) => Number.isSafeInteger(id) && Number(id) > 0) && new Set(maintainer.reviewer_ids as readonly unknown[]).size === maintainer.reviewer_ids.length ? [] : ["Record exact human reviewer IDs and chosen self-review policy."]),
     ...(typeof maintainer.confirmed_at === "string" && Number.isFinite(Date.parse(maintainer.confirmed_at)) && Date.parse(maintainer.confirmed_at) <= Date.now() ? [] : ["Record maintainer confirmation time."]),
   ];
 };
