@@ -63,51 +63,6 @@ const runNpm = async (args: readonly string[], directory: string, environment?: 
 const runInstalled = (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv, input?: string): Promise<string> =>
   runNpm(["exec", "--offline", "--no", "--", "bizyeet", ...args], directory, environment, input);
 
-const probeInstalledExport = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv): Promise<ProcessResult> => {
-  const probe = join(directory, "diagnose-export.mjs");
-  await writeFile(probe, `import childProcess from 'node:child_process';
-import {syncBuiltinESMExports} from 'node:module';
-import {promisify} from 'node:util';
-import {pathToFileURL} from 'node:url';
-const original = childProcess.execFile;
-const execute = promisify(original);
-const wrapped = (...args) => original(...args);
-Object.defineProperty(wrapped, promisify.custom, {value: async (...args) => {
-  const started = performance.now();
-  const report = (error, stderr) => {
-    const code = typeof error?.code === 'number' ? error.code : /^[A-Z][A-Z0-9_]{0,63}$/.test(error?.code ?? '') ? error.code : error ? 'unavailable' : 0;
-    const signal = /^SIG[A-Z0-9]{1,16}$/.test(error?.signal ?? '') ? error.signal : null;
-    const stages = typeof stderr === 'string' ? stderr.split(/\\r?\\n/).filter(line => /^fixture-acl-stage:(?:start|module|identity|item|new-object|rule|set-acl|get-acl|verify):[0-9]{1,9}$/.test(line)) : [];
-    if (String(args[0]).toLowerCase().endsWith('powershell.exe')) process.stderr.write('BIZYEET_TEST_ACL_DIAGNOSTIC:' + JSON.stringify({code, killed: error?.killed === true, signal, elapsed_ms: Math.round(performance.now() - started), timeout_ms: typeof args[2]?.timeout === 'number' ? args[2].timeout : null, stages}) + '\\n');
-  };
-  const labels = [['Import-Module -Name', 'module'], ['$path =', 'identity'], ['$item = Get-Item', 'item'], ['  $acl = New-Object', 'new-object'], ['  $rule = New-Object', 'rule'], ['  Set-Acl -LiteralPath', 'set-acl'], ['$actual = Get-Acl', 'get-acl'], ['$rules =', 'verify']];
-  const instrument = script => ["$fixtureAclTimer = [System.Diagnostics.Stopwatch]::StartNew()", "[Console]::Error.WriteLine('fixture-acl-stage:start:' + $fixtureAclTimer.ElapsedMilliseconds)", ...script.split('\\n').flatMap(line => {
-    const label = labels.find(([prefix]) => line.startsWith(prefix));
-    return label ? ["[Console]::Error.WriteLine('fixture-acl-stage:" + label[1] + ":' + $fixtureAclTimer.ElapsedMilliseconds)", line] : [line];
-  })].join('\\n');
-  const forwarded = String(args[0]).toLowerCase().endsWith('powershell.exe') && Array.isArray(args[1]) && args[1].includes('-EncodedCommand')
-    ? [args[0], [...args[1].slice(0, -1), Buffer.from(instrument(Buffer.from(args[1].at(-1), 'base64').toString('utf16le')), 'utf16le').toString('base64')], args[2]] : args;
-  try { const result = await execute(...forwarded); report(undefined, result.stderr); return result; }
-  catch (error) { report(error, error?.stderr); throw error; }
-}});
-childProcess.execFile = wrapped;
-syncBuiltinESMExports();
-const {execute: run} = await import(pathToFileURL(process.argv[2]));
-process.exitCode = await run(process.argv.slice(3), console);
-`);
-  const cli = process.env.npm_execpath;
-  if (!cli) throw new Error("Run package tests through npm test.");
-  const installed = join(directory, "node_modules", "@bizyeet", "ai-tools", "dist", "src", "cli.js");
-  return runResult(process.execPath, [cli, "exec", "--offline", "--no", "--", process.execPath, probe, installed, ...args], directory, environment);
-};
-
-const nativeDiagnostic = (errors: string): string => errors.split("\n").filter((line) => line.startsWith("BIZYEET_TEST_ACL_DIAGNOSTIC:")).join("\n") || "Native diagnostic produced no scalar records; cause remains unconfirmed.";
-
-// Run after the installed-bin export has already failed; never convert failure
-// to a pass, and never expose the native command, arguments, paths or stderr.
-const diagnoseInstalledExport = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv): Promise<string> =>
-  nativeDiagnostic((await probeInstalledExport(args, directory, environment)).errors);
-
 const commandLookup = (): Readonly<{ args: readonly string[]; command: string }> =>
   process.platform === "win32"
     ? { args: ["bizyeet"], command: "where.exe" }
@@ -482,20 +437,9 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
       const exportArgs = ["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)];
       const exportEnvironment = { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory };
-      // TEMPORARY DEVELOPMENT DIAGNOSTIC: capture the cold native failure before
-      // the unchanged installed-bin customer/lead exports. Remove before merge;
-      // a passing warmed installed-bin export is not final acceptance evidence.
-      if (process.platform === "win32") {
-        const cold = await probeInstalledExport(exportArgs, directory, exportEnvironment);
-        context.diagnostic(`Temporary cold native diagnostic: ${nativeDiagnostic(cold.errors)}`);
-        assert.equal(cold.code, 0, `Temporary cold native diagnostic: ${nativeDiagnostic(cold.errors)}`);
-      }
-      const exported = await runInstalled(exportArgs, directory, exportEnvironment).catch(async (error: unknown): Promise<never> => {
-        if (process.platform !== "win32") throw error;
-        const diagnostic = await diagnoseInstalledExport(exportArgs, directory, exportEnvironment)
-          .catch((): string => "Native diagnostic unavailable; original failure preserved.");
-        throw new Error(`${error instanceof Error ? error.message : "Installed export failed"}\nPost-failure diagnostic (may be warm; original failure preserved): ${diagnostic}`);
-      });
+      const exportStarted = performance.now();
+      const exported = await runInstalled(exportArgs, directory, exportEnvironment);
+      if (process.platform === "win32") context.diagnostic(`Unchanged first installed-bin export completed in ${String(Math.round(performance.now() - exportStarted))}ms`);
       const summary: unknown = JSON.parse(exported);
       assert.ok(typeof summary === "object" && summary !== null && "data" in summary);
       assert.ok(typeof summary.data === "object" && summary.data !== null && "path" in summary.data && typeof summary.data.path === "string");
@@ -631,8 +575,7 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
         assert.equal(handler.mock.callCount() - before, 1);
         assert.doesNotMatch(history, /synthetic-access|synthetic-refresh/u);
       }, Promise.resolve());
-      // The temporary Windows cold diagnostic makes exactly one extra read.
-      assert.equal(handler.mock.callCount(), 48 + (process.platform === "win32" ? 1 : 0));
+      assert.equal(handler.mock.callCount(), 48);
       assert.ok(handler.mock.calls.every((call) => call.arguments[0].url?.startsWith("/api/agent/")));
       const listRequest = handler.mock.calls.map((call) => call.arguments[0].url).find((url) => url?.startsWith("/api/agent/customers?"));
       assert.ok(listRequest);
@@ -728,7 +671,7 @@ void test("installed POSIX CLI works in explicit file mode without optional nati
   }
 });
 
-void test("isolated Windows fixture environments retain native owner-only export ACL support", {skip: process.platform !== "win32"}, async (): Promise<void> => {
+void test("isolated Windows fixture environments retain native owner-only export ACL support", {skip: process.platform !== "win32"}, async (context): Promise<void> => {
   const directory = await mkdtemp(join(tmpdir(), "bizyeet-isolated-acl-"));
   try {
     const environment = isolatedTestEnvironment(directory);
@@ -737,35 +680,12 @@ void test("isolated Windows fixture environments retain native owner-only export
     assert.equal(environment.PSModuleAnalysisCachePath, join(directory, "powershell-module-cache"));
     assert.equal(environment.HOME, directory);
     assert.ok(environment.ProgramFiles);
+    const started = performance.now();
     await secureWindowsExport(directory, "directory", undefined, environment);
     const path = join(directory, "empty.json");
     await writeFile(path, "");
     await secureWindowsExport(path, "file", undefined, environment);
     await secureWindowsExport(path, "verify", undefined, environment);
-  } finally { await rm(directory, {recursive: true, force: true}); }
-});
-
-void test("post-failure native diagnostics expose only scalar status without command or environment data", async (): Promise<void> => {
-  const directory = await mkdtemp(join(tmpdir(), "bizyeet-native-diagnostic-"));
-  try {
-    const installed = join(directory, "node_modules", "@bizyeet", "ai-tools");
-    await mkdir(join(installed, "dist", "src"), {recursive: true});
-    await writeFile(join(installed, "package.json"), '{"type":"module"}');
-    await writeFile(join(installed, "dist", "src", "cli.js"), `import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
-export const execute = async () => {
-  try { await promisify(execFile)(${JSON.stringify(join(directory, "missing", "powershell.exe"))}, ['private-command-argument'], {timeout: 1234}); }
-  catch { console.error('private-native-error-detail'); return 1; }
-  return 0;
-};`);
-    const result = await diagnoseInstalledExport([], directory, isolatedTestEnvironment(directory));
-    assert.match(result, /^BIZYEET_TEST_ACL_DIAGNOSTIC:/u);
-    const diagnostic: unknown = JSON.parse(result.slice("BIZYEET_TEST_ACL_DIAGNOSTIC:".length));
-    assert.ok(typeof diagnostic === "object" && diagnostic !== null);
-    assert.deepEqual(Object.keys(diagnostic).sort(), ["code", "elapsed_ms", "killed", "signal", "stages", "timeout_ms"]);
-    assert.ok("stages" in diagnostic && Array.isArray(diagnostic.stages) && diagnostic.stages.length === 0);
-    assert.ok("code" in diagnostic && diagnostic.code === "ENOENT");
-    assert.ok("timeout_ms" in diagnostic && diagnostic.timeout_ms === 1234);
-    assert.doesNotMatch(result, /private-command-argument|private-native-error-detail|missing|node_modules/u);
+    context.diagnostic(`Private native directory/file/verify ACL completed in ${String(Math.round(performance.now() - started))}ms`);
   } finally { await rm(directory, {recursive: true, force: true}); }
 });
