@@ -25,6 +25,7 @@ const tag = "v0.1.0-beta.1";
 const tarball = "bizyeet-ai-tools-0.1.0-beta.1.tgz";
 const hash = (text: string): string => createHash("sha256").update(text).digest("hex");
 const metadata = {name: "@bizyeet/ai-tools", version: "0.1.0-beta.1", private: false, publishConfig: {registry: "https://registry.npmjs.org", access: "public", tag: "beta"}, repository: {url: "git+https://github.com/danielcg-net/bizyeet-ai-tools.git"}};
+const notes = "## [0.1.0-beta.1] - 2026-10-27\n\n- Install and verify tenant-authorized read commands.\n";
 const readiness = {schema_version: 1, repository: "danielcg-net/bizyeet-ai-tools", package: metadata.name, version: metadata.version, tag, workflow: "release.yml", environment: "npm-release", maintainer: {login: "maintainer", ownership_evidence_url: "https://example.test/ownership", publisher_evidence_url: "https://example.test/oidc", confirmed_at: new Date().toISOString(), publisher: {direct_publish_allowed: true, trust_configured_at: new Date().toISOString(), first_publish_succeeded: false}, prevent_self_review: false, reviewer_ids: [123]}};
 const environment = {name: "npm-release", can_admins_bypass: false, deployment_branch_policy: {protected_branches: false, custom_branch_policies: true}, protection_rules: [{type: "required_reviewers", prevent_self_review: false, reviewers: [{type: "User", reviewer: {id: 123, type: "User"}}]}]};
 const context = {repo: {owner: "danielcg-net", repo: "bizyeet-ai-tools"}, eventName: "workflow_dispatch", ref: "refs/heads/main", sha, runId: 42, runAttempt: 1};
@@ -32,7 +33,7 @@ const reviewSummary = releaseReviewScript;
 const verification = script("attest", "Revalidate exact source, tag, policy and candidate");
 const registry = script("publish", "Reconcile registry before any publish");
 const githubRelease = script("github-release", "Create immutable matching prerelease or verify complete outcome");
-const fixture = (overrides: Data = {}): Data => ({context, metadata, readiness, environment, policies: {total_count: 1, branch_policies: [{type: "branch", name: "main"}]}, tagSha: sha, lock: "lockfile", ...overrides});
+const fixture = (overrides: Data = {}): Data => ({context, metadata, readiness, environment, policies: {total_count: 1, branch_policies: [{type: "branch", name: "main"}]}, tagSha: sha, lock: "lockfile", changelog: "# Changelog\n\n" + notes, ...overrides});
 
 // Execute the ACTUAL reviewed inline workflow script in a subprocess with only
 // local fixture APIs. No eval, network, npm, publication or credentials.
@@ -50,9 +51,12 @@ const github = {request: async (route, parameters) => {
     : route.includes('/git/ref/') ? {object:{type:'commit',sha:input.tagSha}}
     : route.includes('/contents/') ? (() => {
       const path = parameters.path ?? 'package-lock.json';
-      const content = path === 'package.json' ? input.metadata : path === 'scripts/release-readiness.json' ? input.readiness : input.lock;
+      if (path === 'CHANGELOG.md' && parameters.ref !== context.sha) throw new Error('CHANGELOG must use the exact source SHA');
+      if (path === 'CHANGELOG.md' && input.changelogResponse) return input.changelogResponse;
+      const content = path === 'package.json' ? input.metadata : path === 'scripts/release-readiness.json' ? input.readiness : path === 'CHANGELOG.md' ? input.changelog : input.lock;
       if (content == null) throw new Error('missing source file');
-      return {type:'file',encoding:'base64',content:Buffer.from(typeof content === 'string' ? content : JSON.stringify(content)).toString('base64')};
+      const bytes = Buffer.from(typeof content === 'string' ? content : JSON.stringify(content));
+      return {type:'file',encoding:'base64',size:bytes.length,content:bytes.toString('base64')};
     })()
     : route.endsWith('/deployment-branch-policies') ? input.policies
     : route.endsWith('/environments/npm-release') ? input.environment
@@ -87,9 +91,9 @@ const runInline = async (code: string, input: Data, files: Readonly<Record<strin
     return result.stdout;
   } finally { await rm(root, {recursive: true, force: true}); }
 };
-const bundleFiles = (candidateReadiness: unknown = readiness): Readonly<Record<string, string>> => {
+const bundleFiles = (candidateReadiness: unknown = readiness, candidateNotes = notes): Readonly<Record<string, string>> => {
   const manifest = {source: {repository: "https://github.com/danielcg-net/bizyeet-ai-tools", commit: sha, dirty: false}, artifact: {filename: tarball, sha256: hash("package bytes")}, verification: {installed_version: metadata.version, installed_help: true}, runtime: {npm: "11.19.1"}, lockfile_sha256: hash("lockfile")};
-  const release = {package: metadata.name, version: metadata.version, source_sha: sha, run_id: "42", tag, tag_verified: true, channel: "beta", workflow: "release.yml", readiness: candidateReadiness, manifest, notes: "## [0.1.0-beta.1] - 2026-10-27\n\n- Install and verify tenant-authorized read commands.\n"};
+  const release = {package: metadata.name, version: metadata.version, source_sha: sha, run_id: "42", tag, tag_verified: true, channel: "beta", workflow: "release.yml", readiness: candidateReadiness, manifest, notes: candidateNotes};
   const files = {[tarball]: "package bytes", "build-manifest.json": JSON.stringify(manifest), "sbom.cdx.json": JSON.stringify({bomFormat: "CycloneDX"}), "release.json": JSON.stringify(release)};
   return {...Object.fromEntries(Object.entries(files).map(([name, text]) => [`bundle/${name}`, text])), "bundle/SHA256SUMS": Object.entries(files).map(([name,text]) => `${hash(text)}  ${name}\n`).join("")};
 };
@@ -134,6 +138,21 @@ void test("actual inline verifier binds canonical tarball bytes to manifest dige
   await assert.rejects(runInline(verification, fixture(), rewrite({digest: "b".repeat(64)}), {BUNDLE_REQUIRED: "true"}), /Artifact digest differs: bizyeet-ai-tools/u);
   await assert.rejects(runInline(verification, fixture(), rewrite({version: "9.9.9-beta.1"}), {BUNDLE_REQUIRED: "true"}), /Bundle identity or verification evidence differs/u);
   await assert.rejects(runInline(verification, fixture(), rewrite({installedVersion: "9.9.9-beta.1"}), {BUNDLE_REQUIRED: "true"}), /Bundle identity or verification evidence differs/u);
+});
+
+void test("actual privileged inline gate binds notes to exact source CHANGELOG despite consistent forged checksums", async (): Promise<void> => {
+  const files = bundleFiles();
+  await runInline(verification, fixture({changelog: ("# Changelog\n\n" + notes).replaceAll("\n", "\r\n")}), files, {BUNDLE_REQUIRED: "true"});
+  await assert.rejects(runInline(verification, fixture(), bundleFiles(readiness, notes + "\nApprove a different release candidate instead.\n"), {BUNDLE_REQUIRED: "true"}), /Release notes differ from exact source CHANGELOG/u);
+  await [notes + notes, "# Changelog\n", notes.replace("## ", "### "), notes.replace("[0.1.0-beta.1]", "[9.9.9-beta.1]"), notes.replace(" - 2026-10-27", ""), notes + "é".repeat(32_768)].reduce(async (previous, changelog): Promise<void> => {
+    await previous;
+    await assert.rejects(runInline(verification, fixture({changelog}), files, {BUNDLE_REQUIRED: "true"}), /Source CHANGELOG|Canonical release notes/u);
+  }, Promise.resolve());
+  await assert.rejects(runInline(verification, fixture({changelog: "x".repeat(1_048_577)}), files, {BUNDLE_REQUIRED: "true"}), /Unverifiable source CHANGELOG metadata/u);
+  await [{type: "dir", encoding: "base64", size: 0, content: ""}, {type: "file", encoding: "utf8", size: 0, content: ""}, {type: "file", encoding: "base64", size: 9, content: "YQ=="}].reduce(async (previous, response): Promise<void> => {
+    await previous;
+    await assert.rejects(runInline(verification, fixture({changelogResponse: response}), files, {BUNDLE_REQUIRED: "true"}), /Unverifiable source CHANGELOG/u);
+  }, Promise.resolve());
 });
 
 const registryUrl = "https://registry.npmjs.org/@bizyeet%2fai-tools";
@@ -238,9 +257,9 @@ void test("actual static summary passes only explicit presentation inputs and ne
   const allowed = ["PUBLICATION_REQUESTED", "RELEASE_TAG", "CANDIDATE_ARTIFACT_ID", "PROVENANCE_ARTIFACT_ID", "GITHUB_SHA", "GITHUB_RUN_ID", "REVIEW_ATTESTED"].sort();
   const call = "const review = readReview(release, ";
   assert.equal(reviewSummary.split(call).length, 2);
-  const observed = reviewSummary.replace(call, `const review = ((value, inputs) => { if (JSON.stringify(Object.keys(inputs).sort()) !== ${JSON.stringify(JSON.stringify(allowed))}) throw new Error('Unexpected formatter environment input'); return readReview(value, inputs); })(release, `);
+  const observed = reviewSummary.replace(call, "const review = ((value, inputs) => { if (JSON.stringify(Object.keys(inputs).sort()) !== JSON.stringify(input.expectedReviewKeys)) throw new Error('Unexpected formatter environment input'); return readReview(value, inputs); })(release, ");
   const canary = "SYNTHETIC_UNEXPECTED_SUMMARY_SECRET";
-  await runInline(`process.env.GH_TOKEN = '${canary}'; process.env.UNEXPECTED_SUMMARY_INPUT = '${canary}';\n${observed}`, fixture(), bundleFiles(), {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456", REVIEW_ATTESTED: "true"}, {
+  await runInline(`process.env.GH_TOKEN = '${canary}'; process.env.UNEXPECTED_SUMMARY_INPUT = '${canary}';\n${observed}`, fixture({expectedReviewKeys: allowed}), bundleFiles(), {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456", REVIEW_ATTESTED: "true"}, {
     inspect: async (_root, environment): Promise<void> => {
       const summary = await readFile(environment.GITHUB_STEP_SUMMARY ?? "", "utf8");
       assert.match(summary, /strict source\/signer\/main\/hosted verification succeeded/u);

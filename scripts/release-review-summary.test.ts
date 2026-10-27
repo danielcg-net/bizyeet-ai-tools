@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { isolatedTestEnvironment } from "./test-child-environment.js";
 import { releaseReviewInput, renderReleaseReview } from "./release-review-summary.js";
+import { RELEASE_NOTES_BYTE_LIMIT } from "./release-notes.js";
 
 const source = "915d2cb91f072e08f5b9512cc52fa4a05b88c0af";
 const digest = "83d3" + "1".repeat(60);
@@ -40,6 +41,11 @@ void test("foreign source/run and missing canonical evidence fail before renderi
   assert.throws(() => releaseReviewInput(candidate(), {...environment(), CANDIDATE_ARTIFACT_ID: ""}));
   assert.throws(() => releaseReviewInput(candidate(), {...environment(), REVIEW_ATTESTED: "true"}));
 });
+void test("formatter notes enforce the inclusive UTF-8 presentation budget", (): void => {
+  const exact = "é".repeat(RELEASE_NOTES_BYTE_LIMIT / 2);
+  assert.equal(releaseReviewInput({...candidate(), notes: exact}, environment()).notes, exact);
+  assert.throws(() => releaseReviewInput({...candidate(), notes: exact + "x"}, environment()), /UTF-8 byte budget/u);
+});
 
 void test("the real build summary executable writes actual candidate fields into its own summary before signing", async (): Promise<void> => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "bizyeet-build-summary-")));
@@ -48,6 +54,7 @@ void test("the real build summary executable writes actual candidate fields into
     await mkdir(join(root, "release-artifacts"));
     await writeFile(join(root, "package.json"), '{"type":"module"}');
     await writeFile(join(root, "dist", "scripts", "release-review-summary.js"), await readFile(new URL("./release-review-summary.js", import.meta.url)));
+    await writeFile(join(root, "dist", "scripts", "release-notes.js"), await readFile(new URL("./release-notes.js", import.meta.url)));
     await writeFile(join(root, "release-artifacts", "release.json"), JSON.stringify(candidate()));
     const env: NodeJS.ProcessEnv = {...isolatedTestEnvironment(root, process.env, {...environment(), REVIEW_ATTESTED: "true", PROVENANCE_ARTIFACT_ID: "987654"}), GH_TOKEN: "SYNTHETIC_UNEXPECTED_SUMMARY_SECRET", UNEXPECTED_SUMMARY_INPUT: "SYNTHETIC_UNEXPECTED_SUMMARY_SECRET"};
     await promisify(execFile)(process.execPath, [join(root, "dist", "scripts", "release-review-summary.js")], {cwd: root, env, timeout: 10_000});

@@ -3,10 +3,14 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument, stringify } from "yaml";
 import { releaseReviewInput, renderReleaseReview } from "./release-review-summary.js";
+import { canonicalReleaseNotes, CHANGELOG_SOURCE_BYTE_LIMIT, RELEASE_NOTES_BYTE_LIMIT } from "./release-notes.js";
 
 // Single authoring source for reviewed inline code. Privileged jobs never load
 // this file or repository code; the generated workflow contains static copies.
 export const sourceAndCandidateScript = String.raw`const fs = require('node:fs/promises');
+const RELEASE_NOTES_BYTE_LIMIT = ${String(RELEASE_NOTES_BYTE_LIMIT)};
+const CHANGELOG_SOURCE_BYTE_LIMIT = ${String(CHANGELOG_SOURCE_BYTE_LIMIT)};
+const canonicalNotes = ${canonicalReleaseNotes.toString().replaceAll("\r\n", "\n")};
 const crypto = require('node:crypto');
 const repo = 'danielcg-net/bizyeet-ai-tools';
 const [owner, name] = repo.split('/');
@@ -65,6 +69,13 @@ if (process.env.BUNDLE_REQUIRED === 'true') {
   }));
   const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
   if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
+  const changelog = await get('/repos/{owner}/{repo}/contents/{path}', {path:'CHANGELOG.md',ref:context.sha});
+  if (changelog.type !== 'file' || changelog.encoding !== 'base64' || typeof changelog.content !== 'string' || changelog.content.length > CHANGELOG_SOURCE_BYTE_LIMIT * 2 || !Number.isSafeInteger(changelog.size) || changelog.size < 0 || changelog.size > CHANGELOG_SOURCE_BYTE_LIMIT) fail('Unverifiable source CHANGELOG metadata');
+  const encoded = changelog.content.replaceAll('\r', '').replaceAll('\n', '');
+  if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) fail('Unverifiable source CHANGELOG encoding');
+  const changelogBytes = Buffer.from(encoded, 'base64');
+  if (changelogBytes.length !== changelog.size || changelogBytes.toString('base64') !== encoded) fail('Unverifiable source CHANGELOG byte identity');
+  if (release.notes !== canonicalNotes(new TextDecoder('utf-8', {fatal:true,ignoreBOM:true}).decode(changelogBytes), metadata.version)) fail('Release notes differ from exact source CHANGELOG');
   if (process.env.PUBLICATION_REQUESTED === 'true' && (release.tag_verified !== true || JSON.stringify(release.readiness) !== JSON.stringify(await content('scripts/release-readiness.json')))) fail('Readiness attestation differs');
   core.setOutput('tarball', tarball);
   core.setOutput('version', metadata.version);
@@ -201,6 +212,7 @@ if (existing && !existing.draft) {
 `;
 
 export const releaseReviewScript = `const fs = require('node:fs/promises');
+const RELEASE_NOTES_BYTE_LIMIT = ${String(RELEASE_NOTES_BYTE_LIMIT)};
 const readReview = ${releaseReviewInput.toString().replaceAll("\r\n", "\n")};
 const renderReview = ${renderReleaseReview.toString().replaceAll("\r\n", "\n")};
 if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');

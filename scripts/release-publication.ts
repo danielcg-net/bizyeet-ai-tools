@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { releaseCandidateErrors } from "./release-candidate.js";
+import { canonicalReleaseNotes } from "./release-notes.js";
 
 type RecordValue = Readonly<Record<string, unknown>>;
 const record = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -40,9 +41,8 @@ export const preparePublicationBundle = async (root: string, tag: string): Promi
   if (errors.length > 0) throw new Error(errors.join("\n"));
   const sha = (await execute("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
   if (sha !== process.env.GITHUB_SHA || manifest.source.commit !== sha || manifest.source.dirty !== false || manifest.verification.installed_version !== metadata.version) throw new Error("Source or installed version differs from the dispatch candidate.");
-  const section = changelog.split(/^## /mu).find((entry) => entry.startsWith(`[${metadata.version as string}] - `));
-  if (!section) throw new Error("Missing reviewed release notes.");
-  const release = { schema_version: 1, package: metadata.name, version: metadata.version, tag, channel: "beta", source_sha: sha, workflow: "release.yml", tag_verified: process.env.PUBLICATION_REQUESTED === "true", run_id: process.env.GITHUB_RUN_ID, run_attempt: process.env.GITHUB_RUN_ATTEMPT, readiness, manifest, notes: `## ${section.trim()}\n` };
+  const notes = canonicalReleaseNotes(changelog, metadata.version);
+  const release = { schema_version: 1, package: metadata.name, version: metadata.version, tag, channel: "beta", source_sha: sha, workflow: "release.yml", tag_verified: process.env.PUBLICATION_REQUESTED === "true", run_id: process.env.GITHUB_RUN_ID, run_attempt: process.env.GITHUB_RUN_ATTEMPT, readiness, manifest, notes };
   const text = JSON.stringify(release, null, 2) + "\n";
   await writeFile(`${root}/release-artifacts/release.json`, text, { flag: "wx" });
   const sums = await readFile(`${root}/release-artifacts/SHA256SUMS`, "utf8");

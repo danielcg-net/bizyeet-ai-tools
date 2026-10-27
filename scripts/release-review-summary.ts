@@ -1,6 +1,7 @@
 import { readFile, appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RELEASE_NOTES_BYTE_LIMIT } from "./release-notes.js";
 
 type ReviewInput = Readonly<{package: string; source: string; version: string; tag: string; tagVerified: boolean; digest: string; run: string; notes: string; candidate: string; provenance: string; attested: boolean; publish: boolean}>;
 
@@ -15,6 +16,7 @@ export const releaseReviewInput = (value: unknown, environment: Readonly<Record<
   const tag = value.tag;
   const digest = value.manifest.artifact.sha256;
   const notes = value.notes;
+  if (typeof notes === "string" && new TextEncoder().encode(notes).byteLength > RELEASE_NOTES_BYTE_LIMIT) throw new Error("Review notes exceed the UTF-8 byte budget.");
   const candidate = environment.CANDIDATE_ARTIFACT_ID ?? "";
   const provenance = environment.PROVENANCE_ARTIFACT_ID ?? "";
   const attested = environment.REVIEW_ATTESTED === "true";

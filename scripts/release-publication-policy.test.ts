@@ -59,6 +59,7 @@ void test("the static signing summary explicitly projects only presentation envi
   ["candidate execution", "gh attestation verify", "node bundle/candidate.js"],
   ["tag identity", "target.sha !== context.sha", "false"],
   ["checksum", "hash !== match[1]", "false"],
+  ["source notes", "release.notes !== canonicalNotes", "false && release.notes !== canonicalNotes"],
   ["environment bypass", "environment.can_admins_bypass !== false", "false"],
   ["same run", "release.run_id !== String(context.runId)", "false"],
 ].forEach(([name, before, after]) => {
