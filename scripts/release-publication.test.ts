@@ -3,11 +3,11 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { readinessErrors } from "./release-publication.js";
 
-void test("the reviewed CLI setup record passes identity validation without claiming OIDC success", async (): Promise<void> => {
+void test("the reviewed CLI record validates the verified first OIDC success and original time bound", async (): Promise<void> => {
   const value: unknown = JSON.parse(await readFile(new URL("../../scripts/release-readiness.json", import.meta.url), "utf8"));
   assert.deepEqual(readinessErrors(value, "0.1.0-beta.1"), []);
   const record = value as Readonly<{maintainer: Readonly<{publisher: Readonly<{first_publish_succeeded: boolean; trust_configured_at: string}>}>}>;
-  assert.equal(record.maintainer.publisher.first_publish_succeeded, false);
+  assert.equal(record.maintainer.publisher.first_publish_succeeded, true);
   assert.equal(record.maintainer.publisher.trust_configured_at, "2026-10-27T21:47:02Z");
 });
 
