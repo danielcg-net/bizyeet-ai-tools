@@ -1,5 +1,6 @@
 export const RELEASE_NOTES_BYTE_LIMIT = 65_536;
 export const CHANGELOG_SOURCE_BYTE_LIMIT = 1_048_576;
+export const RELEASE_SUMMARY_BYTE_LIMIT = 1_048_576;
 
 /** Extract exactly one reviewed version section with stable newlines and bounded UTF-8 output. */
 export const canonicalReleaseNotes = (changelog: string, version: string): string => {

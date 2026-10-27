@@ -385,6 +385,7 @@ jobs:
           script: |-
             const fs = require('node:fs/promises');
             const RELEASE_NOTES_BYTE_LIMIT = 65536;
+            const RELEASE_SUMMARY_BYTE_LIMIT = 1048576;
             const readReview = (value, environment) => {
                 const record = (item) => typeof item === "object" && item !== null && !Array.isArray(item);
                 if (!record(value) || !record(value.manifest) || !record(value.manifest.artifact))
@@ -405,23 +406,31 @@ jobs:
                     throw new Error("Review summary differs from actual source/run/artifacts.");
                 return { package: packageName, source, run, version, tag, digest, notes, candidate, provenance, attested, tagVerified: value.tag_verified, publish: environment.PUBLICATION_REQUESTED === "true" };
             };
-            const renderReview = (input) => [
-                input.attested ? "# Attested release candidate for review" : "# Canonical release candidate for review",
-                `Package: ${input.package}`,
-                `Source SHA: ${input.source}`,
-                `Version: ${input.version}`,
-                `Tag: ${input.tag} (existing tag verified: ${String(input.tagVerified)})`,
-                `Tarball SHA256: ${input.digest}`,
-                `Run: https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}`,
-                "Matrix: Ubuntu, macOS and Windows; Node 24 and 26 — all six upstream jobs succeeded.",
-                "Installed exact version/help and canonical checksums verified.",
-                input.attested ? "Cryptographic attestation: strict source/signer/main/hosted verification succeeded in the preceding step." : "Cryptographic attestation: pending the separate attestation job; this build summary is not signing proof.",
-                `[Canonical candidate](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.candidate})`,
-                ...(input.attested ? [`[Verified attestation bundle](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.provenance})`] : []),
-                input.publish ? "Protected publication requested. Review this exact run, source and digest before the environment approval gate." : "UNPUBLISHED verification only. No publication was requested.",
-                input.notes,
-                "",
-            ].join("\n\n");
+            const renderReview = (input) => {
+                const longest = (input.notes.match(/`+/gu) ?? []).reduce((length, run) => Math.max(length, run.length), 2);
+                const fence = "`".repeat(longest + 1);
+                const summary = [
+                    input.attested ? "# Attested release candidate for review" : "# Canonical release candidate for review",
+                    `Package: ${input.package}`,
+                    `Source SHA: ${input.source}`,
+                    `Version: ${input.version}`,
+                    `Tag: ${input.tag} (existing tag verified: ${String(input.tagVerified)})`,
+                    `Tarball SHA256: ${input.digest}`,
+                    `Run: https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}`,
+                    "Matrix: Ubuntu, macOS and Windows; Node 24 and 26 — all six upstream jobs succeeded.",
+                    "Installed exact version/help and canonical checksums verified.",
+                    input.attested ? "Cryptographic attestation: strict source/signer/main/hosted verification succeeded in the preceding step." : "Cryptographic attestation: pending the separate attestation job; this build summary is not signing proof.",
+                    `[Canonical candidate](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.candidate})`,
+                    ...(input.attested ? [`[Verified attestation bundle](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.provenance})`] : []),
+                    input.publish ? "Protected publication requested. Review this exact run, source and digest before the environment approval gate." : "UNPUBLISHED verification only. No publication was requested.",
+                    "Release notes (literal source text):",
+                    `${fence}text\n${input.notes}${input.notes.endsWith("\n") ? "" : "\n"}${fence}`,
+                    "",
+                ].join("\n\n");
+                if (new TextEncoder().encode(summary).byteLength >= RELEASE_SUMMARY_BYTE_LIMIT)
+                    throw new Error("Release review exceeds the summary UTF-8 byte budget.");
+                return summary;
+            };
             if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');
             const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
             const review = readReview(release, {

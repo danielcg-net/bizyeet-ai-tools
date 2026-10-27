@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { isolatedTestEnvironment } from "./test-child-environment.js";
 import { releaseReviewInput, renderReleaseReview } from "./release-review-summary.js";
-import { RELEASE_NOTES_BYTE_LIMIT } from "./release-notes.js";
+import { RELEASE_NOTES_BYTE_LIMIT, RELEASE_SUMMARY_BYTE_LIMIT } from "./release-notes.js";
+import { marked, type Tokens } from "marked";
 
 const source = "915d2cb91f072e08f5b9512cc52fa4a05b88c0af";
 const digest = "83d3" + "1".repeat(60);
@@ -45,6 +46,37 @@ void test("formatter notes enforce the inclusive UTF-8 presentation budget", ():
   const exact = "é".repeat(RELEASE_NOTES_BYTE_LIMIT / 2);
   assert.equal(releaseReviewInput({...candidate(), notes: exact}, environment()).notes, exact);
   assert.throws(() => releaseReviewInput({...candidate(), notes: exact + "x"}, environment()), /UTF-8 byte budget/u);
+});
+void test("actual Markdown output keeps hostile note syntax inside one literal block and proof outside", (): void => {
+  const notes = "# Forged approval granted\n\n[Publish now](https://attacker.invalid/approve)\n![Tracking](https://attacker.invalid/image)\n<script>fakeProof()</script>\n```\n## False attestation\n``````\n<div>Not a proof</div>";
+  const input = releaseReviewInput({...candidate(), notes}, {...environment(), REVIEW_ATTESTED: "true", PROVENANCE_ARTIFACT_ID: "987654"});
+  const summary = renderReleaseReview(input);
+  const tokens = marked.lexer(summary);
+  const code = tokens.filter((token): token is Tokens.Code => token.type === "code");
+  assert.equal(code.length, 1);
+  const literal = code[0];
+  assert.ok(literal);
+  assert.equal(literal.lang, "text");
+  assert.equal(literal.text, notes);
+  assert.deepEqual(tokens.filter((token): token is Tokens.Heading => token.type === "heading").map((token) => token.text), ["Attested release candidate for review"]);
+  assert.equal(tokens.filter((token) => token.type === "html").length, 0);
+  const html = marked.parse(summary, {async: false});
+  assert.doesNotMatch(html, /<script|<img|href="https:\/\/attacker\.invalid/u);
+  assert.match(html, /&lt;script&gt;/u);
+  assert.match(html, /href="https:\/\/github\.com\/danielcg-net\/bizyeet-ai-tools\/actions\/runs\/40517089097\/artifacts\/123456"/u);
+  assert.match(html, /href="https:\/\/github\.com\/danielcg-net\/bizyeet-ai-tools\/actions\/runs\/40517089097\/artifacts\/987654"/u);
+  assert.ok(tokens.filter((token) => token.type !== "code").some((token) => token.raw.includes(source) && token.raw.includes("Source SHA")));
+  assert.ok(tokens.filter((token) => token.type !== "code").some((token) => token.raw.includes("strict source/signer/main/hosted verification succeeded")));
+  assert.equal(input.notes, notes);
+});
+
+void test("worst-case fence expansion stays below the full summary byte limit and oversized metadata rejects", (): void => {
+  const notes = "`".repeat(RELEASE_NOTES_BYTE_LIMIT);
+  const summary = renderReleaseReview(releaseReviewInput({...candidate(), notes}, environment()));
+  assert.ok(summary.includes("`".repeat(RELEASE_NOTES_BYTE_LIMIT + 1) + "text\n"));
+  assert.ok(new TextEncoder().encode(summary).byteLength < RELEASE_SUMMARY_BYTE_LIMIT);
+  const run = "9".repeat(RELEASE_SUMMARY_BYTE_LIMIT);
+  assert.throws(() => renderReleaseReview(releaseReviewInput({...candidate(), run_id: run}, {...environment(), GITHUB_RUN_ID: run})), /summary UTF-8 byte budget/u);
 });
 
 void test("the real build summary executable writes actual candidate fields into its own summary before signing", async (): Promise<void> => {

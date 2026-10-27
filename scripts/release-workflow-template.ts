@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument, stringify } from "yaml";
 import { releaseReviewInput, renderReleaseReview } from "./release-review-summary.js";
-import { canonicalReleaseNotes, CHANGELOG_SOURCE_BYTE_LIMIT, RELEASE_NOTES_BYTE_LIMIT } from "./release-notes.js";
+import { canonicalReleaseNotes, CHANGELOG_SOURCE_BYTE_LIMIT, RELEASE_NOTES_BYTE_LIMIT, RELEASE_SUMMARY_BYTE_LIMIT } from "./release-notes.js";
 
 // Single authoring source for reviewed inline code. Privileged jobs never load
 // this file or repository code; the generated workflow contains static copies.
@@ -213,6 +213,7 @@ if (existing && !existing.draft) {
 
 export const releaseReviewScript = `const fs = require('node:fs/promises');
 const RELEASE_NOTES_BYTE_LIMIT = ${String(RELEASE_NOTES_BYTE_LIMIT)};
+const RELEASE_SUMMARY_BYTE_LIMIT = ${String(RELEASE_SUMMARY_BYTE_LIMIT)};
 const readReview = ${releaseReviewInput.toString().replaceAll("\r\n", "\n")};
 const renderReview = ${renderReleaseReview.toString().replaceAll("\r\n", "\n")};
 if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');

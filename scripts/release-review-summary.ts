@@ -1,7 +1,7 @@
 import { readFile, appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RELEASE_NOTES_BYTE_LIMIT } from "./release-notes.js";
+import { RELEASE_NOTES_BYTE_LIMIT, RELEASE_SUMMARY_BYTE_LIMIT } from "./release-notes.js";
 
 type ReviewInput = Readonly<{package: string; source: string; version: string; tag: string; tagVerified: boolean; digest: string; run: string; notes: string; candidate: string; provenance: string; attested: boolean; publish: boolean}>;
 
@@ -25,23 +25,30 @@ export const releaseReviewInput = (value: unknown, environment: Readonly<Record<
 };
 
 /** Render phase-correct approval evidence; never infer publication from a candidate. */
-export const renderReleaseReview = (input: ReviewInput): string => [
-  input.attested ? "# Attested release candidate for review" : "# Canonical release candidate for review",
-  `Package: ${input.package}`,
-  `Source SHA: ${input.source}`,
-  `Version: ${input.version}`,
-  `Tag: ${input.tag} (existing tag verified: ${String(input.tagVerified)})`,
-  `Tarball SHA256: ${input.digest}`,
-  `Run: https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}`,
-  "Matrix: Ubuntu, macOS and Windows; Node 24 and 26 — all six upstream jobs succeeded.",
-  "Installed exact version/help and canonical checksums verified.",
-  input.attested ? "Cryptographic attestation: strict source/signer/main/hosted verification succeeded in the preceding step." : "Cryptographic attestation: pending the separate attestation job; this build summary is not signing proof.",
-  `[Canonical candidate](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.candidate})`,
-  ...(input.attested ? [`[Verified attestation bundle](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.provenance})`] : []),
-  input.publish ? "Protected publication requested. Review this exact run, source and digest before the environment approval gate." : "UNPUBLISHED verification only. No publication was requested.",
-  input.notes,
-  "",
-].join("\n\n");
+export const renderReleaseReview = (input: ReviewInput): string => {
+  const longest = (input.notes.match(/`+/gu) ?? []).reduce((length, run) => Math.max(length, run.length), 2);
+  const fence = "`".repeat(longest + 1);
+  const summary = [
+    input.attested ? "# Attested release candidate for review" : "# Canonical release candidate for review",
+    `Package: ${input.package}`,
+    `Source SHA: ${input.source}`,
+    `Version: ${input.version}`,
+    `Tag: ${input.tag} (existing tag verified: ${String(input.tagVerified)})`,
+    `Tarball SHA256: ${input.digest}`,
+    `Run: https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}`,
+    "Matrix: Ubuntu, macOS and Windows; Node 24 and 26 — all six upstream jobs succeeded.",
+    "Installed exact version/help and canonical checksums verified.",
+    input.attested ? "Cryptographic attestation: strict source/signer/main/hosted verification succeeded in the preceding step." : "Cryptographic attestation: pending the separate attestation job; this build summary is not signing proof.",
+    `[Canonical candidate](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.candidate})`,
+    ...(input.attested ? [`[Verified attestation bundle](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.provenance})`] : []),
+    input.publish ? "Protected publication requested. Review this exact run, source and digest before the environment approval gate." : "UNPUBLISHED verification only. No publication was requested.",
+    "Release notes (literal source text):",
+    `${fence}text\n${input.notes}${input.notes.endsWith("\n") ? "" : "\n"}${fence}`,
+    "",
+  ].join("\n\n");
+  if (new TextEncoder().encode(summary).byteLength >= RELEASE_SUMMARY_BYTE_LIMIT) throw new Error("Release review exceeds the summary UTF-8 byte budget.");
+  return summary;
+};
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const summary = process.env.GITHUB_STEP_SUMMARY;
