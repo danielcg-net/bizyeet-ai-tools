@@ -55,6 +55,8 @@ node dist/scripts/release-environment.js --apply --resume-environment-id 123
 
 Recovery adds only a missing `main` branch policy to an otherwise exact gate
 with that ID. It never PUTs an existing environment or deletes another policy.
+An unverified outcome may already be complete (for example, a lost POST
+response); a later exact readback verifies it as unchanged without another write.
 Do not run concurrent setup/admin settings changes: GitHub's environment PUT is
 an upsert with no create-only transaction, so a concurrent administrator can
 race the absence recheck. Unexpected readback stops without automatic rollback

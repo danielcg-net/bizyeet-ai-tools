@@ -114,8 +114,17 @@ void test("creation failure leaves human gate and reports exact partial ID, with
   await assert.rejects(setupReleaseEnvironment(github, true), /environment 456.*--apply --resume-environment-id 456/u);
   assert.deepEqual(writes(github).map((request) => request.method), ["PUT", "POST"]);
   const failedReadback = client([...snapshot(null), ...snapshot(null), response(gate()), ...snapshot(gate(), []), response(policy()), ...snapshot(gate({ can_admins_bypass: true }))]);
-  await assert.rejects(setupReleaseEnvironment(failedReadback, true), /Setup incomplete/u);
+  await assert.rejects(setupReleaseEnvironment(failedReadback, true), /Setup outcome unverified/u);
   assert.deepEqual(writes(failedReadback).map((request) => request.method), ["PUT", "POST"]);
+});
+
+void test("ambiguous POST outcome is never retried blindly and a later exact readback needs no write", async () => {
+  const lostResponse = client([...snapshot(gate(), []), ...snapshot(gate(), []), ...snapshot(gate(), []), new Error("POST response lost")]);
+  await assert.rejects(setupReleaseEnvironment(lostResponse, true, 456), /outcome unverified/u);
+  assert.deepEqual(writes(lostResponse).map((request) => request.method), ["POST"]);
+  const reconcile = client(snapshot());
+  assert.deepEqual(await setupReleaseEnvironment(reconcile, true, 456), { changed: false, plan: { action: "unchanged", reviewer: { id: 123, login: "maintainer" }, environment_id: 456 } });
+  assert.deepEqual(writes(reconcile), []);
 });
 
 void test("malformed or truncated policy pagination never authorizes recovery", async () => {

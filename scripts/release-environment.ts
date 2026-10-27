@@ -97,7 +97,7 @@ export const setupReleaseEnvironment = async (github: Github, apply = false, res
     if (after.actor.id !== before.actor.id || after.actor.login !== before.actor.login || after.gate?.id !== id || !after.gate.main) return fail("Final environment readback differs.");
     return { changed: true, plan: { ...plan, environment_id: id } };
   } catch {
-    return fail(`Setup incomplete for environment ${String(id)}; no automatic retry or policy rollback. Inspect the human gate, then use --apply --resume-environment-id ${String(id)} only for this known partial creation.`);
+    return fail(`Setup outcome unverified for environment ${String(id)}; no automatic retry or policy rollback. Inspect the human gate, then use --apply --resume-environment-id ${String(id)} only for this known creation; an already exact gate is verified without writes.`);
   }
 };
 
