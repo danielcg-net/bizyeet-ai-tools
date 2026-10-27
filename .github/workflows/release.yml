@@ -361,6 +361,7 @@ jobs:
           mkdir signed
           cp "$ATTESTATION_BUNDLE" signed/provenance.sigstore.json
       - name: Verify cryptographic provenance identity
+        id: verified
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ github.sha }}
@@ -381,6 +382,7 @@ jobs:
           PROVENANCE_ARTIFACT_ID: ${{ steps.signed.outputs.artifact-id }}
           PUBLICATION_REQUESTED: ${{ inputs.publish }}
           RELEASE_TAG: ${{ inputs.tag }}
+          REVIEW_ATTESTED: ${{ steps.provenance.outcome == 'success' && steps.verified.outcome == 'success' && steps.signed.outcome == 'success' && 'true' || 'false' }}
         with:
           script: |-
             const fs = require('node:fs/promises');
@@ -432,6 +434,7 @@ jobs:
                 return summary;
             };
             if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');
+            if (process.env.REVIEW_ATTESTED !== 'true') throw new Error('Successful provenance, strict verification and signed-upload phase proof is required');
             const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
             const review = readReview(release, {
               PUBLICATION_REQUESTED: process.env.PUBLICATION_REQUESTED,
@@ -440,7 +443,7 @@ jobs:
               PROVENANCE_ARTIFACT_ID: process.env.PROVENANCE_ARTIFACT_ID,
               GITHUB_SHA: context.sha,
               GITHUB_RUN_ID: String(context.runId),
-              REVIEW_ATTESTED: "true"
+              REVIEW_ATTESTED: process.env.REVIEW_ATTESTED
             });
             await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, renderReview(review));
   publish:

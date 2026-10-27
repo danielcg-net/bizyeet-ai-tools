@@ -31,13 +31,18 @@ void test("drift checks reject manual changes and explicit generation restores o
   assert.deepEqual(validateWorkflow("release.yml", generated), []);
 });
 void test("the static signing summary explicitly projects only presentation environment inputs", (): void => {
-  const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<{attest: Readonly<{steps: readonly Readonly<{name: string; with?: Readonly<{script?: string}>}>[]}>}>}>;
+  const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<{attest: Readonly<{steps: readonly Readonly<{name: string; id?: string; env?: Readonly<Record<string, string>>; with?: Readonly<{script?: string}>}>[]}>}>}>;
   const script = workflow.jobs.attest.steps.find((step) => step.name === "Present attested candidate before approval")?.with?.script ?? "";
   assert.doesNotMatch(script, /\.\.\.process\.env/u);
   ["PUBLICATION_REQUESTED", "RELEASE_TAG", "CANDIDATE_ARTIFACT_ID", "PROVENANCE_ARTIFACT_ID"].forEach((key) => { assert.ok(script.includes(`${key}: process.env.${key}`)); });
   assert.match(script, /GITHUB_SHA: context\.sha/u);
   assert.match(script, /GITHUB_RUN_ID: String\(context\.runId\)/u);
-  assert.match(script, /REVIEW_ATTESTED: "true"/u);
+  assert.match(script, /REVIEW_ATTESTED: process\.env\.REVIEW_ATTESTED/u);
+  assert.match(script, /process\.env\.REVIEW_ATTESTED !== 'true'/u);
+  assert.equal(workflow.jobs.attest.steps.find((step) => step.name === "Verify cryptographic provenance identity")?.id, "verified");
+  assert.equal(workflow.jobs.attest.steps.find((step) => step.name === "Attest exact canonical tarball")?.id, "provenance");
+  assert.equal(workflow.jobs.attest.steps.find((step) => step.name === "Retain signed candidate evidence")?.id, "signed");
+  assert.equal(workflow.jobs.attest.steps.find((step) => step.name === "Present attested candidate before approval")?.env?.REVIEW_ATTESTED, "${{ steps.provenance.outcome == 'success' && steps.verified.outcome == 'success' && steps.signed.outcome == 'success' && 'true' || 'false' }}");
 });
 [
   ["PR trigger", "workflow_dispatch:", "pull_request:"],

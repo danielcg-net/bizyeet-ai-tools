@@ -217,6 +217,7 @@ const RELEASE_SUMMARY_BYTE_LIMIT = ${String(RELEASE_SUMMARY_BYTE_LIMIT)};
 const readReview = ${releaseReviewInput.toString().replaceAll("\r\n", "\n")};
 const renderReview = ${renderReleaseReview.toString().replaceAll("\r\n", "\n")};
 if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');
+if (process.env.REVIEW_ATTESTED !== 'true') throw new Error('Successful provenance, strict verification and signed-upload phase proof is required');
 const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
 const review = readReview(release, {
   PUBLICATION_REQUESTED: process.env.PUBLICATION_REQUESTED,
@@ -225,7 +226,7 @@ const review = readReview(release, {
   PROVENANCE_ARTIFACT_ID: process.env.PROVENANCE_ARTIFACT_ID,
   GITHUB_SHA: context.sha,
   GITHUB_RUN_ID: String(context.runId),
-  REVIEW_ATTESTED: "true"
+  REVIEW_ATTESTED: process.env.REVIEW_ATTESTED
 });
 await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, renderReview(review));`;
 

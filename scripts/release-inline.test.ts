@@ -267,3 +267,13 @@ void test("actual static summary passes only explicit presentation inputs and ne
     },
   });
 });
+
+void test("actual attested summary throws without exact successful phase-outcome proof", async (): Promise<void> => {
+  const env = {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456"};
+  await assert.rejects(runInline(reviewSummary, fixture(), bundleFiles(), env), /phase proof is required/u);
+  await ["false", "skipped", "failure", "cancelled", "True", "1"].reduce(async (previous, proof): Promise<void> => {
+    await previous;
+    await assert.rejects(runInline(reviewSummary, fixture(), bundleFiles(), {...env, REVIEW_ATTESTED: proof}), /phase proof is required/u);
+  }, Promise.resolve());
+  await runInline(reviewSummary, fixture(), bundleFiles(), {...env, REVIEW_ATTESTED: "true"});
+});
