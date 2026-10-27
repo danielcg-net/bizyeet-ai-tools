@@ -7,6 +7,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { parseDocument } from "yaml";
+import { releaseReviewScript } from "./release-workflow-template.js";
+import { isolatedTestEnvironment } from "./test-child-environment.js";
 
 type Data = Readonly<Record<string, unknown>>;
 type Step = Readonly<{ name: string; with?: Readonly<{script?: string}> }>;
@@ -26,6 +28,7 @@ const metadata = {name: "@bizyeet/ai-tools", version: "0.1.0-beta.1", private: f
 const readiness = {schema_version: 1, repository: "danielcg-net/bizyeet-ai-tools", package: metadata.name, version: metadata.version, tag, workflow: "release.yml", environment: "npm-release", maintainer: {login: "maintainer", ownership_evidence_url: "https://example.test/ownership", publisher_evidence_url: "https://example.test/oidc", confirmed_at: new Date().toISOString(), publisher: {direct_publish_allowed: true, trust_configured_at: new Date().toISOString(), first_publish_succeeded: false}, prevent_self_review: false, reviewer_ids: [123]}};
 const environment = {name: "npm-release", can_admins_bypass: false, deployment_branch_policy: {protected_branches: false, custom_branch_policies: true}, protection_rules: [{type: "required_reviewers", prevent_self_review: false, reviewers: [{type: "User", reviewer: {id: 123, type: "User"}}]}]};
 const context = {repo: {owner: "danielcg-net", repo: "bizyeet-ai-tools"}, eventName: "workflow_dispatch", ref: "refs/heads/main", sha, runId: 42, runAttempt: 1};
+const reviewSummary = releaseReviewScript;
 const verification = script("attest", "Revalidate exact source, tag, policy and candidate");
 const registry = script("publish", "Reconcile registry before any publish");
 const githubRelease = script("github-release", "Create immutable matching prerelease or verify complete outcome");
@@ -70,7 +73,7 @@ const fetch = async url => {
   return new Response(response.chunks ? new ReadableStream({start: controller => {Array.from({length:response.chunks}, () => Uint8Array.of(32)).forEach(chunk => controller.enqueue(chunk));controller.close();}}) : typeof response.body === 'string' ? response.body : JSON.stringify(response.body), {status:response.status});
 };
 `;
-const runInline = async (code: string, input: Data, files: Readonly<Record<string, string>> = {}, env: Readonly<Record<string, string>> = {}): Promise<string> => {
+const runInline = async (code: string, input: Data, files: Readonly<Record<string, string>> = {}, env: Readonly<Record<string, string>> = {}, options: Readonly<{inherited?: NodeJS.ProcessEnv; inspect?: (root: string, environment: NodeJS.ProcessEnv) => Promise<void>}> = {}): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), "bizyeet-release-inline-"));
   try {
     await mkdir(join(root, "bundle"));
@@ -78,7 +81,10 @@ const runInline = async (code: string, input: Data, files: Readonly<Record<strin
     await Promise.all(Object.entries(files).map(async ([name, content]): Promise<void> => { await writeFile(join(root, name), content); }));
     await writeFile(join(root, "fixture.json"), JSON.stringify(input));
     await writeFile(join(root, "inline.cjs"), `${harness}\nasync function main(require){\n${code}\n}\nmain(input.rejectStats ? id => {const loaded=require(id); return id === "node:fs/promises" ? {...loaded,lstat:async()=>{throw new Error("STAT SHOULD NOT RUN");}} : loaded;} : require).catch(error=>{console.error(error.message);process.exitCode=1;});\n`);
-    return (await execute(process.execPath, [join(root, "inline.cjs"), join(root, "fixture.json")], {cwd: root, env: {...process.env, RELEASE_TAG: tag, PUBLICATION_REQUESTED: "true", BUNDLE_REQUIRED: "false", GITHUB_RUN_ATTEMPT: "1", ...env}, timeout: 10_000})).stdout;
+    const environment = isolatedTestEnvironment(root, options.inherited ?? process.env, {RELEASE_TAG: tag, PUBLICATION_REQUESTED: "true", BUNDLE_REQUIRED: "false", GITHUB_RUN_ATTEMPT: "1", ...env});
+    const result = await execute(process.execPath, [join(root, "inline.cjs"), join(root, "fixture.json")], {cwd: root, env: environment, timeout: 10_000});
+    await options.inspect?.(root, environment);
+    return result.stdout;
   } finally { await rm(root, {recursive: true, force: true}); }
 };
 const bundleFiles = (candidateReadiness: unknown = readiness): Readonly<Record<string, string>> => {
@@ -179,4 +185,29 @@ void test("actual release reconciliation accepts only matching complete assets a
   assert.doesNotMatch(resumed, /mutation:create/u);
   assert.equal(resumed.split("mutation:upload:").length, 2);
   await assert.rejects(runInline(githubRelease, fixture({existingRelease}), {...files, "bundle/release.json": (files["bundle/release.json"] ?? "").replace('"run_id":"42"', '"run_id":"43"')}), /digest differs/u);
+});
+
+void test("inline fixtures cannot modify parent Actions files or inherit credentials and executable injection", async (): Promise<void> => {
+  const parent = await mkdtemp(join(tmpdir(), "bizyeet-parent-canaries-"));
+  const keys = ["GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE"];
+  const injected = {GH_TOKEN: "parent-secret", GITHUB_TOKEN: "parent-secret", NODE_AUTH_TOKEN: "parent-secret", NPM_TOKEN: "parent-secret", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "parent-secret", ACTIONS_RUNTIME_TOKEN: "parent-secret", NODE_OPTIONS: "--require=/must-not-execute", NODE_PATH: "/must-not-load", BASH_ENV: "/must-not-execute"};
+  try {
+    const canaries = Object.fromEntries(keys.map((key) => [key, join(parent, key)]));
+    await Promise.all(Object.values(canaries).map(async (path): Promise<void> => { await writeFile(path, "PARENT CANARY"); }));
+    const probe = `${reviewSummary}\nawait Promise.all(['GITHUB_OUTPUT','GITHUB_ENV','GITHUB_PATH','GITHUB_STATE'].map(key => fs.appendFile(process.env[key], 'private fixture command')));`;
+    await runInline(probe, fixture(), bundleFiles(), {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456", REVIEW_ATTESTED: "true"}, {
+      inherited: {...process.env, ...canaries, ...injected},
+      inspect: async (root, environment): Promise<void> => {
+        Object.keys(injected).forEach((key) => { assert.equal(environment[key], undefined); });
+        const summary = await readFile(environment.GITHUB_STEP_SUMMARY ?? "", "utf8");
+        assert.match(summary, /Source SHA: a{40}/u);
+        assert.match(summary, /actions\/runs\/42/u);
+        await Promise.all(keys.map(async (key): Promise<void> => {
+          assert.ok((environment[key] ?? "").startsWith(root));
+          assert.equal(await readFile(canaries[key] ?? "", "utf8"), "PARENT CANARY");
+          assert.ok((await readFile(environment[key] ?? "", "utf8")).length > 0);
+        }));
+      },
+    });
+  } finally { await rm(parent, {recursive: true, force: true}); }
 });

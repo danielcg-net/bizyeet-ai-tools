@@ -1,3 +1,4 @@
+import { isolatedTestEnvironment } from "../scripts/test-child-environment.js";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -27,14 +28,19 @@ const exitCode = (child: ReturnType<typeof spawn>): Promise<number | null> => ne
 });
 
 type ProcessResult = Readonly<{ output: string; errors: string; code: number | null }>;
-const runResult = async (command: string, args: readonly string[], cwd: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<ProcessResult> => {
-  const child = spawn(command, args, { cwd, env: environment, stdio: ["pipe", "pipe", "pipe"] });
-  child.stdin.end(input);
-  const [output, errors, code] = await Promise.all([collect(child.stdout), collect(child.stderr), exitCode(child)]);
-  return { output, errors, code };
+const runResult = async (command: string, args: readonly string[], cwd: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<ProcessResult> => {
+  const ownedEnvironment = environment === undefined ? await mkdtemp(join(tmpdir(), "bizyeet-test-env-")) : undefined;
+  try {
+    const child = spawn(command, args, { cwd, env: environment ?? isolatedTestEnvironment(ownedEnvironment ?? ""), stdio: ["pipe", "pipe", "pipe"] });
+    child.stdin.end(input);
+    const [output, errors, code] = await Promise.all([collect(child.stdout), collect(child.stderr), exitCode(child)]);
+    return { output, errors, code };
+  } finally {
+    if (ownedEnvironment) await rm(ownedEnvironment, {recursive: true, force: true});
+  }
 };
 
-const run = async (command: string, args: readonly string[], cwd: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<string> => {
+const run = async (command: string, args: readonly string[], cwd: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<string> => {
   const { output, errors, code } = await runResult(command, args, cwd, environment, input);
   if (code !== 0) throw new Error(`${command} exited with ${code === null ? "no exit code" : code.toString()}: ${errors}`);
   return output;
@@ -47,7 +53,7 @@ const packedArchive = async (directory: string): Promise<string> => {
   return join(directory, archives[0] ?? "");
 };
 
-const runNpm = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<string> => {
+const runNpm = async (args: readonly string[], directory: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<string> => {
   const cli = process.env.npm_execpath;
   if (!cli) throw new Error("Run package tests through npm test.");
   return run(process.execPath, [cli, ...args], directory, environment, input);
@@ -71,7 +77,7 @@ const credentialConfig = async (directory: string, issuer = "https://example.tes
   await writeFile(join(configuration, "profiles.json"), `${JSON.stringify({ [profile]: { clientId: "attacker", issuer: "https://attacker.invalid" } })}\n`, { encoding: "utf8", mode: 0o666 });
   if (process.platform === "win32") await nativeKeychain.save(profile, credentials);
   else await writeFile(join(configuration, "credentials.json"), `${JSON.stringify({ [profile]: credentials })}\n`, { encoding: "utf8", mode: 0o600 });
-  return { ...process.env, BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") };
+  return isolatedTestEnvironment(directory, process.env, { BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") });
 };
 
 const opaqueId = "--synthetic:customer~id";

@@ -100,19 +100,7 @@ jobs:
               core.setOutput('version', metadata.version);
               core.setOutput('digest', manifest.artifact.sha256);
               await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
-              if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
-                '# Verified beta candidate',
-                'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
-                'Source SHA: ' + context.sha,
-                'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
-                'Version: ' + metadata.version,
-                'Tarball SHA256: ' + manifest.artifact.sha256,
-                'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
-                'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
-                'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
-                release.notes,
-                ''
-              ].join('\n\n'));
+
 
             }
             core.setOutput('version', metadata.version);
@@ -195,6 +183,12 @@ jobs:
           path: release-artifacts/
           if-no-files-found: error
           retention-days: 90
+      - name: Present canonical candidate before approval
+        env:
+          CANDIDATE_ARTIFACT_ID: ${{ steps.bundle.outputs.artifact-id }}
+          PUBLICATION_REQUESTED: ${{ inputs.publish }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node dist/scripts/release-review-summary.js
   attest:
     if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     needs: build
@@ -287,19 +281,7 @@ jobs:
               core.setOutput('version', metadata.version);
               core.setOutput('digest', manifest.artifact.sha256);
               await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
-              if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
-                '# Verified beta candidate',
-                'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
-                'Source SHA: ' + context.sha,
-                'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
-                'Version: ' + metadata.version,
-                'Tarball SHA256: ' + manifest.artifact.sha256,
-                'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
-                'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
-                'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
-                release.notes,
-                ''
-              ].join('\n\n'));
+
 
             }
             core.setOutput('version', metadata.version);
@@ -330,6 +312,55 @@ jobs:
           path: signed/provenance.sigstore.json
           if-no-files-found: error
           retention-days: 90
+      - name: Present attested candidate before approval
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          CANDIDATE_ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+          PROVENANCE_ARTIFACT_ID: ${{ steps.signed.outputs.artifact-id }}
+          PUBLICATION_REQUESTED: ${{ inputs.publish }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        with:
+          script: |-
+            const fs = require('node:fs/promises');
+            const readReview = (value, environment) => {
+                const record = (item) => typeof item === "object" && item !== null && !Array.isArray(item);
+                if (!record(value) || !record(value.manifest) || !record(value.manifest.artifact))
+                    throw new Error("Missing canonical review metadata.");
+                const packageName = value.package;
+                const source = value.source_sha;
+                const run = value.run_id;
+                const version = value.version;
+                const tag = value.tag;
+                const digest = value.manifest.artifact.sha256;
+                const notes = value.notes;
+                const candidate = environment.CANDIDATE_ARTIFACT_ID ?? "";
+                const provenance = environment.PROVENANCE_ARTIFACT_ID ?? "";
+                const attested = environment.REVIEW_ATTESTED === "true";
+                if (typeof packageName !== "string" || packageName.length > 214 || !/^(?:@[a-z0-9-]+\/)?[a-z0-9][a-z0-9._-]*$/u.test(packageName) || typeof source !== "string" || !/^[a-f0-9]{40}$/u.test(source) || source !== environment.GITHUB_SHA || typeof run !== "string" || !/^\d+$/u.test(run) || run !== environment.GITHUB_RUN_ID || typeof version !== "string" || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/u.test(version) || typeof tag !== "string" || tag.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(tag) || tag !== environment.RELEASE_TAG || typeof digest !== "string" || !/^[a-f0-9]{64}$/u.test(digest) || typeof notes !== "string" || notes.length < 50 || typeof value.tag_verified !== "boolean" || !/^\d+$/u.test(candidate) || (attested && !/^\d+$/u.test(provenance)))
+                    throw new Error("Review summary differs from actual source/run/artifacts.");
+                return { package: packageName, source, run, version, tag, digest, notes, candidate, provenance, attested, tagVerified: value.tag_verified, publish: environment.PUBLICATION_REQUESTED === "true" };
+            };
+            const renderReview = (input) => [
+                input.attested ? "# Attested release candidate for review" : "# Canonical release candidate for review",
+                `Package: ${input.package}`,
+                `Source SHA: ${input.source}`,
+                `Version: ${input.version}`,
+                `Tag: ${input.tag} (existing tag verified: ${String(input.tagVerified)})`,
+                `Tarball SHA256: ${input.digest}`,
+                `Run: https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}`,
+                "Matrix: Ubuntu, macOS and Windows; Node 24 and 26 — all six upstream jobs succeeded.",
+                "Installed exact version/help and canonical checksums verified.",
+                input.attested ? "Cryptographic attestation: strict source/signer/main/hosted verification succeeded in the preceding step." : "Cryptographic attestation: pending the separate attestation job; this build summary is not signing proof.",
+                `[Canonical candidate](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.candidate})`,
+                ...(input.attested ? [`[Verified attestation bundle](https://github.com/danielcg-net/bizyeet-ai-tools/actions/runs/${input.run}/artifacts/${input.provenance})`] : []),
+                input.publish ? "Protected publication requested. Review this exact run, source and digest before the environment approval gate." : "UNPUBLISHED verification only. No publication was requested.",
+                input.notes,
+                "",
+            ].join("\n\n");
+            if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');
+            const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+            const review = readReview(release, {...process.env, GITHUB_SHA: context.sha, GITHUB_RUN_ID: String(context.runId), REVIEW_ATTESTED: "true"});
+            await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, renderReview(review));
   publish:
     if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish
     needs:
@@ -428,19 +459,7 @@ jobs:
               core.setOutput('version', metadata.version);
               core.setOutput('digest', manifest.artifact.sha256);
               await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
-              if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
-                '# Verified beta candidate',
-                'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
-                'Source SHA: ' + context.sha,
-                'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
-                'Version: ' + metadata.version,
-                'Tarball SHA256: ' + manifest.artifact.sha256,
-                'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
-                'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
-                'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
-                release.notes,
-                ''
-              ].join('\n\n'));
+
 
             }
             core.setOutput('version', metadata.version);
@@ -644,7 +663,7 @@ jobs:
         run: |
           node -e 'const [major,minor,patch] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) throw new Error("npm >=11.5.1 required"); if (["NODE_AUTH_TOKEN","NPM_TOKEN","npm_config_token"].some(name => process.env[name])) throw new Error("Static npm credentials forbidden");' "$(npm --version)"
           if [ "$EXISTS" = "false" ]; then
-            npm publish "bundle/$TARBALL" --registry=https://registry.npmjs.org --access=public --tag=beta --ignore-scripts --provenance
+            npm publish "./bundle/$TARBALL" --registry=https://registry.npmjs.org --access=public --tag=beta --ignore-scripts --provenance
           fi
     outputs:
       latest-before: ${{ steps.registry.outputs.latest-before }}
@@ -745,19 +764,7 @@ jobs:
               core.setOutput('version', metadata.version);
               core.setOutput('digest', manifest.artifact.sha256);
               await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
-              if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
-                '# Verified beta candidate',
-                'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
-                'Source SHA: ' + context.sha,
-                'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
-                'Version: ' + metadata.version,
-                'Tarball SHA256: ' + manifest.artifact.sha256,
-                'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
-                'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
-                'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
-                release.notes,
-                ''
-              ].join('\n\n'));
+
 
             }
             core.setOutput('version', metadata.version);

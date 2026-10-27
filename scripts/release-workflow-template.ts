@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument, stringify } from "yaml";
+import { releaseReviewInput, renderReleaseReview } from "./release-review-summary.js";
 
 // Single authoring source for reviewed inline code. Privileged jobs never load
 // this file or repository code; the generated workflow contains static copies.
@@ -69,19 +70,7 @@ if (process.env.BUNDLE_REQUIRED === 'true') {
   core.setOutput('version', metadata.version);
   core.setOutput('digest', manifest.artifact.sha256);
   await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
-  if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
-    '# Verified beta candidate',
-    'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
-    'Source SHA: ' + context.sha,
-    'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
-    'Version: ' + metadata.version,
-    'Tarball SHA256: ' + manifest.artifact.sha256,
-    'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
-    'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
-    'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
-    release.notes,
-    ''
-  ].join('\n\n'));
+
 
 }
 core.setOutput('version', metadata.version);
@@ -211,7 +200,15 @@ if (existing && !existing.draft) {
 }
 `;
 
-const templates: Readonly<Record<string, string>> = {"Revalidate exact source, tag, policy and candidate":sourceAndCandidateScript,"Reconcile registry before any publish":registryScript,"Recheck captured registry mapping immediately before publication":registryScript,"Verify registry bytes, beta mapping and retrieve npm provenance":registryScript,"Create immutable matching prerelease or verify complete outcome":githubReleaseScript};
+export const releaseReviewScript = `const fs = require('node:fs/promises');
+const readReview = ${releaseReviewInput.toString().replaceAll("\r\n", "\n")};
+const renderReview = ${renderReleaseReview.toString().replaceAll("\r\n", "\n")};
+if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');
+const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+const review = readReview(release, {...process.env, GITHUB_SHA: context.sha, GITHUB_RUN_ID: String(context.runId), REVIEW_ATTESTED: "true"});
+await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, renderReview(review));`;
+
+const templates: Readonly<Record<string, string>> = {"Present attested candidate before approval":releaseReviewScript,"Revalidate exact source, tag, policy and candidate":sourceAndCandidateScript,"Reconcile registry before any publish":registryScript,"Recheck captured registry mapping immediately before publication":registryScript,"Verify registry bytes, beta mapping and retrieve npm provenance":registryScript,"Create immutable matching prerelease or verify complete outcome":githubReleaseScript};
 
 type Mapping = Readonly<Record<string, unknown>>;
 const record = (value: unknown): value is Mapping => typeof value === "object" && value !== null && !Array.isArray(value);
