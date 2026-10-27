@@ -74,13 +74,21 @@ const execute = promisify(original);
 const wrapped = (...args) => original(...args);
 Object.defineProperty(wrapped, promisify.custom, {value: async (...args) => {
   const started = performance.now();
-  const report = error => {
+  const report = (error, stderr) => {
     const code = typeof error?.code === 'number' ? error.code : /^[A-Z][A-Z0-9_]{0,63}$/.test(error?.code ?? '') ? error.code : error ? 'unavailable' : 0;
     const signal = /^SIG[A-Z0-9]{1,16}$/.test(error?.signal ?? '') ? error.signal : null;
-    if (String(args[0]).toLowerCase().endsWith('powershell.exe')) process.stderr.write('BIZYEET_TEST_ACL_DIAGNOSTIC:' + JSON.stringify({code, killed: error?.killed === true, signal, elapsed_ms: Math.round(performance.now() - started), timeout_ms: typeof args[2]?.timeout === 'number' ? args[2].timeout : null}) + '\\n');
+    const stages = typeof stderr === 'string' ? stderr.split(/\\r?\\n/).filter(line => /^fixture-acl-stage:(?:start|module|identity|item|new-object|rule|set-acl|get-acl|verify):[0-9]{1,9}$/.test(line)) : [];
+    if (String(args[0]).toLowerCase().endsWith('powershell.exe')) process.stderr.write('BIZYEET_TEST_ACL_DIAGNOSTIC:' + JSON.stringify({code, killed: error?.killed === true, signal, elapsed_ms: Math.round(performance.now() - started), timeout_ms: typeof args[2]?.timeout === 'number' ? args[2].timeout : null, stages}) + '\\n');
   };
-  try { const result = await execute(...args); report(); return result; }
-  catch (error) { report(error); throw error; }
+  const labels = [['Import-Module -Name', 'module'], ['$path =', 'identity'], ['$item = Get-Item', 'item'], ['  $acl = New-Object', 'new-object'], ['  $rule = New-Object', 'rule'], ['  Set-Acl -LiteralPath', 'set-acl'], ['$actual = Get-Acl', 'get-acl'], ['$rules =', 'verify']];
+  const instrument = script => ["$fixtureAclTimer = [System.Diagnostics.Stopwatch]::StartNew()", "[Console]::Error.WriteLine('fixture-acl-stage:start:' + $fixtureAclTimer.ElapsedMilliseconds)", ...script.split('\\n').flatMap(line => {
+    const label = labels.find(([prefix]) => line.startsWith(prefix));
+    return label ? ["[Console]::Error.WriteLine('fixture-acl-stage:" + label[1] + ":' + $fixtureAclTimer.ElapsedMilliseconds)", line] : [line];
+  })].join('\\n');
+  const forwarded = String(args[0]).toLowerCase().endsWith('powershell.exe') && Array.isArray(args[1]) && args[1].includes('-EncodedCommand')
+    ? [args[0], [...args[1].slice(0, -1), Buffer.from(instrument(Buffer.from(args[1].at(-1), 'base64').toString('utf16le')), 'utf16le').toString('base64')], args[2]] : args;
+  try { const result = await execute(...forwarded); report(undefined, result.stderr); return result; }
+  catch (error) { report(error, error?.stderr); throw error; }
 }});
 childProcess.execFile = wrapped;
 syncBuiltinESMExports();
@@ -754,7 +762,8 @@ export const execute = async () => {
     assert.match(result, /^BIZYEET_TEST_ACL_DIAGNOSTIC:/u);
     const diagnostic: unknown = JSON.parse(result.slice("BIZYEET_TEST_ACL_DIAGNOSTIC:".length));
     assert.ok(typeof diagnostic === "object" && diagnostic !== null);
-    assert.deepEqual(Object.keys(diagnostic).sort(), ["code", "elapsed_ms", "killed", "signal", "timeout_ms"]);
+    assert.deepEqual(Object.keys(diagnostic).sort(), ["code", "elapsed_ms", "killed", "signal", "stages", "timeout_ms"]);
+    assert.ok("stages" in diagnostic && Array.isArray(diagnostic.stages) && diagnostic.stages.length === 0);
     assert.ok("code" in diagnostic && diagnostic.code === "ENOENT");
     assert.ok("timeout_ms" in diagnostic && diagnostic.timeout_ms === 1234);
     assert.doesNotMatch(result, /private-command-argument|private-native-error-detail|missing|node_modules/u);
