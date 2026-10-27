@@ -5,7 +5,9 @@ import { validateWorkflow } from "./check-workflow-security.js";
 import { renderReleaseWorkflow } from "./release-workflow-template.js";
 import { parseDocument } from "yaml";
 
-const source = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+// Checkout may use CRLF on Windows. Build LF/CRLF cases from one canonical
+// fixture so conversion never manufactures invalid CRCRLF YAML.
+const source = (await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
 void test("only exact reviewed main-dispatched publication workflow obtains privileged exceptions", (): void => {
   assert.deepEqual(validateWorkflow("release.yml", source), []);
   assert.deepEqual(validateWorkflow("release.yml", source.replaceAll("\n", "\r\n")), []);
