@@ -63,9 +63,7 @@ const runNpm = async (args: readonly string[], directory: string, environment?: 
 const runInstalled = (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv, input?: string): Promise<string> =>
   runNpm(["exec", "--offline", "--no", "--", "bizyeet", ...args], directory, environment, input);
 
-// Run only after the unchanged installed-bin export has already failed. This
-// synthetic-fixture diagnostic never turns that failure into a passing result.
-const diagnoseInstalledExport = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv): Promise<string> => {
+const probeInstalledExport = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv): Promise<ProcessResult> => {
   const probe = join(directory, "diagnose-export.mjs");
   await writeFile(probe, `import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
@@ -92,9 +90,15 @@ process.exitCode = await run(process.argv.slice(3), console);
   const cli = process.env.npm_execpath;
   if (!cli) throw new Error("Run package tests through npm test.");
   const installed = join(directory, "node_modules", "@bizyeet", "ai-tools", "dist", "src", "cli.js");
-  const result = await runResult(process.execPath, [cli, "exec", "--offline", "--no", "--", process.execPath, probe, installed, ...args], directory, environment);
-  return result.errors.split("\n").filter((line) => line.startsWith("BIZYEET_TEST_ACL_DIAGNOSTIC:")).join("\n") || "Native diagnostic produced no scalar records; cause remains unconfirmed.";
+  return runResult(process.execPath, [cli, "exec", "--offline", "--no", "--", process.execPath, probe, installed, ...args], directory, environment);
 };
+
+const nativeDiagnostic = (errors: string): string => errors.split("\n").filter((line) => line.startsWith("BIZYEET_TEST_ACL_DIAGNOSTIC:")).join("\n") || "Native diagnostic produced no scalar records; cause remains unconfirmed.";
+
+// Run after the installed-bin export has already failed; never convert failure
+// to a pass, and never expose the native command, arguments, paths or stderr.
+const diagnoseInstalledExport = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv): Promise<string> =>
+  nativeDiagnostic((await probeInstalledExport(args, directory, environment)).errors);
 
 const commandLookup = (): Readonly<{ args: readonly string[]; command: string }> =>
   process.platform === "win32"
@@ -470,6 +474,13 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
       const exportArgs = ["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)];
       const exportEnvironment = { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory };
+      // TEMPORARY DEVELOPMENT DIAGNOSTIC: capture the cold native failure before
+      // the unchanged installed-bin customer/lead exports. Remove before merge;
+      // a passing warmed installed-bin export is not final acceptance evidence.
+      if (process.platform === "win32") {
+        const cold = await probeInstalledExport(exportArgs, directory, exportEnvironment);
+        assert.equal(cold.code, 0, `Temporary cold native diagnostic: ${nativeDiagnostic(cold.errors)}`);
+      }
       const exported = await runInstalled(exportArgs, directory, exportEnvironment).catch(async (error: unknown): Promise<never> => {
         if (process.platform !== "win32") throw error;
         const diagnostic = await diagnoseInstalledExport(exportArgs, directory, exportEnvironment)
