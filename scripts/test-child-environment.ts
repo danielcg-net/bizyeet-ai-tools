@@ -8,6 +8,27 @@ const fixtureKeys = new Set<string>([...operatingSystemKeys, "RELEASE_TAG", "PUB
 const commandFiles = ["GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE"] as const;
 const forbiddenOverride = /^(?:ACTIONS_|RUNNER_|GITHUB_(?!(?:RUN_ATTEMPT|RUN_ID|SHA)$)|GH_TOKEN$|GITHUB_TOKEN$|NPM_|NODE_AUTH_TOKEN$|NODE_OPTIONS$|NODE_PATH$|BASH_ENV$|ENV$|LD_|DYLD_)/u;
 
+const windowsValue = (environment: NodeJS.ProcessEnv, key: string): string | undefined => {
+  const values = Object.entries(environment).filter(([name, value]) => name.toUpperCase() === key.toUpperCase() && value !== undefined).map(([, value]) => value);
+  if (new Set(values).size > 1) throw new Error("Conflicting Windows fixture OS-key aliases.");
+  return values[0];
+};
+
+/** Project only known OS essentials, with Windows casing and alias conflicts handled explicitly. */
+export const fixtureOperatingSystemEnvironment = (inherited: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv =>
+  Object.fromEntries(operatingSystemKeys.filter((key, index) => platform !== "win32" || operatingSystemKeys.findIndex((candidate) => candidate.toUpperCase() === key.toUpperCase()) === index).flatMap((key) => {
+    const value = platform === "win32" ? windowsValue(inherited, key) : inherited[key];
+    return value === undefined ? [] : [[key, value]];
+  }));
+
+const fixtureOverrides = (overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const allowed = Object.fromEntries(Object.entries(overrides).filter(([key]) => fixtureKeys.has(key) && !forbiddenOverride.test(key.toUpperCase())));
+  return process.platform === "win32" ? {
+    ...Object.fromEntries(Object.entries(allowed).filter(([key]) => !operatingSystemKeys.some((candidate) => candidate.toUpperCase() === key.toUpperCase()))),
+    ...fixtureOperatingSystemEnvironment(allowed),
+  } : allowed;
+};
+
 /** Derive fixture executable search directories without consulting inherited PATH. */
 export const fixtureSystemPath = (inherited: NodeJS.ProcessEnv = process.env,
   runtime: Readonly<{platform: NodeJS.Platform; execPath: string}> = process): string => {
@@ -18,15 +39,15 @@ export const fixtureSystemPath = (inherited: NodeJS.ProcessEnv = process.env,
     return paths.normalize(value);
   };
   const directories = [paths.dirname(absolute(runtime.execPath)), ...(runtime.platform === "win32"
-    ? [paths.join(absolute(inherited.SystemRoot ?? inherited.SYSTEMROOT), "System32"), paths.join(absolute(inherited.ProgramFiles), "OpenSSL", "bin")]
+    ? [paths.join(absolute(windowsValue(inherited, "SystemRoot")), "System32"), paths.join(absolute(windowsValue(inherited, "ProgramFiles")), "OpenSSL", "bin")]
     : ["/usr/bin", "/bin"])];
   return directories.filter((value, index) => directories.findIndex((candidate) => runtime.platform === "win32" ? candidate.toLowerCase() === value.toLowerCase() : candidate === value) === index).join(separator);
 };
 
 /** Give fixture subprocesses only OS essentials, explicit inputs and private command/config files. */
 export const isolatedTestEnvironment = (root: string, inherited: NodeJS.ProcessEnv = process.env, overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
-  ...Object.fromEntries(operatingSystemKeys.flatMap((key) => inherited[key] === undefined ? [] : [[key, inherited[key]]])),
-  ...Object.fromEntries(Object.entries(overrides).filter(([key]) => fixtureKeys.has(key) && !forbiddenOverride.test(key.toUpperCase()))),
+  ...fixtureOperatingSystemEnvironment(inherited),
+  ...fixtureOverrides(overrides),
   HOME: root,
   USERPROFILE: root,
   APPDATA: join(root, "appdata"),

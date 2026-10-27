@@ -247,9 +247,11 @@ void test("inline fixtures cannot modify parent Actions files or inherit credent
     const parentPowerShellCache = join(parent, "powershell-module-cache");
     await writeFile(parentPowerShellCache, "PARENT POWERSHELL CACHE");
     await Promise.all(Object.values(canaries).map(async (path): Promise<void> => { await writeFile(path, "PARENT CANARY"); }));
+    // Reproduce Bash's possible key spellings even when this test runs under PowerShell.
+    const inheritedProcess = Object.fromEntries(Object.entries(process.env).map(([key, value]) => [process.platform === "win32" && ["SYSTEMROOT", "PROGRAMFILES"].includes(key.toUpperCase()) ? key.toUpperCase() : key, value]));
     const probe = `${reviewSummary}\nif (${JSON.stringify(Object.keys(injected))}.some(key => process.env[key] !== undefined) || process.env.PSModulePath !== undefined) throw new Error("Parent authority entered child");\nawait fs.appendFile(process.env.PSModuleAnalysisCachePath, 'private module cache');\nawait Promise.all(['GITHUB_OUTPUT','GITHUB_ENV','GITHUB_PATH','GITHUB_STATE'].map(key => fs.appendFile(process.env[key], 'private fixture command')));`;
     await runInline(probe, fixture(), bundleFiles(), {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456", REVIEW_ATTESTED: "true"}, {
-      inherited: {...process.env, ...canaries, ...injected, PSModulePath: "/must-not-load-parent-modules", PSModuleAnalysisCachePath: parentPowerShellCache},
+      inherited: {...inheritedProcess, ...canaries, ...injected, PSModulePath: "/must-not-load-parent-modules", PSModuleAnalysisCachePath: parentPowerShellCache},
       inspect: async (root, environment): Promise<void> => {
         Object.keys(injected).forEach((key) => { assert.equal(environment[key], undefined); });
         const summary = await readFile(environment.GITHUB_STEP_SUMMARY ?? "", "utf8");

@@ -5,7 +5,7 @@ import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { fixtureSystemPath, installedBinEnvironment, isolatedTestEnvironment } from "./test-child-environment.js";
+import { fixtureOperatingSystemEnvironment, fixtureSystemPath, installedBinEnvironment, isolatedTestEnvironment } from "./test-child-environment.js";
 
 void test("fixture environments retain OS essentials but reject inherited authority and executable hooks", (): void => {
   const root = join(tmpdir(), "owned-fixture");
@@ -40,6 +40,33 @@ void test("fixture paths contain only fixed OS tools and the runtime, with Windo
   ["", "relative", "/runtime:poison/node", "/runtime\n/node"].forEach((execPath) => {
     assert.throws(() => fixtureSystemPath({}, {platform: "linux", execPath}));
   });
+});
+
+void test("plain Windows environment objects retain known roots with uppercase or mixed-case keys", (): void => {
+  const runtime = {platform: "win32" as const, execPath: "C:\\Node\\node.exe"};
+  const expected = "C:\\Node;C:\\Windows\\System32;C:\\Program Files\\OpenSSL\\bin";
+  assert.equal(fixtureSystemPath({SYSTEMROOT: "C:\\Windows", PROGRAMFILES: "C:\\Program Files"}, runtime), expected);
+  assert.equal(fixtureSystemPath({sYsTeMrOoT: "C:\\Windows", pRoGrAmFiLeS: "C:\\Program Files"}, runtime), expected);
+  assert.deepEqual(fixtureOperatingSystemEnvironment({SYSTEMROOT: "C:\\Windows", PROGRAMFILES: "C:\\Program Files", cOmSpEc: "C:\\Windows\\System32\\cmd.exe", PATH: "poison", GH_TOKEN: "secret"}, "win32"), {SystemRoot: "C:\\Windows", ProgramFiles: "C:\\Program Files", COMSPEC: "C:\\Windows\\System32\\cmd.exe"});
+  assert.deepEqual(fixtureOperatingSystemEnvironment({SystemRoot: "C:\\Windows", SYSTEMROOT: "C:\\Windows", ProgramFiles: "C:\\Program Files", PROGRAMFILES: "C:\\Program Files"}, "win32"), {SystemRoot: "C:\\Windows", ProgramFiles: "C:\\Program Files"});
+  [{SystemRoot: "C:\\Windows", SYSTEMROOT: "C:\\other"}, {ProgramFiles: "C:\\Program Files", PROGRAMFILES: "C:\\other"}].forEach((aliases) => {
+    assert.throws(() => fixtureOperatingSystemEnvironment(aliases, "win32"), /Conflicting Windows/u);
+    assert.throws(() => fixtureSystemPath({...aliases, SystemRoot: aliases.SystemRoot ?? "C:\\Windows", ProgramFiles: aliases.ProgramFiles ?? "C:\\Program Files"}, runtime), /Conflicting Windows/u);
+  });
+  [{}, {SYSTEMROOT: "C:\\Windows"}, {PROGRAMFILES: "C:\\Program Files"}].forEach((missing) => { assert.throws(() => fixtureSystemPath(missing, runtime), /absolute/u); });
+  assert.deepEqual(fixtureOperatingSystemEnvironment({ProgramFiles: "/canonical", PROGRAMFILES: "/uppercase", SystemRoot: "/one", SYSTEMROOT: "/two"}, "linux"), {SystemRoot: "/one", SYSTEMROOT: "/two", ProgramFiles: "/canonical"});
+});
+
+void test("actual Windows environment clones preserve known OS roots without revealing their values", (context): void => {
+  if (process.platform !== "win32") { context.skip("Windows environment proxy semantics"); return; }
+  const clone = {...process.env};
+  context.diagnostic(`Known Windows root key spellings: ${Object.keys(clone).filter((key) => ["SYSTEMROOT", "PROGRAMFILES"].includes(key.toUpperCase())).sort().join(",")}`);
+  assert.equal(fixtureSystemPath(clone), fixtureSystemPath(process.env));
+  const projected = fixtureOperatingSystemEnvironment(clone);
+  assert.ok(projected.SystemRoot && projected.ProgramFiles);
+  assert.deepEqual(Object.keys(projected).filter((key) => key.toUpperCase() === "SYSTEMROOT"), ["SystemRoot"]);
+  assert.deepEqual(Object.keys(projected).filter((key) => key.toUpperCase() === "PROGRAMFILES"), ["ProgramFiles"]);
+  assert.throws(() => isolatedTestEnvironment(join(tmpdir(), "fixture"), clone, {SystemRoot: "C:\\one", SYSTEMROOT: "C:\\two"}), /Conflicting Windows/u);
 });
 
 void test("poisoned inherited and override PATH aliases cannot select fixture node or OpenSSL commands", async (): Promise<void> => {
