@@ -8,9 +8,9 @@ const verifier = 'gh attestation verify bundle/*.tgz --bundle "$ATTESTATION_BUND
 const buildSteps = [
   { name: "Checkout trusted source", uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
     with: { ref: "${{ github.sha }}", "persist-credentials": false } },
-  { name: "Set up Node", uses: "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020", with: { "node-version": 24 } },
+  { name: "Set up Node", uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", with: { "node-version": 24 } },
   { name: "Build and verify without signing permissions", run: "npm ci --ignore-scripts\nnpm run release:verify\n" },
-  { name: "Retain verified build", id: "bundle", uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+  { name: "Retain verified build", id: "bundle", uses: "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
     with: { name: "trusted-build-${{ github.sha }}", path: "release-artifacts/", "if-no-files-found": "error", "retention-days": 7 } },
 ];
 
@@ -24,14 +24,14 @@ const attestJob = {
   "timeout-minutes": 10,
   permissions: { contents: "read", "id-token": "write", attestations: "write" },
   steps: [
-    { name: "Download only this run's verified build", uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+    { name: "Download only this run's verified build", uses: "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       with: { "artifact-ids": "${{ needs.build.outputs.artifact-id }}", path: "bundle", "merge-multiple": true } },
     { name: "Attest package provenance", id: "provenance", uses: "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
       with: { "subject-path": "bundle/*.tgz", "push-to-registry": false, "create-storage-record": false } },
     { name: "Verify artifact and exact signer identity",
       env: { GH_TOKEN: "${{ github.token }}", ATTESTATION_BUNDLE: "${{ steps.provenance.outputs.bundle-path }}", SOURCE_SHA: "${{ github.sha }}" },
       run: verifier },
-    { name: "Retain signed provenance evidence", uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    { name: "Retain signed provenance evidence", uses: "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       with: { name: "trusted-provenance-${{ github.sha }}", path: "${{ steps.provenance.outputs.bundle-path }}", "if-no-files-found": "error", "retention-days": 7 } },
   ],
 };
