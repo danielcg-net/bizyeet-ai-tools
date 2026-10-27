@@ -1,0 +1,888 @@
+name: Protected Beta Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable tag matching reviewed beta metadata
+        required: true
+        type: string
+      publish:
+        description: Request protected publication after verification (false is unpublished)
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: npm-release-bizyeet-ai-tools
+  cancel-in-progress: false
+jobs:
+  readiness:
+    if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.candidate.outputs.version }}
+    steps:
+      - name: Revalidate exact source, tag, policy and candidate
+        id: candidate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLICATION_REQUESTED: ${{ inputs.publish }}
+          BUNDLE_REQUIRED: "false"
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const crypto = require('node:crypto');
+            const repo = 'danielcg-net/bizyeet-ai-tools';
+            const [owner, name] = repo.split('/');
+            const get = async (route, parameters = {}) => (await github.request('GET ' + route, { owner, repo: name, ...parameters })).data;
+            const fail = message => { throw new Error(message); };
+            if (context.repo.owner + '/' + context.repo.repo !== repo || context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/main' || !/^[a-f0-9]{40}$/.test(context.sha)) fail('Untrusted dispatch source');
+            const branch = await get('/repos/{owner}/{repo}/branches/main');
+            if (!branch.protected) fail('main must be protected');
+            const comparison = await get('/repos/{owner}/{repo}/compare/{basehead}', { basehead: context.sha + '...main' });
+            if (!['identical', 'ahead'].includes(comparison.status)) fail('Dispatch SHA is not merged main history');
+            const tag = process.env.RELEASE_TAG;
+            if (!/^v\d+\.\d+\.\d+-beta\.[1-9][0-9]*$/.test(tag)) fail('Only numbered beta tags are supported');
+            if (process.env.PUBLICATION_REQUESTED === 'true') {
+            const ref = await get('/repos/{owner}/{repo}/git/ref/tags/{tag}', { tag });
+            const target = ref.object.type === 'tag' ? (await get('/repos/{owner}/{repo}/git/tags/{tag_sha}', { tag_sha: ref.object.sha })).object : ref.object;
+            if (target.type !== 'commit' || target.sha !== context.sha) fail('Existing immutable tag differs from dispatch SHA');
+            }
+            const content = async path => {
+              const response = await get('/repos/{owner}/{repo}/contents/{path}', { path, ref: context.sha });
+              if (response.type !== 'file' || response.encoding !== 'base64') fail('Expected source file');
+              return JSON.parse(Buffer.from(response.content, 'base64').toString('utf8'));
+            };
+            const metadata = await content('package.json');
+            if (metadata.name !== '@bizyeet/ai-tools' || 'v' + metadata.version !== tag || metadata.private !== false || metadata.publishConfig?.registry !== 'https://registry.npmjs.org' || metadata.publishConfig?.access !== 'public' || metadata.publishConfig?.tag !== 'beta' || metadata.repository?.url !== 'git+https://github.com/danielcg-net/bizyeet-ai-tools.git') fail('Reviewed metadata identity differs');
+            if (process.env.PUBLICATION_REQUESTED === 'true') {
+              const ready = await content('scripts/release-readiness.json');
+              const maintainer = ready.maintainer;
+              const publisher = maintainer?.publisher;
+              const configured = Date.parse(publisher?.trust_configured_at);
+              if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || (!publisher.first_publish_succeeded && Date.now() - configured > 172800000) || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation is missing direct publish authority or its initial trust window expired');
+              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+              const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
+              const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
+              const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
+              const reviewers = rules[0]?.reviewers ?? [];
+              const ids = reviewers.filter(entry => entry.type === 'User' && entry.reviewer?.type === 'User').map(entry => entry.reviewer.id);
+              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
+            }
+            if (process.env.BUNDLE_REQUIRED === 'true') {
+              const files = await fs.readdir('bundle', { withFileTypes: true });
+              const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
+              const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
+              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
+              if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
+              const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+              const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
+              const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
+              if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
+              const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
+              if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
+              await Promise.all(sums.map(async line => {
+                const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
+                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry');
+                const hash = crypto.createHash('sha256').update(await fs.readFile('bundle/' + match[2])).digest('hex');
+                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs');
+              }));
+              const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
+              if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
+              if (process.env.PUBLICATION_REQUESTED === 'true' && (release.tag_verified !== true || JSON.stringify(release.readiness) !== JSON.stringify(await content('scripts/release-readiness.json')))) fail('Readiness attestation differs');
+              core.setOutput('tarball', tarball);
+              core.setOutput('version', metadata.version);
+              core.setOutput('digest', manifest.artifact.sha256);
+              await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
+              if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
+                '# Verified beta candidate',
+                'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
+                'Source SHA: ' + context.sha,
+                'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
+                'Version: ' + metadata.version,
+                'Tarball SHA256: ' + manifest.artifact.sha256,
+                'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
+                'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
+                'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
+                release.notes,
+                ''
+              ].join('\n\n'));
+
+            }
+            core.setOutput('version', metadata.version);
+  matrix:
+    if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    needs: readiness
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        node:
+          - 24
+          - 26
+    steps:
+      - name: Checkout exact dispatch SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uncached Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Verify exact beta metadata and full installed package gate
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          npm ci --ignore-scripts
+          npm run release:preflight -- --tag "$RELEASE_TAG"
+          npm run release:verify
+          git diff --exit-code
+          git diff --cached --exit-code
+  build:
+    if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    needs:
+      - readiness
+      - matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.bundle.outputs.artifact-id }}
+    steps:
+      - name: Checkout exact dispatch SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uncached Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Build canonical verified release bundle
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLICATION_REQUESTED: ${{ inputs.publish }}
+        run: |
+          npm ci --ignore-scripts
+          npm run release:preflight -- --tag "$RELEASE_TAG"
+          npm run release:verify
+          node dist/scripts/release-publication.js --tag "$RELEASE_TAG"
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Retain canonical candidate
+        id: bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-candidate-${{ github.run_id }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 90
+  attest:
+    if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    outputs:
+      artifact-id: ${{ steps.signed.outputs.artifact-id }}
+    steps:
+      - name: Download exact same-run artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: bundle
+          merge-multiple: true
+      - name: Revalidate exact source, tag, policy and candidate
+        id: candidate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLICATION_REQUESTED: ${{ inputs.publish }}
+          BUNDLE_REQUIRED: "true"
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const crypto = require('node:crypto');
+            const repo = 'danielcg-net/bizyeet-ai-tools';
+            const [owner, name] = repo.split('/');
+            const get = async (route, parameters = {}) => (await github.request('GET ' + route, { owner, repo: name, ...parameters })).data;
+            const fail = message => { throw new Error(message); };
+            if (context.repo.owner + '/' + context.repo.repo !== repo || context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/main' || !/^[a-f0-9]{40}$/.test(context.sha)) fail('Untrusted dispatch source');
+            const branch = await get('/repos/{owner}/{repo}/branches/main');
+            if (!branch.protected) fail('main must be protected');
+            const comparison = await get('/repos/{owner}/{repo}/compare/{basehead}', { basehead: context.sha + '...main' });
+            if (!['identical', 'ahead'].includes(comparison.status)) fail('Dispatch SHA is not merged main history');
+            const tag = process.env.RELEASE_TAG;
+            if (!/^v\d+\.\d+\.\d+-beta\.[1-9][0-9]*$/.test(tag)) fail('Only numbered beta tags are supported');
+            if (process.env.PUBLICATION_REQUESTED === 'true') {
+            const ref = await get('/repos/{owner}/{repo}/git/ref/tags/{tag}', { tag });
+            const target = ref.object.type === 'tag' ? (await get('/repos/{owner}/{repo}/git/tags/{tag_sha}', { tag_sha: ref.object.sha })).object : ref.object;
+            if (target.type !== 'commit' || target.sha !== context.sha) fail('Existing immutable tag differs from dispatch SHA');
+            }
+            const content = async path => {
+              const response = await get('/repos/{owner}/{repo}/contents/{path}', { path, ref: context.sha });
+              if (response.type !== 'file' || response.encoding !== 'base64') fail('Expected source file');
+              return JSON.parse(Buffer.from(response.content, 'base64').toString('utf8'));
+            };
+            const metadata = await content('package.json');
+            if (metadata.name !== '@bizyeet/ai-tools' || 'v' + metadata.version !== tag || metadata.private !== false || metadata.publishConfig?.registry !== 'https://registry.npmjs.org' || metadata.publishConfig?.access !== 'public' || metadata.publishConfig?.tag !== 'beta' || metadata.repository?.url !== 'git+https://github.com/danielcg-net/bizyeet-ai-tools.git') fail('Reviewed metadata identity differs');
+            if (process.env.PUBLICATION_REQUESTED === 'true') {
+              const ready = await content('scripts/release-readiness.json');
+              const maintainer = ready.maintainer;
+              const publisher = maintainer?.publisher;
+              const configured = Date.parse(publisher?.trust_configured_at);
+              if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || (!publisher.first_publish_succeeded && Date.now() - configured > 172800000) || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation is missing direct publish authority or its initial trust window expired');
+              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+              const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
+              const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
+              const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
+              const reviewers = rules[0]?.reviewers ?? [];
+              const ids = reviewers.filter(entry => entry.type === 'User' && entry.reviewer?.type === 'User').map(entry => entry.reviewer.id);
+              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
+            }
+            if (process.env.BUNDLE_REQUIRED === 'true') {
+              const files = await fs.readdir('bundle', { withFileTypes: true });
+              const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
+              const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
+              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
+              if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
+              const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+              const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
+              const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
+              if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
+              const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
+              if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
+              await Promise.all(sums.map(async line => {
+                const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
+                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry');
+                const hash = crypto.createHash('sha256').update(await fs.readFile('bundle/' + match[2])).digest('hex');
+                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs');
+              }));
+              const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
+              if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
+              if (process.env.PUBLICATION_REQUESTED === 'true' && (release.tag_verified !== true || JSON.stringify(release.readiness) !== JSON.stringify(await content('scripts/release-readiness.json')))) fail('Readiness attestation differs');
+              core.setOutput('tarball', tarball);
+              core.setOutput('version', metadata.version);
+              core.setOutput('digest', manifest.artifact.sha256);
+              await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
+              if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
+                '# Verified beta candidate',
+                'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
+                'Source SHA: ' + context.sha,
+                'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
+                'Version: ' + metadata.version,
+                'Tarball SHA256: ' + manifest.artifact.sha256,
+                'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
+                'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
+                'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
+                release.notes,
+                ''
+              ].join('\n\n'));
+
+            }
+            core.setOutput('version', metadata.version);
+      - name: Attest exact canonical tarball
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: bundle/*.tgz
+          push-to-registry: false
+          create-storage-record: false
+      - name: Preserve signed bundle
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          mkdir signed
+          cp "$ATTESTATION_BUNDLE" signed/provenance.sigstore.json
+      - name: Verify cryptographic provenance identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          gh attestation verify bundle/*.tgz --bundle signed/provenance.sigstore.json --repo danielcg-net/bizyeet-ai-tools --signer-workflow danielcg-net/bizyeet-ai-tools/.github/workflows/release.yml --source-ref refs/heads/main --source-digest "$SOURCE_SHA" --signer-digest "$SOURCE_SHA" --deny-self-hosted-runners
+      - name: Retain signed candidate evidence
+        id: signed
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-provenance-${{ github.run_id }}
+          path: signed/provenance.sigstore.json
+          if-no-files-found: error
+          retention-days: 90
+  publish:
+    if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish
+    needs:
+      - build
+      - attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-release
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - name: Download exact same-run artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: bundle
+          merge-multiple: true
+      - name: Download exact same-run artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.attest.outputs.artifact-id }}
+          path: signed
+          merge-multiple: true
+      - name: Revalidate exact source, tag, policy and candidate
+        id: candidate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLICATION_REQUESTED: ${{ inputs.publish }}
+          BUNDLE_REQUIRED: "true"
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const crypto = require('node:crypto');
+            const repo = 'danielcg-net/bizyeet-ai-tools';
+            const [owner, name] = repo.split('/');
+            const get = async (route, parameters = {}) => (await github.request('GET ' + route, { owner, repo: name, ...parameters })).data;
+            const fail = message => { throw new Error(message); };
+            if (context.repo.owner + '/' + context.repo.repo !== repo || context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/main' || !/^[a-f0-9]{40}$/.test(context.sha)) fail('Untrusted dispatch source');
+            const branch = await get('/repos/{owner}/{repo}/branches/main');
+            if (!branch.protected) fail('main must be protected');
+            const comparison = await get('/repos/{owner}/{repo}/compare/{basehead}', { basehead: context.sha + '...main' });
+            if (!['identical', 'ahead'].includes(comparison.status)) fail('Dispatch SHA is not merged main history');
+            const tag = process.env.RELEASE_TAG;
+            if (!/^v\d+\.\d+\.\d+-beta\.[1-9][0-9]*$/.test(tag)) fail('Only numbered beta tags are supported');
+            if (process.env.PUBLICATION_REQUESTED === 'true') {
+            const ref = await get('/repos/{owner}/{repo}/git/ref/tags/{tag}', { tag });
+            const target = ref.object.type === 'tag' ? (await get('/repos/{owner}/{repo}/git/tags/{tag_sha}', { tag_sha: ref.object.sha })).object : ref.object;
+            if (target.type !== 'commit' || target.sha !== context.sha) fail('Existing immutable tag differs from dispatch SHA');
+            }
+            const content = async path => {
+              const response = await get('/repos/{owner}/{repo}/contents/{path}', { path, ref: context.sha });
+              if (response.type !== 'file' || response.encoding !== 'base64') fail('Expected source file');
+              return JSON.parse(Buffer.from(response.content, 'base64').toString('utf8'));
+            };
+            const metadata = await content('package.json');
+            if (metadata.name !== '@bizyeet/ai-tools' || 'v' + metadata.version !== tag || metadata.private !== false || metadata.publishConfig?.registry !== 'https://registry.npmjs.org' || metadata.publishConfig?.access !== 'public' || metadata.publishConfig?.tag !== 'beta' || metadata.repository?.url !== 'git+https://github.com/danielcg-net/bizyeet-ai-tools.git') fail('Reviewed metadata identity differs');
+            if (process.env.PUBLICATION_REQUESTED === 'true') {
+              const ready = await content('scripts/release-readiness.json');
+              const maintainer = ready.maintainer;
+              const publisher = maintainer?.publisher;
+              const configured = Date.parse(publisher?.trust_configured_at);
+              if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || (!publisher.first_publish_succeeded && Date.now() - configured > 172800000) || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation is missing direct publish authority or its initial trust window expired');
+              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+              const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
+              const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
+              const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
+              const reviewers = rules[0]?.reviewers ?? [];
+              const ids = reviewers.filter(entry => entry.type === 'User' && entry.reviewer?.type === 'User').map(entry => entry.reviewer.id);
+              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
+            }
+            if (process.env.BUNDLE_REQUIRED === 'true') {
+              const files = await fs.readdir('bundle', { withFileTypes: true });
+              const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
+              const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
+              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
+              if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
+              const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+              const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
+              const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
+              if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
+              const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
+              if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
+              await Promise.all(sums.map(async line => {
+                const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
+                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry');
+                const hash = crypto.createHash('sha256').update(await fs.readFile('bundle/' + match[2])).digest('hex');
+                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs');
+              }));
+              const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
+              if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
+              if (process.env.PUBLICATION_REQUESTED === 'true' && (release.tag_verified !== true || JSON.stringify(release.readiness) !== JSON.stringify(await content('scripts/release-readiness.json')))) fail('Readiness attestation differs');
+              core.setOutput('tarball', tarball);
+              core.setOutput('version', metadata.version);
+              core.setOutput('digest', manifest.artifact.sha256);
+              await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
+              if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
+                '# Verified beta candidate',
+                'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
+                'Source SHA: ' + context.sha,
+                'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
+                'Version: ' + metadata.version,
+                'Tarball SHA256: ' + manifest.artifact.sha256,
+                'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
+                'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
+                'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
+                release.notes,
+                ''
+              ].join('\n\n'));
+
+            }
+            core.setOutput('version', metadata.version);
+      - name: Verify cryptographic provenance identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          gh attestation verify bundle/*.tgz --bundle signed/provenance.sigstore.json --repo danielcg-net/bizyeet-ai-tools --signer-workflow danielcg-net/bizyeet-ai-tools/.github/workflows/release.yml --source-ref refs/heads/main --source-digest "$SOURCE_SHA" --signer-digest "$SOURCE_SHA" --deny-self-hosted-runners
+      - name: Set up publisher runtime without installing dependencies
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Reconcile registry before any publish
+        id: registry
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const crypto = require('node:crypto');
+            const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+            const fail = message => { throw new Error(message); };
+            const get = async url => {
+              const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30000) });
+              if (![200, 404].includes(response.status)) fail('Registry authentication/network/service error: ' + response.status);
+              return response;
+            };
+            const readJson = async response => {
+              const reader = response.body?.getReader();
+              if (!reader) fail('Missing registry body');
+              const drain = async (size, chunks) => {
+                const next = await reader.read();
+                if (next.done) return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                const total = size + next.value.byteLength;
+                if (chunks.length >= 1024) { await reader.cancel(); fail('Overly fragmented registry JSON'); }
+                if (total > 4194304) { await reader.cancel(); fail('Oversized registry JSON'); }
+                return drain(total, [...chunks, Buffer.from(next.value)]);
+              };
+              return drain(0, []);
+            };
+            const hashArchive = async response => {
+              const reader = response.body?.getReader();
+              if (!reader) fail('Missing archive body');
+              const sha256 = crypto.createHash('sha256');
+              const sha512 = crypto.createHash('sha512');
+              const drain = async (size, chunks) => {
+                const next = await reader.read();
+                if (next.done) return {sha256: sha256.digest('hex'), integrity: 'sha512-' + sha512.digest('base64')};
+                const total = size + next.value.byteLength;
+                if (chunks >= 4096) { await reader.cancel(); fail('Overly fragmented published archive'); }
+                if (total > 20971520) { await reader.cancel(); fail('Oversized published archive'); }
+                sha256.update(next.value); sha512.update(next.value);
+                return drain(total, chunks + 1);
+              };
+              return drain(0, 0);
+            };
+            const response = await get('https://registry.npmjs.org/@bizyeet%2fai-tools');
+            if (response.status === 404) fail('Package ownership/bootstrap is not established; do not publish a placeholder');
+            const packument = await readJson(response);
+            if (packument.name !== '@bizyeet/ai-tools' || !packument.versions || !packument['dist-tags']) fail('Malformed registry package');
+            const priorRelease = await github.rest.repos.getReleaseByTag({owner:'danielcg-net',repo:'bizyeet-ai-tools',tag:release.tag}).then(response => response.data).catch(error => { if (error.status === 404) return null; throw error; });
+            if (priorRelease && (priorRelease.tag_name !== release.tag || priorRelease.body !== release.notes || priorRelease.prerelease !== true)) fail('Existing GitHub release differs; stop before npm publication');
+            if (process.env.EXPECTED_BETA !== undefined && (packument['dist-tags'].beta ?? '') !== process.env.EXPECTED_BETA) fail('Concurrent beta mapping changed before publication');
+            if (process.env.EXPECTED_LATEST !== undefined && (packument['dist-tags'].latest ?? '') !== process.env.EXPECTED_LATEST) fail('Concurrent latest mapping changed; no automatic repair');
+            core.setOutput('latest-before', packument['dist-tags'].latest ?? '');
+            core.setOutput('beta-before', packument['dist-tags'].beta ?? '');
+            const existing = packument.versions[release.version];
+            if (!existing && priorRelease) fail('Existing GitHub release without matching npm publication');
+            if (!existing) {
+              if (Number(process.env.GITHUB_RUN_ATTEMPT ?? '1') > 1) fail('Previous run attempt has no reconciled publication; fresh reviewed run required, never blindly retry');
+              if (process.env.REQUIRE_PUBLISHED === 'true') fail('Publish outcome is absent/ambiguous; reconcile before retry');
+              core.setOutput('exists', 'false');
+              core.setOutput('beta-before', packument['dist-tags'].beta ?? '');
+            } else {
+              if (packument['dist-tags'].beta !== release.version) fail('Concurrent beta-channel change; maintainer reconciliation required');
+              const dist = existing.dist;
+              if (existing.name !== release.package || existing.version !== release.version || dist?.tarball !== 'https://registry.npmjs.org/@bizyeet/ai-tools/-/ai-tools-' + release.version + '.tgz' || typeof dist.integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+=*$/.test(dist.integrity) || typeof dist.attestations?.url !== 'string' || !['https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2fai-tools@' + release.version, 'https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2Fai-tools@' + release.version].includes(dist.attestations.url)) fail('Registry metadata/provenance identity differs');
+              const archive = await get(dist.tarball);
+              if (archive.status !== 200) fail('Published bytes unavailable');
+              const bytes = await hashArchive(archive);
+              if (bytes.sha256 !== release.manifest.artifact.sha256 || bytes.integrity !== dist.integrity) fail('Published bytes/integrity differ');
+              const attestations = await get(dist.attestations.url);
+              if (attestations.status !== 200) fail('npm provenance unavailable');
+              const evidence = await readJson(attestations);
+              const entries = evidence.attestations?.filter(entry => entry.predicateType === 'https://slsa.dev/provenance/v1');
+              if (entries?.length !== 1 || !entries[0].bundle) fail('npm provenance bundle missing or ambiguous');
+              const provenanceText = JSON.stringify(entries[0].bundle);
+              await fs.writeFile('npm-provenance.json', provenanceText, { flag: 'wx' }).catch(async error => {
+                if (error.code !== 'EEXIST' || await fs.readFile('npm-provenance.json', 'utf8') !== provenanceText) throw error;
+              });
+              core.setOutput('exists', 'true');
+            }
+      - name: Verify existing npm provenance before skipping publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          EXISTS: ${{ steps.registry.outputs.exists }}
+        run: |
+          if [ "$EXISTS" = "true" ]; then
+            gh attestation verify bundle/*.tgz --bundle npm-provenance.json --repo danielcg-net/bizyeet-ai-tools --signer-workflow danielcg-net/bizyeet-ai-tools/.github/workflows/release.yml --source-ref refs/heads/main --source-digest "$SOURCE_SHA" --signer-digest "$SOURCE_SHA" --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1 --digest-alg sha512
+          fi
+      - name: Recheck captured registry mapping immediately before publication
+        id: registry-recheck
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const crypto = require('node:crypto');
+            const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+            const fail = message => { throw new Error(message); };
+            const get = async url => {
+              const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30000) });
+              if (![200, 404].includes(response.status)) fail('Registry authentication/network/service error: ' + response.status);
+              return response;
+            };
+            const readJson = async response => {
+              const reader = response.body?.getReader();
+              if (!reader) fail('Missing registry body');
+              const drain = async (size, chunks) => {
+                const next = await reader.read();
+                if (next.done) return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                const total = size + next.value.byteLength;
+                if (chunks.length >= 1024) { await reader.cancel(); fail('Overly fragmented registry JSON'); }
+                if (total > 4194304) { await reader.cancel(); fail('Oversized registry JSON'); }
+                return drain(total, [...chunks, Buffer.from(next.value)]);
+              };
+              return drain(0, []);
+            };
+            const hashArchive = async response => {
+              const reader = response.body?.getReader();
+              if (!reader) fail('Missing archive body');
+              const sha256 = crypto.createHash('sha256');
+              const sha512 = crypto.createHash('sha512');
+              const drain = async (size, chunks) => {
+                const next = await reader.read();
+                if (next.done) return {sha256: sha256.digest('hex'), integrity: 'sha512-' + sha512.digest('base64')};
+                const total = size + next.value.byteLength;
+                if (chunks >= 4096) { await reader.cancel(); fail('Overly fragmented published archive'); }
+                if (total > 20971520) { await reader.cancel(); fail('Oversized published archive'); }
+                sha256.update(next.value); sha512.update(next.value);
+                return drain(total, chunks + 1);
+              };
+              return drain(0, 0);
+            };
+            const response = await get('https://registry.npmjs.org/@bizyeet%2fai-tools');
+            if (response.status === 404) fail('Package ownership/bootstrap is not established; do not publish a placeholder');
+            const packument = await readJson(response);
+            if (packument.name !== '@bizyeet/ai-tools' || !packument.versions || !packument['dist-tags']) fail('Malformed registry package');
+            const priorRelease = await github.rest.repos.getReleaseByTag({owner:'danielcg-net',repo:'bizyeet-ai-tools',tag:release.tag}).then(response => response.data).catch(error => { if (error.status === 404) return null; throw error; });
+            if (priorRelease && (priorRelease.tag_name !== release.tag || priorRelease.body !== release.notes || priorRelease.prerelease !== true)) fail('Existing GitHub release differs; stop before npm publication');
+            if (process.env.EXPECTED_BETA !== undefined && (packument['dist-tags'].beta ?? '') !== process.env.EXPECTED_BETA) fail('Concurrent beta mapping changed before publication');
+            if (process.env.EXPECTED_LATEST !== undefined && (packument['dist-tags'].latest ?? '') !== process.env.EXPECTED_LATEST) fail('Concurrent latest mapping changed; no automatic repair');
+            core.setOutput('latest-before', packument['dist-tags'].latest ?? '');
+            core.setOutput('beta-before', packument['dist-tags'].beta ?? '');
+            const existing = packument.versions[release.version];
+            if (!existing && priorRelease) fail('Existing GitHub release without matching npm publication');
+            if (!existing) {
+              if (Number(process.env.GITHUB_RUN_ATTEMPT ?? '1') > 1) fail('Previous run attempt has no reconciled publication; fresh reviewed run required, never blindly retry');
+              if (process.env.REQUIRE_PUBLISHED === 'true') fail('Publish outcome is absent/ambiguous; reconcile before retry');
+              core.setOutput('exists', 'false');
+              core.setOutput('beta-before', packument['dist-tags'].beta ?? '');
+            } else {
+              if (packument['dist-tags'].beta !== release.version) fail('Concurrent beta-channel change; maintainer reconciliation required');
+              const dist = existing.dist;
+              if (existing.name !== release.package || existing.version !== release.version || dist?.tarball !== 'https://registry.npmjs.org/@bizyeet/ai-tools/-/ai-tools-' + release.version + '.tgz' || typeof dist.integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+=*$/.test(dist.integrity) || typeof dist.attestations?.url !== 'string' || !['https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2fai-tools@' + release.version, 'https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2Fai-tools@' + release.version].includes(dist.attestations.url)) fail('Registry metadata/provenance identity differs');
+              const archive = await get(dist.tarball);
+              if (archive.status !== 200) fail('Published bytes unavailable');
+              const bytes = await hashArchive(archive);
+              if (bytes.sha256 !== release.manifest.artifact.sha256 || bytes.integrity !== dist.integrity) fail('Published bytes/integrity differ');
+              const attestations = await get(dist.attestations.url);
+              if (attestations.status !== 200) fail('npm provenance unavailable');
+              const evidence = await readJson(attestations);
+              const entries = evidence.attestations?.filter(entry => entry.predicateType === 'https://slsa.dev/provenance/v1');
+              if (entries?.length !== 1 || !entries[0].bundle) fail('npm provenance bundle missing or ambiguous');
+              const provenanceText = JSON.stringify(entries[0].bundle);
+              await fs.writeFile('npm-provenance.json', provenanceText, { flag: 'wx' }).catch(async error => {
+                if (error.code !== 'EEXIST' || await fs.readFile('npm-provenance.json', 'utf8') !== provenanceText) throw error;
+              });
+              core.setOutput('exists', 'true');
+            }
+        env:
+          EXPECTED_BETA: ${{ steps.registry.outputs.beta-before }}
+          EXPECTED_LATEST: ${{ steps.registry.outputs.latest-before }}
+      - name: Publish exact tarball through OIDC or stop without retry
+        env:
+          TARBALL: ${{ steps.candidate.outputs.tarball }}
+          EXISTS: ${{ steps.registry.outputs.exists }}
+        run: |
+          node -e 'const [major,minor,patch] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) throw new Error("npm >=11.5.1 required"); if (["NODE_AUTH_TOKEN","NPM_TOKEN","npm_config_token"].some(name => process.env[name])) throw new Error("Static npm credentials forbidden");' "$(npm --version)"
+          if [ "$EXISTS" = "false" ]; then
+            npm publish "bundle/$TARBALL" --registry=https://registry.npmjs.org --access=public --tag=beta --ignore-scripts --provenance
+          fi
+    outputs:
+      latest-before: ${{ steps.registry.outputs.latest-before }}
+  github-release:
+    if: github.repository == 'danielcg-net/bizyeet-ai-tools' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish
+    needs:
+      - build
+      - attest
+      - publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download exact same-run artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: bundle
+          merge-multiple: true
+      - name: Download exact same-run artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.attest.outputs.artifact-id }}
+          path: signed
+          merge-multiple: true
+      - name: Revalidate exact source, tag, policy and candidate
+        id: candidate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLICATION_REQUESTED: ${{ inputs.publish }}
+          BUNDLE_REQUIRED: "true"
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const crypto = require('node:crypto');
+            const repo = 'danielcg-net/bizyeet-ai-tools';
+            const [owner, name] = repo.split('/');
+            const get = async (route, parameters = {}) => (await github.request('GET ' + route, { owner, repo: name, ...parameters })).data;
+            const fail = message => { throw new Error(message); };
+            if (context.repo.owner + '/' + context.repo.repo !== repo || context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/main' || !/^[a-f0-9]{40}$/.test(context.sha)) fail('Untrusted dispatch source');
+            const branch = await get('/repos/{owner}/{repo}/branches/main');
+            if (!branch.protected) fail('main must be protected');
+            const comparison = await get('/repos/{owner}/{repo}/compare/{basehead}', { basehead: context.sha + '...main' });
+            if (!['identical', 'ahead'].includes(comparison.status)) fail('Dispatch SHA is not merged main history');
+            const tag = process.env.RELEASE_TAG;
+            if (!/^v\d+\.\d+\.\d+-beta\.[1-9][0-9]*$/.test(tag)) fail('Only numbered beta tags are supported');
+            if (process.env.PUBLICATION_REQUESTED === 'true') {
+            const ref = await get('/repos/{owner}/{repo}/git/ref/tags/{tag}', { tag });
+            const target = ref.object.type === 'tag' ? (await get('/repos/{owner}/{repo}/git/tags/{tag_sha}', { tag_sha: ref.object.sha })).object : ref.object;
+            if (target.type !== 'commit' || target.sha !== context.sha) fail('Existing immutable tag differs from dispatch SHA');
+            }
+            const content = async path => {
+              const response = await get('/repos/{owner}/{repo}/contents/{path}', { path, ref: context.sha });
+              if (response.type !== 'file' || response.encoding !== 'base64') fail('Expected source file');
+              return JSON.parse(Buffer.from(response.content, 'base64').toString('utf8'));
+            };
+            const metadata = await content('package.json');
+            if (metadata.name !== '@bizyeet/ai-tools' || 'v' + metadata.version !== tag || metadata.private !== false || metadata.publishConfig?.registry !== 'https://registry.npmjs.org' || metadata.publishConfig?.access !== 'public' || metadata.publishConfig?.tag !== 'beta' || metadata.repository?.url !== 'git+https://github.com/danielcg-net/bizyeet-ai-tools.git') fail('Reviewed metadata identity differs');
+            if (process.env.PUBLICATION_REQUESTED === 'true') {
+              const ready = await content('scripts/release-readiness.json');
+              const maintainer = ready.maintainer;
+              const publisher = maintainer?.publisher;
+              const configured = Date.parse(publisher?.trust_configured_at);
+              if (publisher?.direct_publish_allowed !== true || typeof publisher.first_publish_succeeded !== 'boolean' || !Number.isFinite(configured) || configured > Date.now() || (!publisher.first_publish_succeeded && Date.now() - configured > 172800000) || Date.parse(maintainer.confirmed_at) > Date.now()) fail('Publisher attestation is missing direct publish authority or its initial trust window expired');
+              if (ready.schema_version !== 1 || ready.repository !== repo || ready.package !== metadata.name || ready.version !== metadata.version || ready.tag !== tag || ready.workflow !== 'release.yml' || ready.environment !== 'npm-release' || !/^[A-Za-z0-9-]+$/.test(maintainer?.login ?? '') || ![maintainer.ownership_evidence_url, maintainer.publisher_evidence_url].every(url => typeof url === 'string' && /^https:\/\/\S+$/.test(url)) || !Number.isFinite(Date.parse(maintainer.confirmed_at)) || typeof maintainer.prevent_self_review !== 'boolean' || !Array.isArray(maintainer.reviewer_ids) || maintainer.reviewer_ids.length === 0 || !maintainer.reviewer_ids.every(id => Number.isSafeInteger(id) && id > 0)) fail('Missing reviewed maintainer ownership/OIDC configuration attestation');
+              const environment = await get('/repos/{owner}/{repo}/environments/npm-release');
+              const policies = await get('/repos/{owner}/{repo}/environments/npm-release/deployment-branch-policies', { per_page: 100 });
+              const rules = environment.protection_rules.filter(rule => rule.type === 'required_reviewers');
+              const reviewers = rules[0]?.reviewers ?? [];
+              const ids = reviewers.filter(entry => entry.type === 'User' && entry.reviewer?.type === 'User').map(entry => entry.reviewer.id);
+              if (environment.name !== 'npm-release' || environment.can_admins_bypass !== false || rules.length !== 1 || reviewers.length !== ids.length || ids.length === 0 || JSON.stringify(ids.toSorted()) !== JSON.stringify(maintainer.reviewer_ids.toSorted()) || rules[0].prevent_self_review !== maintainer.prevent_self_review || environment.deployment_branch_policy?.protected_branches !== false || environment.deployment_branch_policy?.custom_branch_policies !== true || policies.total_count !== 1 || policies.branch_policies.length !== 1 || policies.branch_policies[0].name !== 'main' || policies.branch_policies[0].type !== 'branch') fail('Protected human environment policy differs or is unverifiable');
+            }
+            if (process.env.BUNDLE_REQUIRED === 'true') {
+              const files = await fs.readdir('bundle', { withFileTypes: true });
+              const tarball = 'bizyeet-ai-tools-' + metadata.version + '.tgz';
+              const expected = [tarball, 'sbom.cdx.json', 'build-manifest.json', 'release.json', 'SHA256SUMS'];
+              if ((await Promise.all(files.map(entry => fs.lstat('bundle/' + entry.name)))).some(entry => entry.size > 20971520)) fail('Oversized candidate evidence');
+              if (files.length !== expected.length || files.some(entry => !entry.isFile() || !expected.includes(entry.name))) fail('Unexpected bundle file or symlink');
+              const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+              const manifest = JSON.parse(await fs.readFile('bundle/build-manifest.json', 'utf8'));
+              const sbom = JSON.parse(await fs.readFile('bundle/sbom.cdx.json', 'utf8'));
+              if (release.source_sha !== context.sha || release.run_id !== String(context.runId) || release.tag !== tag || release.version !== metadata.version || release.channel !== 'beta' || release.workflow !== 'release.yml' || release.package !== metadata.name || JSON.stringify(release.manifest) !== JSON.stringify(manifest) || manifest.source?.commit !== context.sha || manifest.source?.dirty !== false || manifest.source?.repository !== 'https://github.com/' + repo || manifest.artifact?.filename !== tarball || manifest.verification?.installed_version !== metadata.version || manifest.verification?.installed_help !== true || !manifest.runtime?.npm || !manifest.lockfile_sha256 || typeof release.notes !== 'string' || release.notes.length < 50 || sbom.bomFormat !== 'CycloneDX') fail('Bundle identity or verification evidence differs');
+              const sums = (await fs.readFile('bundle/SHA256SUMS', 'utf8')).trimEnd().split('\n');
+              if (sums.length !== 4 || new Set(sums.map(line => line.slice(66))).size !== 4) fail('Checksum file is incomplete');
+              await Promise.all(sums.map(async line => {
+                const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
+                if (!match || !expected.includes(match[2]) || match[2] === 'SHA256SUMS') fail('Invalid checksum entry');
+                const hash = crypto.createHash('sha256').update(await fs.readFile('bundle/' + match[2])).digest('hex');
+                if (hash !== match[1] || (match[2] === tarball && hash !== manifest.artifact.sha256)) fail('Artifact digest differs');
+              }));
+              const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
+              if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
+              if (process.env.PUBLICATION_REQUESTED === 'true' && (release.tag_verified !== true || JSON.stringify(release.readiness) !== JSON.stringify(await content('scripts/release-readiness.json')))) fail('Readiness attestation differs');
+              core.setOutput('tarball', tarball);
+              core.setOutput('version', metadata.version);
+              core.setOutput('digest', manifest.artifact.sha256);
+              await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
+              if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
+                '# Verified beta candidate',
+                'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
+                'Source SHA: ' + context.sha,
+                'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
+                'Version: ' + metadata.version,
+                'Tarball SHA256: ' + manifest.artifact.sha256,
+                'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
+                'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
+                'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
+                release.notes,
+                ''
+              ].join('\n\n'));
+
+            }
+            core.setOutput('version', metadata.version);
+      - name: Verify cryptographic provenance identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          gh attestation verify bundle/*.tgz --bundle signed/provenance.sigstore.json --repo danielcg-net/bizyeet-ai-tools --signer-workflow danielcg-net/bizyeet-ai-tools/.github/workflows/release.yml --source-ref refs/heads/main --source-digest "$SOURCE_SHA" --signer-digest "$SOURCE_SHA" --deny-self-hosted-runners
+      - name: Verify registry bytes, beta mapping and retrieve npm provenance
+        id: registry
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          REQUIRE_PUBLISHED: "true"
+          EXPECTED_LATEST: ${{ needs.publish.outputs.latest-before }}
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const crypto = require('node:crypto');
+            const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+            const fail = message => { throw new Error(message); };
+            const get = async url => {
+              const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30000) });
+              if (![200, 404].includes(response.status)) fail('Registry authentication/network/service error: ' + response.status);
+              return response;
+            };
+            const readJson = async response => {
+              const reader = response.body?.getReader();
+              if (!reader) fail('Missing registry body');
+              const drain = async (size, chunks) => {
+                const next = await reader.read();
+                if (next.done) return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                const total = size + next.value.byteLength;
+                if (chunks.length >= 1024) { await reader.cancel(); fail('Overly fragmented registry JSON'); }
+                if (total > 4194304) { await reader.cancel(); fail('Oversized registry JSON'); }
+                return drain(total, [...chunks, Buffer.from(next.value)]);
+              };
+              return drain(0, []);
+            };
+            const hashArchive = async response => {
+              const reader = response.body?.getReader();
+              if (!reader) fail('Missing archive body');
+              const sha256 = crypto.createHash('sha256');
+              const sha512 = crypto.createHash('sha512');
+              const drain = async (size, chunks) => {
+                const next = await reader.read();
+                if (next.done) return {sha256: sha256.digest('hex'), integrity: 'sha512-' + sha512.digest('base64')};
+                const total = size + next.value.byteLength;
+                if (chunks >= 4096) { await reader.cancel(); fail('Overly fragmented published archive'); }
+                if (total > 20971520) { await reader.cancel(); fail('Oversized published archive'); }
+                sha256.update(next.value); sha512.update(next.value);
+                return drain(total, chunks + 1);
+              };
+              return drain(0, 0);
+            };
+            const response = await get('https://registry.npmjs.org/@bizyeet%2fai-tools');
+            if (response.status === 404) fail('Package ownership/bootstrap is not established; do not publish a placeholder');
+            const packument = await readJson(response);
+            if (packument.name !== '@bizyeet/ai-tools' || !packument.versions || !packument['dist-tags']) fail('Malformed registry package');
+            const priorRelease = await github.rest.repos.getReleaseByTag({owner:'danielcg-net',repo:'bizyeet-ai-tools',tag:release.tag}).then(response => response.data).catch(error => { if (error.status === 404) return null; throw error; });
+            if (priorRelease && (priorRelease.tag_name !== release.tag || priorRelease.body !== release.notes || priorRelease.prerelease !== true)) fail('Existing GitHub release differs; stop before npm publication');
+            if (process.env.EXPECTED_BETA !== undefined && (packument['dist-tags'].beta ?? '') !== process.env.EXPECTED_BETA) fail('Concurrent beta mapping changed before publication');
+            if (process.env.EXPECTED_LATEST !== undefined && (packument['dist-tags'].latest ?? '') !== process.env.EXPECTED_LATEST) fail('Concurrent latest mapping changed; no automatic repair');
+            core.setOutput('latest-before', packument['dist-tags'].latest ?? '');
+            core.setOutput('beta-before', packument['dist-tags'].beta ?? '');
+            const existing = packument.versions[release.version];
+            if (!existing && priorRelease) fail('Existing GitHub release without matching npm publication');
+            if (!existing) {
+              if (Number(process.env.GITHUB_RUN_ATTEMPT ?? '1') > 1) fail('Previous run attempt has no reconciled publication; fresh reviewed run required, never blindly retry');
+              if (process.env.REQUIRE_PUBLISHED === 'true') fail('Publish outcome is absent/ambiguous; reconcile before retry');
+              core.setOutput('exists', 'false');
+              core.setOutput('beta-before', packument['dist-tags'].beta ?? '');
+            } else {
+              if (packument['dist-tags'].beta !== release.version) fail('Concurrent beta-channel change; maintainer reconciliation required');
+              const dist = existing.dist;
+              if (existing.name !== release.package || existing.version !== release.version || dist?.tarball !== 'https://registry.npmjs.org/@bizyeet/ai-tools/-/ai-tools-' + release.version + '.tgz' || typeof dist.integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+=*$/.test(dist.integrity) || typeof dist.attestations?.url !== 'string' || !['https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2fai-tools@' + release.version, 'https://registry.npmjs.org/-/npm/v1/attestations/@bizyeet%2Fai-tools@' + release.version].includes(dist.attestations.url)) fail('Registry metadata/provenance identity differs');
+              const archive = await get(dist.tarball);
+              if (archive.status !== 200) fail('Published bytes unavailable');
+              const bytes = await hashArchive(archive);
+              if (bytes.sha256 !== release.manifest.artifact.sha256 || bytes.integrity !== dist.integrity) fail('Published bytes/integrity differ');
+              const attestations = await get(dist.attestations.url);
+              if (attestations.status !== 200) fail('npm provenance unavailable');
+              const evidence = await readJson(attestations);
+              const entries = evidence.attestations?.filter(entry => entry.predicateType === 'https://slsa.dev/provenance/v1');
+              if (entries?.length !== 1 || !entries[0].bundle) fail('npm provenance bundle missing or ambiguous');
+              const provenanceText = JSON.stringify(entries[0].bundle);
+              await fs.writeFile('npm-provenance.json', provenanceText, { flag: 'wx' }).catch(async error => {
+                if (error.code !== 'EEXIST' || await fs.readFile('npm-provenance.json', 'utf8') !== provenanceText) throw error;
+              });
+              core.setOutput('exists', 'true');
+            }
+      - name: Verify cryptographic provenance identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          gh attestation verify bundle/*.tgz --bundle npm-provenance.json --repo danielcg-net/bizyeet-ai-tools --signer-workflow danielcg-net/bizyeet-ai-tools/.github/workflows/release.yml --source-ref refs/heads/main --source-digest "$SOURCE_SHA" --signer-digest "$SOURCE_SHA" --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1 --digest-alg sha512
+      - name: Create immutable matching prerelease or verify complete outcome
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const crypto = require('node:crypto');
+            const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+            const [owner, repo] = ['danielcg-net', 'bizyeet-ai-tools'];
+            const fail = message => { throw new Error(message); };
+            const assets = (await fs.readdir('bundle')).map(name => ({ name, path: 'bundle/' + name })).concat([{name:'provenance.sigstore.json',path:'signed/provenance.sigstore.json'}, {name:'npm-provenance.json',path:'npm-provenance.json'}]);
+            const existing = await github.rest.repos.getReleaseByTag({ owner, repo, tag: release.tag }).then(response => response.data).catch(async error => {
+              if (error.status !== 404) throw error;
+              const releases = (await github.rest.repos.listReleases({owner, repo, per_page: 100})).data.filter(entry => entry.tag_name === release.tag);
+              if (releases.length > 1) fail('Ambiguous existing drafts; stop for maintainer reconciliation');
+              return releases[0] ?? null;
+            });
+            if (existing && (existing.tag_name !== release.tag || existing.body !== release.notes || !existing.prerelease || existing.assets.some(asset => !assets.some(expected => expected.name === asset.name)))) fail('Existing release differs; no overwrite');
+            if (existing) {
+              await Promise.all(existing.assets.map(async current => {
+                const asset = assets.find(entry => entry.name === current.name);
+                const digest = 'sha256:' + crypto.createHash('sha256').update(await fs.readFile(asset.path)).digest('hex');
+                if (current.digest !== digest) fail('Existing release asset digest differs');
+              }));
+              if (!existing.draft && existing.assets.length !== assets.length) fail('Published release is incomplete; do not change assets');
+            }
+            if (existing && !existing.draft) {
+              core.notice('Verified already complete matching release; platform immutable=' + String(existing.immutable));
+            } else {
+              const draft = existing ?? (await github.rest.repos.createRelease({owner,repo,tag_name:release.tag,target_commitish:context.sha,name:release.tag,body:release.notes,draft:true,prerelease:true,make_latest:'false'})).data;
+              await assets.filter(asset => !draft.assets.some(current => current.name === asset.name)).reduce(async (previous, asset) => {
+                await previous;
+                const data = await fs.readFile(asset.path);
+                await github.rest.repos.uploadReleaseAsset({owner,repo,release_id:draft.id,name:asset.name,data,headers:{'content-type':'application/octet-stream','content-length':data.length}});
+              }, Promise.resolve());
+              const completed = (await github.rest.repos.getRelease({owner,repo,release_id:draft.id})).data;
+              if (completed.assets.length !== assets.length) fail('Draft asset upload is incomplete; leave draft for same-run reconciliation');
+              await Promise.all(assets.map(async asset => {
+                const current = completed.assets.find(entry => entry.name === asset.name);
+                const digest = 'sha256:' + crypto.createHash('sha256').update(await fs.readFile(asset.path)).digest('hex');
+                if (!current || current.digest !== digest) fail('Uploaded release asset differs; leave draft and stop');
+              }));
+              const published = (await github.rest.repos.updateRelease({owner,repo,release_id:draft.id,draft:false,prerelease:true,make_latest:'false'})).data;
+              core.notice('Published matching prerelease; platform immutable=' + String(published.immutable));
+            }

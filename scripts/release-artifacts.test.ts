@@ -3,7 +3,14 @@ import test from "node:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildArtifactBundle, declaredBinTarget, packedFileName, rebuildForRelease, releaseNpmTimeout, validateSbom } from "./release-artifacts.js";
+import { buildArtifactBundle, declaredBinTarget, packedFileName, rebuildForRelease, releaseNpmTimeout, validateSbom, verifyInstalledVersion } from "./release-artifacts.js";
+
+void test("requires exact installed version in the existing structured CLI envelope", (): void => {
+  assert.doesNotThrow(() => { verifyInstalledVersion('{"data":{"version":"0.1.0-beta.1"}}', "0.1.0-beta.1"); });
+  ["malformed", "null", "{}", '{"data":{"version":"0.0.0-development"}}', '{"data":{"version":1}}'].forEach((output) => {
+    assert.throws(() => { verifyInstalledVersion(output, "0.1.0-beta.1"); });
+  });
+});
 
 void test("full release validation has its own bounded deadline without extending packaging or installation", () => {
   assert.equal(releaseNpmTimeout(Object.freeze(["run", "check"])), 600_000);
