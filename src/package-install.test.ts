@@ -613,19 +613,27 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
     const pathEnvironment = { ...Object.fromEntries(Object.entries(environment).filter(([key]) => key.toLowerCase() !== "path")),
       PATH: [join(directory, "node_modules", ".bin"), inheritedPath].filter(Boolean).join(delimiter) };
     const located = await run(commandLookup().command, commandLookup().args, directory, pathEnvironment);
-    const help = await runInstalled(["--help"], directory, pathEnvironment);
-    const version = await runInstalled(["--version"], directory, pathEnvironment);
-    const diagnostics = await runInstalled(["diagnostics", "--json"], directory, pathEnvironment);
+    // Invalid storage configuration must not affect these local-only commands.
+    const localEnvironment = { ...pathEnvironment, BIZYEET_CREDENTIAL_STORE: "invalid" };
+    const help = await runInstalled(["--help"], directory, localEnvironment);
+    const version = await runInstalled(["--version"], directory, localEnvironment);
+    const diagnostics = await runInstalled(["diagnostics", "--json"], directory, localEnvironment);
     const status = await runInstalled(["auth", "status", "--profile", testProfile(directory)], directory, pathEnvironment);
 
     assert.match(located, /bizyeet/u);
     assert.match(help, /OAuth/u);
-    assert.match(version, /"version":"0\.0\.0-development"/u);
+    const metadata = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as Readonly<{ name: string; version: string }>;
+    const installedMetadata = JSON.parse(await readFile(join(directory, "node_modules", "@bizyeet", "ai-tools", "package.json"), "utf8")) as Readonly<{ name: string; version: string }>;
+    assert.deepEqual({ name: installedMetadata.name, version: installedMetadata.version }, { name: metadata.name, version: metadata.version });
+    assert.deepEqual((JSON.parse(version) as Readonly<{ data: unknown }>).data, { version: metadata.version });
+    assert.equal((JSON.parse(diagnostics) as Readonly<{ data: Readonly<{ version: string }> }>).data.version, metadata.version);
     assert.match(diagnostics, /"automatic":false/u);
     assert.match(diagnostics, /"required":">=24"/u);
     assert.doesNotMatch(diagnostics, /synthetic-access|synthetic-refresh/u);
     assert.match(status, /"authenticated":true/u);
     assert.doesNotMatch(status, /synthetic-access|synthetic-refresh/u);
+    // A credential-dependent control proves the child receives the invalid setting.
+    await assert.rejects(runInstalled(["auth", "status"], directory, localEnvironment), /exited with 2/u);
     await assert.rejects(runInstalled(["unknown-command"], directory, pathEnvironment), /exited with 2/u);
     await assert.rejects(runInstalled(["customers", "list", "--limit", "--fields"], directory, pathEnvironment), /exited with 2/u);
   } finally {
