@@ -107,7 +107,7 @@ publication receives only read access and `id-token: write` after environment
 approval. A separate GitHub-release job receives `contents: write` only after
 successful, reconciled npm publication. Pin actions to immutable SHAs, disable
 persisted checkout credentials and package-manager caches, use hosted runners,
-bounded timeouts, and non-cancelling per-version publication concurrency.
+bounded timeouts, and non-cancelling per-package publication concurrency.
 
 [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) requires
 npm >=11.5.1 and Node >=22.14.0. Configure the exact repository, `release.yml`,
