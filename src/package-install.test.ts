@@ -63,6 +63,39 @@ const runNpm = async (args: readonly string[], directory: string, environment?: 
 const runInstalled = (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv, input?: string): Promise<string> =>
   runNpm(["exec", "--offline", "--no", "--", "bizyeet", ...args], directory, environment, input);
 
+// Run only after the unchanged installed-bin export has already failed. This
+// synthetic-fixture diagnostic never turns that failure into a passing result.
+const diagnoseInstalledExport = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv): Promise<string> => {
+  const probe = join(directory, "diagnose-export.mjs");
+  await writeFile(probe, `import childProcess from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+import {promisify} from 'node:util';
+import {pathToFileURL} from 'node:url';
+const original = childProcess.execFile;
+const execute = promisify(original);
+const wrapped = (...args) => original(...args);
+Object.defineProperty(wrapped, promisify.custom, {value: async (...args) => {
+  const started = performance.now();
+  const report = error => {
+    const code = typeof error?.code === 'number' ? error.code : /^[A-Z][A-Z0-9_]{0,63}$/.test(error?.code ?? '') ? error.code : error ? 'unavailable' : 0;
+    const signal = /^SIG[A-Z0-9]{1,16}$/.test(error?.signal ?? '') ? error.signal : null;
+    if (String(args[0]).toLowerCase().endsWith('powershell.exe')) process.stderr.write('BIZYEET_TEST_ACL_DIAGNOSTIC:' + JSON.stringify({code, killed: error?.killed === true, signal, elapsed_ms: Math.round(performance.now() - started), timeout_ms: typeof args[2]?.timeout === 'number' ? args[2].timeout : null}) + '\\n');
+  };
+  try { const result = await execute(...args); report(); return result; }
+  catch (error) { report(error); throw error; }
+}});
+childProcess.execFile = wrapped;
+syncBuiltinESMExports();
+const {execute: run} = await import(pathToFileURL(process.argv[2]));
+process.exitCode = await run(process.argv.slice(3), console);
+`);
+  const cli = process.env.npm_execpath;
+  if (!cli) throw new Error("Run package tests through npm test.");
+  const installed = join(directory, "node_modules", "@bizyeet", "ai-tools", "dist", "src", "cli.js");
+  const result = await runResult(process.execPath, [cli, "exec", "--offline", "--no", "--", process.execPath, probe, installed, ...args], directory, environment);
+  return result.errors.split("\n").filter((line) => line.startsWith("BIZYEET_TEST_ACL_DIAGNOSTIC:")).join("\n") || "Native diagnostic produced no scalar records; cause remains unconfirmed.";
+};
+
 const commandLookup = (): Readonly<{ args: readonly string[]; command: string }> =>
   process.platform === "win32"
     ? { args: ["bizyeet"], command: "where.exe" }
@@ -435,8 +468,13 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const list = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--profile", testProfile(directory)], directory, environment);
       const listed: unknown = JSON.parse(list);
       assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
-      const exported = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)], directory,
-        { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory });
+      const exportArgs = ["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)];
+      const exportEnvironment = { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory };
+      const exported = await runInstalled(exportArgs, directory, exportEnvironment).catch(async (error: unknown): Promise<never> => {
+        if (process.platform !== "win32") throw error;
+        const diagnostic = await diagnoseInstalledExport(exportArgs, directory, exportEnvironment);
+        throw new Error(`${error instanceof Error ? error.message : "Installed export failed"}\nPost-failure diagnostic (may be warm; original failure preserved): ${diagnostic}`);
+      });
       const summary: unknown = JSON.parse(exported);
       assert.ok(typeof summary === "object" && summary !== null && "data" in summary);
       assert.ok(typeof summary.data === "object" && summary.data !== null && "path" in summary.data && typeof summary.data.path === "string");
@@ -682,5 +720,29 @@ void test("isolated Windows fixture environments retain native owner-only export
     await writeFile(path, "");
     await secureWindowsExport(path, "file", undefined, environment);
     await secureWindowsExport(path, "verify", undefined, environment);
+  } finally { await rm(directory, {recursive: true, force: true}); }
+});
+
+void test("post-failure native diagnostics expose only scalar status without command or environment data", async (): Promise<void> => {
+  const directory = await mkdtemp(join(tmpdir(), "bizyeet-native-diagnostic-"));
+  try {
+    const installed = join(directory, "node_modules", "@bizyeet", "ai-tools");
+    await mkdir(join(installed, "dist", "src"), {recursive: true});
+    await writeFile(join(installed, "package.json"), '{"type":"module"}');
+    await writeFile(join(installed, "dist", "src", "cli.js"), `import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+export const execute = async () => {
+  try { await promisify(execFile)(${JSON.stringify(join(directory, "missing", "powershell.exe"))}, ['private-command-argument'], {timeout: 1234}); }
+  catch { console.error('private-native-error-detail'); return 1; }
+  return 0;
+};`);
+    const result = await diagnoseInstalledExport([], directory, isolatedTestEnvironment(directory));
+    assert.match(result, /^BIZYEET_TEST_ACL_DIAGNOSTIC:/u);
+    const diagnostic: unknown = JSON.parse(result.slice("BIZYEET_TEST_ACL_DIAGNOSTIC:".length));
+    assert.ok(typeof diagnostic === "object" && diagnostic !== null);
+    assert.deepEqual(Object.keys(diagnostic).sort(), ["code", "elapsed_ms", "killed", "signal", "timeout_ms"]);
+    assert.ok("code" in diagnostic && diagnostic.code === "ENOENT");
+    assert.ok("timeout_ms" in diagnostic && diagnostic.timeout_ms === 1234);
+    assert.doesNotMatch(result, /private-command-argument|private-native-error-detail|missing|node_modules/u);
   } finally { await rm(directory, {recursive: true, force: true}); }
 });
