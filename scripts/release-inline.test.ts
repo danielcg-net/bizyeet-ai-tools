@@ -120,6 +120,22 @@ void test("actual inline bundle gate accepts exact trusted bundle and rejects ta
   await assert.rejects(runInline(verification, fixture(), {...files, "bundle/SHA256SUMS": ""}, {BUNDLE_REQUIRED: "true"}), /Checksum file/u);
 });
 
+void test("actual inline verifier binds canonical tarball bytes to manifest digest and source package version", async (): Promise<void> => {
+  const rewrite = (changes: Readonly<{digest?: string; version?: string; installedVersion?: string}>): Readonly<Record<string, string>> => {
+    const files = bundleFiles();
+    const original = JSON.parse(files["bundle/build-manifest.json"] ?? "") as Readonly<{artifact: Data; verification: Data}> & Data;
+    const manifest = {...original, artifact: {...original.artifact, ...(changes.digest ? {sha256: changes.digest} : {})}, verification: {...original.verification, ...(changes.installedVersion ? {installed_version: changes.installedVersion} : {})}};
+    const release = {...JSON.parse(files["bundle/release.json"] ?? "") as Data, manifest, ...(changes.version ? {version: changes.version} : {})};
+    const rewritten = {...Object.fromEntries(Object.entries(files).filter(([name]) => name !== "bundle/SHA256SUMS")), "bundle/build-manifest.json": JSON.stringify(manifest), "bundle/release.json": JSON.stringify(release)};
+    // Keep all JSON copies/checksums mutually consistent, including a forged
+    // tarball checksum: the verifier must recompute the actual unchanged bytes.
+    return {...rewritten, "bundle/SHA256SUMS": Object.entries(rewritten).map(([path, text]) => `${path === `bundle/${tarball}` && changes.digest ? changes.digest : hash(text)}  ${path.slice("bundle/".length)}\n`).join("")};
+  };
+  await assert.rejects(runInline(verification, fixture(), rewrite({digest: "b".repeat(64)}), {BUNDLE_REQUIRED: "true"}), /Artifact digest differs: bizyeet-ai-tools/u);
+  await assert.rejects(runInline(verification, fixture(), rewrite({version: "9.9.9-beta.1"}), {BUNDLE_REQUIRED: "true"}), /Bundle identity or verification evidence differs/u);
+  await assert.rejects(runInline(verification, fixture(), rewrite({installedVersion: "9.9.9-beta.1"}), {BUNDLE_REQUIRED: "true"}), /Bundle identity or verification evidence differs/u);
+});
+
 const registryUrl = "https://registry.npmjs.org/@bizyeet%2fai-tools";
 void test("actual registry gate supports the inert bootstrap baseline without treating it as beta or OIDC success", async (): Promise<void> => {
   const packument = {name: metadata.name, versions: {"0.0.0": {name: metadata.name, version: "0.0.0"}, "0.0.0-stage": {name: metadata.name, version: "0.0.0-stage", stub: true}}, "dist-tags": {bootstrap: "0.0.0", latest: "0.0.0"}};

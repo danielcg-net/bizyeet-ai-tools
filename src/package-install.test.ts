@@ -1,12 +1,12 @@
 import { secureWindowsExport } from "./export-security.js";
-import { isolatedTestEnvironment } from "../scripts/test-child-environment.js";
+import { installedBinEnvironment, isolatedTestEnvironment } from "../scripts/test-child-environment.js";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
-import { basename, delimiter, join } from "node:path";
+import { basename, join } from "node:path";
 import { text } from "node:stream/consumers";
 import test, { mock } from "node:test";
 import { nativeKeychain } from "./keychain.js";
@@ -619,9 +619,7 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
     const archive = await packedArchive(directory);
     await runNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
     const environment = await credentialConfig(directory);
-    const inheritedPath = Object.entries(environment).find(([key]) => key.toLowerCase() === "path")?.[1];
-    const pathEnvironment = { ...Object.fromEntries(Object.entries(environment).filter(([key]) => key.toLowerCase() !== "path")),
-      PATH: [join(directory, "node_modules", ".bin"), inheritedPath].filter(Boolean).join(delimiter) };
+    const pathEnvironment = await installedBinEnvironment(directory, environment);
     const located = await run(commandLookup().command, commandLookup().args, directory, pathEnvironment);
     // Invalid storage configuration must not affect these local-only commands.
     const localEnvironment = { ...pathEnvironment, BIZYEET_CREDENTIAL_STORE: "invalid" };
