@@ -8,7 +8,11 @@ const execute = promisify(execFile);
 // source; canonical response data is never sent to this process.
 const aclScript = `
 $ErrorActionPreference = 'Stop'
-Import-Module -Name (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+# Resolve every required built-in manifest directly. Command autoload discovery
+# can scan the entire system module catalog in a fresh private profile.
+Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Management.psd1')) -ErrorAction Stop
+Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Utility.psd1')) -ErrorAction Stop
+Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Security.psd1')) -ErrorAction Stop
 $path = $env:BIZYEET_EXPORT_SECURITY_PATH
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $item = Get-Item -LiteralPath $path -Force

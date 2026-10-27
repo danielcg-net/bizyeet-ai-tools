@@ -1,10 +1,12 @@
+import { secureWindowsExport } from "./export-security.js";
+import { installedBinEnvironment, isolatedTestEnvironment } from "../scripts/test-child-environment.js";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
-import { basename, delimiter, join } from "node:path";
+import { basename, join } from "node:path";
 import { text } from "node:stream/consumers";
 import test, { mock } from "node:test";
 import { nativeKeychain } from "./keychain.js";
@@ -27,14 +29,19 @@ const exitCode = (child: ReturnType<typeof spawn>): Promise<number | null> => ne
 });
 
 type ProcessResult = Readonly<{ output: string; errors: string; code: number | null }>;
-const runResult = async (command: string, args: readonly string[], cwd: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<ProcessResult> => {
-  const child = spawn(command, args, { cwd, env: environment, stdio: ["pipe", "pipe", "pipe"] });
-  child.stdin.end(input);
-  const [output, errors, code] = await Promise.all([collect(child.stdout), collect(child.stderr), exitCode(child)]);
-  return { output, errors, code };
+const runResult = async (command: string, args: readonly string[], cwd: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<ProcessResult> => {
+  const ownedEnvironment = environment === undefined ? await mkdtemp(join(tmpdir(), "bizyeet-test-env-")) : undefined;
+  try {
+    const child = spawn(command, args, { cwd, env: environment ?? isolatedTestEnvironment(ownedEnvironment ?? ""), stdio: ["pipe", "pipe", "pipe"] });
+    child.stdin.end(input);
+    const [output, errors, code] = await Promise.all([collect(child.stdout), collect(child.stderr), exitCode(child)]);
+    return { output, errors, code };
+  } finally {
+    if (ownedEnvironment) await rm(ownedEnvironment, {recursive: true, force: true});
+  }
 };
 
-const run = async (command: string, args: readonly string[], cwd: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<string> => {
+const run = async (command: string, args: readonly string[], cwd: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<string> => {
   const { output, errors, code } = await runResult(command, args, cwd, environment, input);
   if (code !== 0) throw new Error(`${command} exited with ${code === null ? "no exit code" : code.toString()}: ${errors}`);
   return output;
@@ -47,7 +54,7 @@ const packedArchive = async (directory: string): Promise<string> => {
   return join(directory, archives[0] ?? "");
 };
 
-const runNpm = async (args: readonly string[], directory: string, environment: NodeJS.ProcessEnv = process.env, input?: string): Promise<string> => {
+const runNpm = async (args: readonly string[], directory: string, environment?: NodeJS.ProcessEnv, input?: string): Promise<string> => {
   const cli = process.env.npm_execpath;
   if (!cli) throw new Error("Run package tests through npm test.");
   return run(process.execPath, [cli, ...args], directory, environment, input);
@@ -71,7 +78,7 @@ const credentialConfig = async (directory: string, issuer = "https://example.tes
   await writeFile(join(configuration, "profiles.json"), `${JSON.stringify({ [profile]: { clientId: "attacker", issuer: "https://attacker.invalid" } })}\n`, { encoding: "utf8", mode: 0o666 });
   if (process.platform === "win32") await nativeKeychain.save(profile, credentials);
   else await writeFile(join(configuration, "credentials.json"), `${JSON.stringify({ [profile]: credentials })}\n`, { encoding: "utf8", mode: 0o600 });
-  return { ...process.env, BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") };
+  return isolatedTestEnvironment(directory, process.env, { BIZYEET_CREDENTIAL_STORE: process.platform === "win32" ? "auto" : "file", XDG_CONFIG_HOME: join(directory, "config") });
 };
 
 const opaqueId = "--synthetic:customer~id";
@@ -407,7 +414,7 @@ void test("installed CLI bounds failure output and never follows upstream recove
   } finally { await cleanup(directory); }
 });
 
-void test("installed CLI verifies identity and performs canonical list-to-exact-read over trusted local HTTPS", async () => {
+void test("installed CLI verifies identity and performs canonical list-to-exact-read over trusted local HTTPS", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "bizyeet-cli-https-"));
   const certificate = join(directory, "synthetic-cert.pem");
   const key = join(directory, "synthetic-key.pem");
@@ -428,8 +435,11 @@ void test("installed CLI verifies identity and performs canonical list-to-exact-
       const list = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--profile", testProfile(directory)], directory, environment);
       const listed: unknown = JSON.parse(list);
       assert.deepEqual(listed, { data: { items: [{ id: opaqueId }], total: 1 }, meta: { contract_version: "v1", next_cursor: opaqueCursor } });
-      const exported = await runInstalled(["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)], directory,
-        { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory });
+      const exportArgs = ["customers", "list", "--limit", "1", "--fields", "id", "--export", "--profile", testProfile(directory)];
+      const exportEnvironment = { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory };
+      const exportStarted = performance.now();
+      const exported = await runInstalled(exportArgs, directory, exportEnvironment);
+      if (process.platform === "win32") context.diagnostic(`Unchanged first installed-bin export completed in ${String(Math.round(performance.now() - exportStarted))}ms`);
       const summary: unknown = JSON.parse(exported);
       assert.ok(typeof summary === "object" && summary !== null && "data" in summary);
       assert.ok(typeof summary.data === "object" && summary.data !== null && "path" in summary.data && typeof summary.data.path === "string");
@@ -609,9 +619,7 @@ void test("installs a packed CLI, exposes it on PATH, and runs auth diagnostics 
     const archive = await packedArchive(directory);
     await runNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", archive], directory);
     const environment = await credentialConfig(directory);
-    const inheritedPath = Object.entries(environment).find(([key]) => key.toLowerCase() === "path")?.[1];
-    const pathEnvironment = { ...Object.fromEntries(Object.entries(environment).filter(([key]) => key.toLowerCase() !== "path")),
-      PATH: [join(directory, "node_modules", ".bin"), inheritedPath].filter(Boolean).join(delimiter) };
+    const pathEnvironment = await installedBinEnvironment(directory, environment);
     const located = await run(commandLookup().command, commandLookup().args, directory, pathEnvironment);
     // Invalid storage configuration must not affect these local-only commands.
     const localEnvironment = { ...pathEnvironment, BIZYEET_CREDENTIAL_STORE: "invalid" };
@@ -659,4 +667,23 @@ void test("installed POSIX CLI works in explicit file mode without optional nati
   } finally {
     await cleanup(directory);
   }
+});
+
+void test("isolated Windows fixture environments retain native owner-only export ACL support", {skip: process.platform !== "win32"}, async (context): Promise<void> => {
+  const directory = await mkdtemp(join(tmpdir(), "bizyeet-isolated-acl-"));
+  try {
+    const environment = isolatedTestEnvironment(directory);
+    assert.equal(environment.GH_TOKEN, undefined);
+    assert.equal(environment.PSModulePath, undefined);
+    assert.equal(environment.PSModuleAnalysisCachePath, join(directory, "powershell-module-cache"));
+    assert.equal(environment.HOME, directory);
+    assert.ok(environment.ProgramFiles);
+    const started = performance.now();
+    await secureWindowsExport(directory, "directory", undefined, environment);
+    const path = join(directory, "empty.json");
+    await writeFile(path, "");
+    await secureWindowsExport(path, "file", undefined, environment);
+    await secureWindowsExport(path, "verify", undefined, environment);
+    context.diagnostic(`Private native directory/file/verify ACL completed in ${String(Math.round(performance.now() - started))}ms`);
+  } finally { await rm(directory, {recursive: true, force: true}); }
 });

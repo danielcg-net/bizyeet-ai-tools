@@ -30,6 +30,20 @@ void test("drift checks reject manual changes and explicit generation restores o
   assert.deepEqual(parseDocument(generated).toJS({maxAliasCount: 0}) as unknown, parseDocument(source).toJS({maxAliasCount: 0}) as unknown);
   assert.deepEqual(validateWorkflow("release.yml", generated), []);
 });
+void test("the static signing summary explicitly projects only presentation environment inputs", (): void => {
+  const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<{attest: Readonly<{steps: readonly Readonly<{name: string; id?: string; env?: Readonly<Record<string, string>>; with?: Readonly<{script?: string}>}>[]}>}>}>;
+  const script = workflow.jobs.attest.steps.find((step) => step.name === "Present attested candidate before approval")?.with?.script ?? "";
+  assert.doesNotMatch(script, /\.\.\.process\.env/u);
+  ["PUBLICATION_REQUESTED", "RELEASE_TAG", "CANDIDATE_ARTIFACT_ID", "PROVENANCE_ARTIFACT_ID"].forEach((key) => { assert.ok(script.includes(`${key}: process.env.${key}`)); });
+  assert.match(script, /GITHUB_SHA: context\.sha/u);
+  assert.match(script, /GITHUB_RUN_ID: String\(context\.runId\)/u);
+  assert.match(script, /REVIEW_ATTESTED: process\.env\.REVIEW_ATTESTED/u);
+  assert.match(script, /process\.env\.REVIEW_ATTESTED !== 'true'/u);
+  assert.equal(workflow.jobs.attest.steps.find((step) => step.name === "Verify cryptographic provenance identity")?.id, "verified");
+  assert.equal(workflow.jobs.attest.steps.find((step) => step.name === "Attest exact canonical tarball")?.id, "provenance");
+  assert.equal(workflow.jobs.attest.steps.find((step) => step.name === "Retain signed candidate evidence")?.id, "signed");
+  assert.equal(workflow.jobs.attest.steps.find((step) => step.name === "Present attested candidate before approval")?.env?.REVIEW_ATTESTED, "${{ steps.provenance.outcome == 'success' && steps.verified.outcome == 'success' && steps.signed.outcome == 'success' && 'true' || 'false' }}");
+});
 [
   ["PR trigger", "workflow_dispatch:", "pull_request:"],
   ["source", "ref: ${{ github.sha }}", "ref: other"],
@@ -50,6 +64,7 @@ void test("drift checks reject manual changes and explicit generation restores o
   ["candidate execution", "gh attestation verify", "node bundle/candidate.js"],
   ["tag identity", "target.sha !== context.sha", "false"],
   ["checksum", "hash !== match[1]", "false"],
+  ["source notes", "release.notes !== canonicalNotes", "false && release.notes !== canonicalNotes"],
   ["environment bypass", "environment.can_admins_bypass !== false", "false"],
   ["same run", "release.run_id !== String(context.runId)", "false"],
 ].forEach(([name, before, after]) => {
@@ -57,4 +72,27 @@ void test("drift checks reject manual changes and explicit generation restores o
     assert.ok(before !== undefined && after !== undefined && source.includes(before));
     assert.ok(validateWorkflow("release.yml", source.replaceAll(before, after)).length > 0);
   });
+});
+
+void test("real candidate evidence is presented before the protected gate and after its phase proof", (): void => {
+  type Step = Readonly<{name: string; id?: string; run?: string; with?: Readonly<{script?: string}>; if?: string}>;
+  const workflow = parseDocument(source).toJS() as Readonly<{jobs: Readonly<Record<string, Readonly<{needs: unknown; environment?: string; steps: readonly Step[]}>>>}>;
+  const build = workflow.jobs.build;
+  const attest = workflow.jobs.attest;
+  const publish = workflow.jobs.publish;
+  assert.ok(build && attest && publish);
+  assert.deepEqual(build.needs, ["readiness", "matrix"]);
+  const buildSummary = build.steps.findIndex((step) => step.name === "Present canonical candidate before approval");
+  assert.ok(buildSummary > build.steps.findIndex((step) => step.id === "bundle"));
+  assert.equal(build.steps[buildSummary]?.run, "node dist/scripts/release-review-summary.js");
+  assert.equal(build.steps[buildSummary].if, undefined);
+  assert.equal(attest.needs, "build");
+  const attestedSummary = attest.steps.findIndex((step) => step.name === "Present attested candidate before approval");
+  assert.ok(attestedSummary > attest.steps.findIndex((step) => step.name === "Verify cryptographic provenance identity"));
+  assert.ok(attestedSummary > attest.steps.findIndex((step) => step.id === "signed"));
+  assert.equal(attest.steps[attestedSummary]?.if, undefined);
+  assert.deepEqual(publish.needs, ["build", "attest"]);
+  assert.equal(publish.environment, "npm-release");
+  const generic = publish.steps.find((step) => step.name === "Revalidate exact source, tag, policy and candidate");
+  assert.doesNotMatch(generic?.with?.script ?? "", /GITHUB_STEP_SUMMARY|approval still required/u);
 });

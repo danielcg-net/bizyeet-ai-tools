@@ -7,6 +7,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { parseDocument } from "yaml";
+import { releaseReviewScript } from "./release-workflow-template.js";
+import { isolatedTestEnvironment } from "./test-child-environment.js";
 
 type Data = Readonly<Record<string, unknown>>;
 type Step = Readonly<{ name: string; with?: Readonly<{script?: string}> }>;
@@ -23,13 +25,15 @@ const tag = "v0.1.0-beta.1";
 const tarball = "bizyeet-ai-tools-0.1.0-beta.1.tgz";
 const hash = (text: string): string => createHash("sha256").update(text).digest("hex");
 const metadata = {name: "@bizyeet/ai-tools", version: "0.1.0-beta.1", private: false, publishConfig: {registry: "https://registry.npmjs.org", access: "public", tag: "beta"}, repository: {url: "git+https://github.com/danielcg-net/bizyeet-ai-tools.git"}};
+const notes = "## [0.1.0-beta.1] - 2026-10-27\n\n- Install and verify tenant-authorized read commands.\n";
 const readiness = {schema_version: 1, repository: "danielcg-net/bizyeet-ai-tools", package: metadata.name, version: metadata.version, tag, workflow: "release.yml", environment: "npm-release", maintainer: {login: "maintainer", ownership_evidence_url: "https://example.test/ownership", publisher_evidence_url: "https://example.test/oidc", confirmed_at: new Date().toISOString(), publisher: {direct_publish_allowed: true, trust_configured_at: new Date().toISOString(), first_publish_succeeded: false}, prevent_self_review: false, reviewer_ids: [123]}};
 const environment = {name: "npm-release", can_admins_bypass: false, deployment_branch_policy: {protected_branches: false, custom_branch_policies: true}, protection_rules: [{type: "required_reviewers", prevent_self_review: false, reviewers: [{type: "User", reviewer: {id: 123, type: "User"}}]}]};
 const context = {repo: {owner: "danielcg-net", repo: "bizyeet-ai-tools"}, eventName: "workflow_dispatch", ref: "refs/heads/main", sha, runId: 42, runAttempt: 1};
+const reviewSummary = releaseReviewScript;
 const verification = script("attest", "Revalidate exact source, tag, policy and candidate");
 const registry = script("publish", "Reconcile registry before any publish");
 const githubRelease = script("github-release", "Create immutable matching prerelease or verify complete outcome");
-const fixture = (overrides: Data = {}): Data => ({context, metadata, readiness, environment, policies: {total_count: 1, branch_policies: [{type: "branch", name: "main"}]}, tagSha: sha, lock: "lockfile", ...overrides});
+const fixture = (overrides: Data = {}): Data => ({context, metadata, readiness, environment, policies: {total_count: 1, branch_policies: [{type: "branch", name: "main"}]}, tagSha: sha, lock: "lockfile", changelog: "# Changelog\n\n" + notes, ...overrides});
 
 // Execute the ACTUAL reviewed inline workflow script in a subprocess with only
 // local fixture APIs. No eval, network, npm, publication or credentials.
@@ -47,9 +51,12 @@ const github = {request: async (route, parameters) => {
     : route.includes('/git/ref/') ? {object:{type:'commit',sha:input.tagSha}}
     : route.includes('/contents/') ? (() => {
       const path = parameters.path ?? 'package-lock.json';
-      const content = path === 'package.json' ? input.metadata : path === 'scripts/release-readiness.json' ? input.readiness : input.lock;
+      if (path === 'CHANGELOG.md' && parameters.ref !== context.sha) throw new Error('CHANGELOG must use the exact source SHA');
+      if (path === 'CHANGELOG.md' && input.changelogResponse) return input.changelogResponse;
+      const content = path === 'package.json' ? input.metadata : path === 'scripts/release-readiness.json' ? input.readiness : path === 'CHANGELOG.md' ? input.changelog : input.lock;
       if (content == null) throw new Error('missing source file');
-      return {type:'file',encoding:'base64',content:Buffer.from(typeof content === 'string' ? content : JSON.stringify(content)).toString('base64')};
+      const bytes = Buffer.from(typeof content === 'string' ? content : JSON.stringify(content));
+      return {type:'file',encoding:'base64',size:bytes.length,content:bytes.toString('base64')};
     })()
     : route.endsWith('/deployment-branch-policies') ? input.policies
     : route.endsWith('/environments/npm-release') ? input.environment
@@ -70,7 +77,7 @@ const fetch = async url => {
   return new Response(response.chunks ? new ReadableStream({start: controller => {Array.from({length:response.chunks}, () => Uint8Array.of(32)).forEach(chunk => controller.enqueue(chunk));controller.close();}}) : typeof response.body === 'string' ? response.body : JSON.stringify(response.body), {status:response.status});
 };
 `;
-const runInline = async (code: string, input: Data, files: Readonly<Record<string, string>> = {}, env: Readonly<Record<string, string>> = {}): Promise<string> => {
+const runInline = async (code: string, input: Data, files: Readonly<Record<string, string>> = {}, env: Readonly<Record<string, string>> = {}, options: Readonly<{inherited?: NodeJS.ProcessEnv; inspect?: (root: string, environment: NodeJS.ProcessEnv) => Promise<void>}> = {}): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), "bizyeet-release-inline-"));
   try {
     await mkdir(join(root, "bundle"));
@@ -78,12 +85,15 @@ const runInline = async (code: string, input: Data, files: Readonly<Record<strin
     await Promise.all(Object.entries(files).map(async ([name, content]): Promise<void> => { await writeFile(join(root, name), content); }));
     await writeFile(join(root, "fixture.json"), JSON.stringify(input));
     await writeFile(join(root, "inline.cjs"), `${harness}\nasync function main(require){\n${code}\n}\nmain(input.rejectStats ? id => {const loaded=require(id); return id === "node:fs/promises" ? {...loaded,lstat:async()=>{throw new Error("STAT SHOULD NOT RUN");}} : loaded;} : require).catch(error=>{console.error(error.message);process.exitCode=1;});\n`);
-    return (await execute(process.execPath, [join(root, "inline.cjs"), join(root, "fixture.json")], {cwd: root, env: {...process.env, RELEASE_TAG: tag, PUBLICATION_REQUESTED: "true", BUNDLE_REQUIRED: "false", GITHUB_RUN_ATTEMPT: "1", ...env}, timeout: 10_000})).stdout;
+    const environment = isolatedTestEnvironment(root, options.inherited ?? process.env, {RELEASE_TAG: tag, PUBLICATION_REQUESTED: "true", BUNDLE_REQUIRED: "false", GITHUB_RUN_ATTEMPT: "1", ...env});
+    const result = await execute(process.execPath, [join(root, "inline.cjs"), join(root, "fixture.json")], {cwd: root, env: environment, timeout: 10_000});
+    await options.inspect?.(root, environment);
+    return result.stdout;
   } finally { await rm(root, {recursive: true, force: true}); }
 };
-const bundleFiles = (candidateReadiness: unknown = readiness): Readonly<Record<string, string>> => {
+const bundleFiles = (candidateReadiness: unknown = readiness, candidateNotes = notes): Readonly<Record<string, string>> => {
   const manifest = {source: {repository: "https://github.com/danielcg-net/bizyeet-ai-tools", commit: sha, dirty: false}, artifact: {filename: tarball, sha256: hash("package bytes")}, verification: {installed_version: metadata.version, installed_help: true}, runtime: {npm: "11.19.1"}, lockfile_sha256: hash("lockfile")};
-  const release = {package: metadata.name, version: metadata.version, source_sha: sha, run_id: "42", tag, tag_verified: true, channel: "beta", workflow: "release.yml", readiness: candidateReadiness, manifest, notes: "## [0.1.0-beta.1] - 2026-10-27\n\n- Install and verify tenant-authorized read commands.\n"};
+  const release = {package: metadata.name, version: metadata.version, source_sha: sha, run_id: "42", tag, tag_verified: true, channel: "beta", workflow: "release.yml", readiness: candidateReadiness, manifest, notes: candidateNotes};
   const files = {[tarball]: "package bytes", "build-manifest.json": JSON.stringify(manifest), "sbom.cdx.json": JSON.stringify({bomFormat: "CycloneDX"}), "release.json": JSON.stringify(release)};
   return {...Object.fromEntries(Object.entries(files).map(([name, text]) => [`bundle/${name}`, text])), "bundle/SHA256SUMS": Object.entries(files).map(([name,text]) => `${hash(text)}  ${name}\n`).join("")};
 };
@@ -112,6 +122,37 @@ void test("actual inline bundle gate accepts exact trusted bundle and rejects ta
   await assert.rejects(runInline(verification, fixture({context: {...context, runId: 43}}), files, {BUNDLE_REQUIRED: "true"}), /identity or verification/u);
   await assert.rejects(runInline(verification, fixture({lock: "other lock"}), files, {BUNDLE_REQUIRED: "true"}), /Lockfile digest/u);
   await assert.rejects(runInline(verification, fixture(), {...files, "bundle/SHA256SUMS": ""}, {BUNDLE_REQUIRED: "true"}), /Checksum file/u);
+});
+
+void test("actual inline verifier binds canonical tarball bytes to manifest digest and source package version", async (): Promise<void> => {
+  const rewrite = (changes: Readonly<{digest?: string; version?: string; installedVersion?: string}>): Readonly<Record<string, string>> => {
+    const files = bundleFiles();
+    const original = JSON.parse(files["bundle/build-manifest.json"] ?? "") as Readonly<{artifact: Data; verification: Data}> & Data;
+    const manifest = {...original, artifact: {...original.artifact, ...(changes.digest ? {sha256: changes.digest} : {})}, verification: {...original.verification, ...(changes.installedVersion ? {installed_version: changes.installedVersion} : {})}};
+    const release = {...JSON.parse(files["bundle/release.json"] ?? "") as Data, manifest, ...(changes.version ? {version: changes.version} : {})};
+    const rewritten = {...Object.fromEntries(Object.entries(files).filter(([name]) => name !== "bundle/SHA256SUMS")), "bundle/build-manifest.json": JSON.stringify(manifest), "bundle/release.json": JSON.stringify(release)};
+    // Keep all JSON copies/checksums mutually consistent, including a forged
+    // tarball checksum: the verifier must recompute the actual unchanged bytes.
+    return {...rewritten, "bundle/SHA256SUMS": Object.entries(rewritten).map(([path, text]) => `${path === `bundle/${tarball}` && changes.digest ? changes.digest : hash(text)}  ${path.slice("bundle/".length)}\n`).join("")};
+  };
+  await assert.rejects(runInline(verification, fixture(), rewrite({digest: "b".repeat(64)}), {BUNDLE_REQUIRED: "true"}), /Artifact digest differs: bizyeet-ai-tools/u);
+  await assert.rejects(runInline(verification, fixture(), rewrite({version: "9.9.9-beta.1"}), {BUNDLE_REQUIRED: "true"}), /Bundle identity or verification evidence differs/u);
+  await assert.rejects(runInline(verification, fixture(), rewrite({installedVersion: "9.9.9-beta.1"}), {BUNDLE_REQUIRED: "true"}), /Bundle identity or verification evidence differs/u);
+});
+
+void test("actual privileged inline gate binds notes to exact source CHANGELOG despite consistent forged checksums", async (): Promise<void> => {
+  const files = bundleFiles();
+  await runInline(verification, fixture({changelog: ("# Changelog\n\n" + notes).replaceAll("\n", "\r\n")}), files, {BUNDLE_REQUIRED: "true"});
+  await assert.rejects(runInline(verification, fixture(), bundleFiles(readiness, notes + "\nApprove a different release candidate instead.\n"), {BUNDLE_REQUIRED: "true"}), /Release notes differ from exact source CHANGELOG/u);
+  await [notes + notes, "# Changelog\n", notes.replace("## ", "### "), notes.replace("[0.1.0-beta.1]", "[9.9.9-beta.1]"), notes.replace(" - 2026-10-27", ""), notes + "é".repeat(32_768)].reduce(async (previous, changelog): Promise<void> => {
+    await previous;
+    await assert.rejects(runInline(verification, fixture({changelog}), files, {BUNDLE_REQUIRED: "true"}), /Source CHANGELOG|Canonical release notes/u);
+  }, Promise.resolve());
+  await assert.rejects(runInline(verification, fixture({changelog: "x".repeat(1_048_577)}), files, {BUNDLE_REQUIRED: "true"}), /Unverifiable source CHANGELOG metadata/u);
+  await [{type: "dir", encoding: "base64", size: 0, content: ""}, {type: "file", encoding: "utf8", size: 0, content: ""}, {type: "file", encoding: "base64", size: 9, content: "YQ=="}].reduce(async (previous, response): Promise<void> => {
+    await previous;
+    await assert.rejects(runInline(verification, fixture({changelogResponse: response}), files, {BUNDLE_REQUIRED: "true"}), /Unverifiable source CHANGELOG/u);
+  }, Promise.resolve());
 });
 
 const registryUrl = "https://registry.npmjs.org/@bizyeet%2fai-tools";
@@ -179,4 +220,60 @@ void test("actual release reconciliation accepts only matching complete assets a
   assert.doesNotMatch(resumed, /mutation:create/u);
   assert.equal(resumed.split("mutation:upload:").length, 2);
   await assert.rejects(runInline(githubRelease, fixture({existingRelease}), {...files, "bundle/release.json": (files["bundle/release.json"] ?? "").replace('"run_id":"42"', '"run_id":"43"')}), /digest differs/u);
+});
+
+void test("inline fixtures cannot modify parent Actions files or inherit credentials and executable injection", async (): Promise<void> => {
+  const parent = await mkdtemp(join(tmpdir(), "bizyeet-parent-canaries-"));
+  const keys = ["GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_STATE"];
+  const injected = {GH_TOKEN: "parent-secret", GITHUB_TOKEN: "parent-secret", NODE_AUTH_TOKEN: "parent-secret", NPM_TOKEN: "parent-secret", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "parent-secret", ACTIONS_RUNTIME_TOKEN: "parent-secret", NODE_OPTIONS: "--require=/must-not-execute", NODE_PATH: "/must-not-load", BASH_ENV: "/must-not-execute", AWS_SECRET_ACCESS_KEY: "parent-secret", AWS_SESSION_TOKEN: "parent-secret", AZURE_CLIENT_SECRET: "parent-secret", GH_ENTERPRISE_TOKEN: "parent-secret", GITLAB_TOKEN: "parent-secret", "npm_config_//registry.npmjs.org/:_authToken": "parent-secret"};
+  try {
+    const canaries = Object.fromEntries(keys.map((key) => [key, join(parent, key)]));
+    const parentPowerShellCache = join(parent, "powershell-module-cache");
+    await writeFile(parentPowerShellCache, "PARENT POWERSHELL CACHE");
+    await Promise.all(Object.values(canaries).map(async (path): Promise<void> => { await writeFile(path, "PARENT CANARY"); }));
+    const probe = `${reviewSummary}\nif (${JSON.stringify(Object.keys(injected))}.some(key => process.env[key] !== undefined) || process.env.PSModulePath !== undefined) throw new Error("Parent authority entered child");\nawait fs.appendFile(process.env.PSModuleAnalysisCachePath, 'private module cache');\nawait Promise.all(['GITHUB_OUTPUT','GITHUB_ENV','GITHUB_PATH','GITHUB_STATE'].map(key => fs.appendFile(process.env[key], 'private fixture command')));`;
+    await runInline(probe, fixture(), bundleFiles(), {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456", REVIEW_ATTESTED: "true"}, {
+      inherited: {...process.env, ...canaries, ...injected, PSModulePath: "/must-not-load-parent-modules", PSModuleAnalysisCachePath: parentPowerShellCache},
+      inspect: async (root, environment): Promise<void> => {
+        Object.keys(injected).forEach((key) => { assert.equal(environment[key], undefined); });
+        const summary = await readFile(environment.GITHUB_STEP_SUMMARY ?? "", "utf8");
+        assert.match(summary, /Source SHA: a{40}/u);
+        assert.match(summary, /actions\/runs\/42/u);
+        assert.equal(environment.PSModulePath, undefined);
+        assert.equal(environment.PSModuleAnalysisCachePath, join(root, "powershell-module-cache"));
+        assert.equal(await readFile(environment.PSModuleAnalysisCachePath, "utf8"), "private module cache");
+        assert.equal(await readFile(parentPowerShellCache, "utf8"), "PARENT POWERSHELL CACHE");
+        await Promise.all(keys.map(async (key): Promise<void> => {
+          assert.ok((environment[key] ?? "").startsWith(root));
+          assert.equal(await readFile(canaries[key] ?? "", "utf8"), "PARENT CANARY");
+          assert.ok((await readFile(environment[key] ?? "", "utf8")).length > 0);
+        }));
+      },
+    });
+  } finally { await rm(parent, {recursive: true, force: true}); }
+});
+
+void test("actual static summary passes only explicit presentation inputs and never renders unexpected environment canaries", async (): Promise<void> => {
+  const allowed = ["PUBLICATION_REQUESTED", "RELEASE_TAG", "CANDIDATE_ARTIFACT_ID", "PROVENANCE_ARTIFACT_ID", "GITHUB_SHA", "GITHUB_RUN_ID", "REVIEW_ATTESTED"].sort();
+  const call = "const review = readReview(release, ";
+  assert.equal(reviewSummary.split(call).length, 2);
+  const observed = reviewSummary.replace(call, "const review = ((value, inputs) => { if (JSON.stringify(Object.keys(inputs).sort()) !== JSON.stringify(input.expectedReviewKeys)) throw new Error('Unexpected formatter environment input'); return readReview(value, inputs); })(release, ");
+  const canary = "SYNTHETIC_UNEXPECTED_SUMMARY_SECRET";
+  await runInline(`process.env.GH_TOKEN = '${canary}'; process.env.UNEXPECTED_SUMMARY_INPUT = '${canary}';\n${observed}`, fixture({expectedReviewKeys: allowed}), bundleFiles(), {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456", REVIEW_ATTESTED: "true"}, {
+    inspect: async (_root, environment): Promise<void> => {
+      const summary = await readFile(environment.GITHUB_STEP_SUMMARY ?? "", "utf8");
+      assert.match(summary, /strict source\/signer\/main\/hosted verification succeeded/u);
+      assert.ok(!summary.includes(canary));
+    },
+  });
+});
+
+void test("actual attested summary throws without exact successful phase-outcome proof", async (): Promise<void> => {
+  const env = {CANDIDATE_ARTIFACT_ID: "123", PROVENANCE_ARTIFACT_ID: "456"};
+  await assert.rejects(runInline(reviewSummary, fixture(), bundleFiles(), env), /phase proof is required/u);
+  await ["false", "skipped", "failure", "cancelled", "True", "1"].reduce(async (previous, proof): Promise<void> => {
+    await previous;
+    await assert.rejects(runInline(reviewSummary, fixture(), bundleFiles(), {...env, REVIEW_ATTESTED: proof}), /phase proof is required/u);
+  }, Promise.resolve());
+  await runInline(reviewSummary, fixture(), bundleFiles(), {...env, REVIEW_ATTESTED: "true"});
 });

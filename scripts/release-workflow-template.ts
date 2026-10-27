@@ -2,10 +2,15 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument, stringify } from "yaml";
+import { releaseReviewInput, renderReleaseReview } from "./release-review-summary.js";
+import { canonicalReleaseNotes, CHANGELOG_SOURCE_BYTE_LIMIT, RELEASE_NOTES_BYTE_LIMIT, RELEASE_SUMMARY_BYTE_LIMIT } from "./release-notes.js";
 
 // Single authoring source for reviewed inline code. Privileged jobs never load
 // this file or repository code; the generated workflow contains static copies.
 export const sourceAndCandidateScript = String.raw`const fs = require('node:fs/promises');
+const RELEASE_NOTES_BYTE_LIMIT = ${String(RELEASE_NOTES_BYTE_LIMIT)};
+const CHANGELOG_SOURCE_BYTE_LIMIT = ${String(CHANGELOG_SOURCE_BYTE_LIMIT)};
+const canonicalNotes = ${canonicalReleaseNotes.toString().replaceAll("\r\n", "\n")};
 const crypto = require('node:crypto');
 const repo = 'danielcg-net/bizyeet-ai-tools';
 const [owner, name] = repo.split('/');
@@ -64,24 +69,19 @@ if (process.env.BUNDLE_REQUIRED === 'true') {
   }));
   const lock = await get('/repos/{owner}/{repo}/contents/package-lock.json', { ref: context.sha });
   if (crypto.createHash('sha256').update(Buffer.from(lock.content, 'base64')).digest('hex') !== manifest.lockfile_sha256) fail('Lockfile digest differs');
+  const changelog = await get('/repos/{owner}/{repo}/contents/{path}', {path:'CHANGELOG.md',ref:context.sha});
+  if (changelog.type !== 'file' || changelog.encoding !== 'base64' || typeof changelog.content !== 'string' || changelog.content.length > CHANGELOG_SOURCE_BYTE_LIMIT * 2 || !Number.isSafeInteger(changelog.size) || changelog.size < 0 || changelog.size > CHANGELOG_SOURCE_BYTE_LIMIT) fail('Unverifiable source CHANGELOG metadata');
+  const encoded = changelog.content.replaceAll('\r', '').replaceAll('\n', '');
+  if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) fail('Unverifiable source CHANGELOG encoding');
+  const changelogBytes = Buffer.from(encoded, 'base64');
+  if (changelogBytes.length !== changelog.size || changelogBytes.toString('base64') !== encoded) fail('Unverifiable source CHANGELOG byte identity');
+  if (release.notes !== canonicalNotes(new TextDecoder('utf-8', {fatal:true,ignoreBOM:true}).decode(changelogBytes), metadata.version)) fail('Release notes differ from exact source CHANGELOG');
   if (process.env.PUBLICATION_REQUESTED === 'true' && (release.tag_verified !== true || JSON.stringify(release.readiness) !== JSON.stringify(await content('scripts/release-readiness.json')))) fail('Readiness attestation differs');
   core.setOutput('tarball', tarball);
   core.setOutput('version', metadata.version);
   core.setOutput('digest', manifest.artifact.sha256);
   await fs.writeFile('release-notes.md', release.notes, { flag: 'wx' });
-  if (process.env.GITHUB_STEP_SUMMARY) await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, [
-    '# Verified beta candidate',
-    'Mode: ' + (process.env.PUBLICATION_REQUESTED === 'true' ? 'protected publication requested; approval still required' : 'UNPUBLISHED verification only'),
-    'Source SHA: ' + context.sha,
-    'Tag: ' + tag + ' (verified existing tag: ' + String(release.tag_verified) + ')',
-    'Version: ' + metadata.version,
-    'Tarball SHA256: ' + manifest.artifact.sha256,
-    'Run: https://github.com/' + repo + '/actions/runs/' + context.runId,
-    'Upstream install/check matrix: Ubuntu, macOS and Windows; Node 24 and 26; all six succeeded.',
-    'Installed version/help and canonical allowlist/checksums verified. Cryptographic attestation is separately required by the job graph.',
-    release.notes,
-    ''
-  ].join('\n\n'));
+
 
 }
 core.setOutput('version', metadata.version);
@@ -211,7 +211,26 @@ if (existing && !existing.draft) {
 }
 `;
 
-const templates: Readonly<Record<string, string>> = {"Revalidate exact source, tag, policy and candidate":sourceAndCandidateScript,"Reconcile registry before any publish":registryScript,"Recheck captured registry mapping immediately before publication":registryScript,"Verify registry bytes, beta mapping and retrieve npm provenance":registryScript,"Create immutable matching prerelease or verify complete outcome":githubReleaseScript};
+export const releaseReviewScript = `const fs = require('node:fs/promises');
+const RELEASE_NOTES_BYTE_LIMIT = ${String(RELEASE_NOTES_BYTE_LIMIT)};
+const RELEASE_SUMMARY_BYTE_LIMIT = ${String(RELEASE_SUMMARY_BYTE_LIMIT)};
+const readReview = ${releaseReviewInput.toString().replaceAll("\r\n", "\n")};
+const renderReview = ${renderReleaseReview.toString().replaceAll("\r\n", "\n")};
+if (!process.env.GITHUB_STEP_SUMMARY) throw new Error('Missing workflow summary destination');
+if (process.env.REVIEW_ATTESTED !== 'true') throw new Error('Successful provenance, strict verification and signed-upload phase proof is required');
+const release = JSON.parse(await fs.readFile('bundle/release.json', 'utf8'));
+const review = readReview(release, {
+  PUBLICATION_REQUESTED: process.env.PUBLICATION_REQUESTED,
+  RELEASE_TAG: process.env.RELEASE_TAG,
+  CANDIDATE_ARTIFACT_ID: process.env.CANDIDATE_ARTIFACT_ID,
+  PROVENANCE_ARTIFACT_ID: process.env.PROVENANCE_ARTIFACT_ID,
+  GITHUB_SHA: context.sha,
+  GITHUB_RUN_ID: String(context.runId),
+  REVIEW_ATTESTED: process.env.REVIEW_ATTESTED
+});
+await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, renderReview(review));`;
+
+const templates: Readonly<Record<string, string>> = {"Present attested candidate before approval":releaseReviewScript,"Revalidate exact source, tag, policy and candidate":sourceAndCandidateScript,"Reconcile registry before any publish":registryScript,"Recheck captured registry mapping immediately before publication":registryScript,"Verify registry bytes, beta mapping and retrieve npm provenance":registryScript,"Create immutable matching prerelease or verify complete outcome":githubReleaseScript};
 
 type Mapping = Readonly<Record<string, unknown>>;
 const record = (value: unknown): value is Mapping => typeof value === "object" && value !== null && !Array.isArray(value);
