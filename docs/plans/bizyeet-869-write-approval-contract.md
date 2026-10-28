@@ -10,7 +10,8 @@ provider, permission, validation, audit and lifecycle behavior.
 
 ## Operations
 
-Every operation requires `customers.write` intersected with the human user's
+Customer/lead creation and reversible edits require `customers.write`; lead promotion
+requires a separate `leads.promote` OAuth scope. Both intersect with the human user's
 current tenant permissions. Preview, approval, execution and status are distinct
 operations; preview must never execute a business mutation.
 
@@ -19,7 +20,7 @@ operations; preview must never execute a business mutation.
 | `customers.create` | Create one customer using validated fields and defaults | `reversible_write` |
 | `leads.create` | Create one lead using validated fields and defaults | `reversible_write` |
 | `leads.update` | Edit one existing lead without causing customer conversion | `reversible_write` |
-| `leads.promote` | Perform the canonical lead-to-customer conversion, including reuse/linking of an existing customer where applicable | `lifecycle_transition` |
+| `leads.promote` | Atomically create and link one new customer and mark the lead Won; reject any matching existing customer without changing it | `lifecycle_transition` |
 
 Here, reversible describes the approval class, not a guarantee of a rollback
 command. Delete, bulk import, arbitrary provider fields, sending communications
@@ -29,9 +30,9 @@ A lead edit must not hide customer conversion. In particular, a requested
 transition to Won that triggers conversion must be rejected by the reversible
 edit operation and handled through a separately reviewed lifecycle preview.
 Creating a lead directly in a converting state follows the same rule. Promotion
-must display the actual canonical effects, including whether it creates or
-reuses a customer and any lead-state changes; the adapter must not invent a
-different lifecycle merely to fit its command name.
+must display the new-customer and lead-state effects. Existing-customer reuse is
+outside this opt-in agent capability; a matching customer must cause a conflict
+without changing that customer.
 
 If a canonical operation requires an external communication, it cannot execute
 under one of the reversible approvals above. The contract must explicitly
@@ -45,7 +46,7 @@ canonical effect merely to keep a lower approval class.
   selector. Resolve tenant, provider and effective role on the server.
 - Canonical preflight validates and normalizes every field and materializes
   defaults before preview. Show all human-meaningful persisted values and
-  lifecycle effects, including notes, derived names and relationship reuse.
+  lifecycle effects, including notes, derived names and relationship preconditions.
 - Creation previews identify a new-record proposal. They must not fabricate an
   existing resource ID to satisfy an update-only schema. Use a discriminated
   create/update/lifecycle target in the bounded public contract.
@@ -99,7 +100,7 @@ browser tests, public CLI/MCP contract tests, and installed-command tests for:
 - version races, duplicate creation/relationship races, concurrent execution,
   replay, lost responses and failed outcome persistence;
 - lead edits that cannot cause unapproved conversion, and promotion that
-  preserves the canonical customer identity and history without duplicates;
+  rejects existing matches and atomically creates and links one new customer;
 - bounded, redacted result/status/error output and preserved audit attribution.
 
 Release claims require merged green checks, successful deployment and the
