@@ -9,14 +9,14 @@
   "maintainer": {
     "login": "danielcgomes",
     "ownership_evidence_url": "https://registry.npmjs.org/@bizyeet%2fcli",
-    "publisher_evidence_url": "https://bizyeet.youtrack.cloud/issue/bizyeet-1192#focus=Comments-7-5243.0-0",
+    "publisher_evidence_url": "https://bizyeet.youtrack.cloud/issue/bizyeet-1192#focus=Comments-7-5285.0-0",
     "confirmed_at": "2026-10-27T21:45:17Z",
     "prevent_self_review": false,
     "reviewer_ids": [23157483],
     "publisher": {
       "direct_publish_allowed": true,
       "trust_configured_at": "2026-10-27T21:47:02Z",
-      "first_publish_succeeded": false
+      "first_publish_succeeded": true
     }
   }
 }
