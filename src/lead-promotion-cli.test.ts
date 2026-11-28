@@ -17,6 +17,23 @@ const runtime: NonNullable<Parameters<typeof run>[2]> = {
 };
 const envelope = (data: unknown): Readonly<Record<string, unknown>> => ({ data, meta: { contract_version: "v1", request_id: "synthetic" } });
 
+await test("promotion execution selects hidden receipt entry when no pipe flag is supplied", async () => {
+  const readApprovalReceipt = mock.fn((piped: boolean) => {
+    assert.equal(piped, false);
+    return Promise.resolve(receipt);
+  });
+  const executeLeadPromotion = mock.fn((input: Parameters<NonNullable<typeof runtime.executeLeadPromotion>>[0]) => {
+    assert.deepEqual(input.approval, { preview_id: previewId, approval_receipt: receipt, idempotency_key: key });
+    return Promise.resolve({ credentials, response: envelope({ audit_reference: previewId }) });
+  });
+  const result = await run(["leads", "promote", "execute", previewId, "--idempotency-key", key], storage,
+    { ...runtime, readApprovalReceipt, executeLeadPromotion });
+  assert.equal(result.exitCode, 0);
+  assert.equal(readApprovalReceipt.mock.callCount(), 1);
+  assert.equal(executeLeadPromotion.mock.callCount(), 1);
+  assert.doesNotMatch(JSON.stringify(result), /access-secret|refresh-secret|rrrrrrrr/u);
+});
+
 await test("promotion CLI routes preview, execute and status without placing receipt in arguments", async () => {
   const preview = mock.fn((input: Parameters<NonNullable<typeof runtime.previewLeadPromotion>>[0]) => {
     assert.deepEqual(input.proposal, { record: { leadId } });

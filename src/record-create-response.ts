@@ -10,7 +10,7 @@ const hash = (value: unknown): value is string => typeof value === "string" && /
 const timestamp = (value: unknown): value is string => typeof value === "string" && !Number.isNaN(Date.parse(value))
   && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(value);
 const email = (value: unknown): value is string => typeof value === "string" && value.length > 3 && value.length <= 320
-  && !/\s/u.test(value) && /^[^@]+@[^@]+\.[^@]+$/u.test(value);
+  && !/[\s\p{Cc}]/u.test(value) && /^[^@]+@[^@]+\.[^@]+$/u.test(value);
 const metadata = (body: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> | undefined =>
   record(body.meta) && body.meta.contract_version === "v1"
     ? { contract_version: "v1", request_id: correlationReference(body.meta.request_id) } : undefined;

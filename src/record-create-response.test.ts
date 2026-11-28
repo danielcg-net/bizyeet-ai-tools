@@ -19,10 +19,16 @@ await test("create email input supports a bounded subset without claiming comple
     ["person@example.invalid", "用户@例子.测试", '"quoted"@example.invalid', `${"x".repeat(308)}@example.com`].forEach((email) => {
       assert.equal(validRecordCreateInput({business: "New record", email}, kind), true);
     });
-    ["", '"quoted local"@example.invalid', "person\n@example.invalid", "person\u00a0@example.invalid", "person@@example.invalid", "person@example", `${"x".repeat(309)}@example.com`].forEach((email) => {
+    ["", '"quoted local"@example.invalid', "person\n@example.invalid", "person\u00a0@example.invalid", "person\u0000@example.invalid", "person@example.invalid\u007f", "a@b.", "person@@example.invalid", "person@example", `${"x".repeat(309)}@example.com`].forEach((email) => {
       assert.equal(validRecordCreateInput({business: "New record", email}, kind), false);
     });
   });
+});
+
+await test("create response projections reject email control characters", () => {
+  const email = "new\u0000@example.invalid";
+  assert.equal(recordCreatePreviewResponse({ data: { ...preview, resource_id: email,
+    proposed_changes: { ...preview.proposed_changes, email } }, meta }, "customers"), undefined);
 });
 
 await test("projects a bounded customer-create preview without upstream metadata or private fields", () => {
